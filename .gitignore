@@ -23,6 +23,11 @@ dist-ssr
 *.sln
 *.sw?
 
+# Next.js build output
+.next
+next-env.d.ts
+*.tsbuildinfo
+
 # Electron build output
 dist-electron
 release

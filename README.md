@@ -62,11 +62,12 @@ Subagents and cloud sandboxes from the course are not used: one cell is a small,
 The repo is a pnpm workspace run with [Turborepo](https://turborepo.com). Root commands run the task in every package, in dependency order, and cache the results.
 
 ```bash
-pnpm dev          # Vite dev server plus Electron with hot reload
+pnpm dev          # Vite dev server plus Electron with hot reload, and the website on :3100
 pnpm test         # unit, component and kernel tests
 pnpm typecheck
 pnpm lint
-pnpm build        # renderer to apps/desktop/dist/, Electron main and preload to apps/desktop/dist-electron/
+pnpm build        # renderer to apps/desktop/dist/, Electron main and preload to apps/desktop/dist-electron/, the website to apps/web/.next/
+pnpm --filter @ilios/web dev                     # just the website, on http://localhost:3100
 pnpm --filter @ilios/desktop exec vite preview   # then open /?demo to see the UI with sample data in a browser
                                                  # /?demo&welcome for the start page, /?demo&setup for the first-run setup
 ILIOS_E2E=1 pnpm --filter @ilios/desktop exec vitest run electron/e2e.test.ts   # real Python + real model, costs a few cents
@@ -89,11 +90,18 @@ apps/desktop/                      the Electron app (@ilios/desktop)
     components/                    top bar, overview, settings, cells and outputs
     components/panes/              the side panes: brief, variables, history, files, pinned
     components/welcome/            the first-run setup and the start page
-    dev/demo.ts                    sample data for looking at the UI in a browser (?demo)
+    dev/demo.ts                    sample data for looking at the UI in a browser (?demo): a clinical trial readout; the last cell asks a question when run
     components/ui/                 shadcn components
+apps/web/                          the website (@ilios/web), Next.js
+  src/app/                         home, /privacy, 404, plus metadata routes: sitemap, robots, manifest, icons, social card
+  src/components/Reel.tsx          the screenshot reel
+  src/assets/shots/                light and dark captures of the ?demo screens
+  src/lib/site.ts                  name, copy, URL and download link used across pages and metadata
 packages/shared/                   notebook model, .ipynb conversion, IPC contract, leaked tool-call cleanup (@ilios/shared, used by both sides)
 design/prototype.html              the original single-file prototype
 turbo.json                         task graph: build, typecheck, test, lint, dev
 ```
+
+The website reads two environment variables at build time (see `apps/web/.env.example`): `NEXT_PUBLIC_SITE_URL` for canonical links, the sitemap and social cards, and `ILIOS_DOWNLOAD_URL`, where every Download button (`/download`) redirects. To refresh the screenshots, serve the renderer, open `/?demo` at 1600x1000 in both themes, and capture six scenes into `apps/web/src/assets/shots/`: the "Median survival and 2-year survival by arm" cell (`answer`), the last cell after pressing Run, where the agent asks how to count patients who switched arms (`ask`), an underlined assumption being corrected (`guess`), that cell's Code tab (`code`), the History pane with Cmd+3 (`history`) and the model picker (`models`).
 
 `@ilios/shared` ships TypeScript source with no build step. The app imports it as `@ilios/shared/notebook`, `@ilios/shared/ipynb`, `@ilios/shared/ipc` and `@ilios/shared/leaked`, and Vite bundles it into the renderer, the main process and the preload script.
