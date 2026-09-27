@@ -4,7 +4,7 @@
     {
       "name": "renderer-preview",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["exec", "vite", "preview", "--port", "4173", "--strictPort"],
+      "runtimeArgs": ["--filter", "@ilios/desktop", "exec", "vite", "preview", "--port", "4173", "--strictPort"],
       "port": 4173
     }
   ]
