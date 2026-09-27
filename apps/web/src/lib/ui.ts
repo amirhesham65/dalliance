@@ -16,6 +16,8 @@ const focusRing = 'outline-none focus-visible:ring-2 focus-visible:ring-ink focu
 const buttonBase = `inline-flex items-center justify-center rounded-lg bg-brand leading-[normal] font-medium whitespace-nowrap text-on-brand no-underline transition-[background-color,transform] duration-120 ease-out hover:bg-brand-hover active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 ${focusRing}`
 export const button = `${buttonBase} h-8 px-3 text-[14px]`
 export const buttonLarge = `${buttonBase} h-10 px-4 text-[15px]`
+/** A link that sits beside the download button without competing with it: paper, a hairline, ink text */
+export const buttonQuiet = `inline-flex h-8 items-center justify-center rounded-lg border bg-paper px-3 text-[14px] leading-[normal] font-medium whitespace-nowrap text-ink no-underline transition-[background-color,transform] duration-120 ease-out hover:bg-cell active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 ${focusRing}`
 
 /** Masthead headline and the line under it, on every page */
 export const headline = 'max-w-[22ch] font-serif text-[36px] leading-[1.15] font-medium tracking-[-0.02em] text-balance text-ink lg:max-w-[24ch] lg:text-[54px]'
