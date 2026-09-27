@@ -6,7 +6,7 @@ A desktop notebook where each cell is written in plain language. An agent turns 
 
 ```bash
 pnpm install
-cp .env.example .env   # add AI_GATEWAY_API_KEY, or add a key later in Settings
+cp apps/desktop/.env.example apps/desktop/.env   # add AI_GATEWAY_API_KEY, or add a key later in Settings
 pnpm dev
 ```
 
@@ -35,7 +35,7 @@ Shortcuts: Cmd+B hides or shows the overview and the side pane together. Cmd+1 t
 
 The model picker in the top bar lists every language model the provider offers: through the Vercel AI Gateway that includes OpenAI, Google, xAI and others, grouped by maker with prices. You can also type any model id. Effort applies to Anthropic models (adaptive thinking) and OpenAI models (reasoning effort); other makers use their defaults.
 
-Default: Claude Opus 5 through the Vercel AI Gateway (`anthropic/claude-opus-5`), adaptive thinking, medium effort. Settings can switch to the Anthropic API directly, change the model and effort, and store keys encrypted with the system keychain. In development, keys can come from `.env`.
+Default: Claude Opus 5 through the Vercel AI Gateway (`anthropic/claude-opus-5`), adaptive thinking, medium effort. Settings can switch to the Anthropic API directly, change the model and effort, and store keys encrypted with the system keychain. In development, keys can come from `apps/desktop/.env`.
 
 ## The harness
 
@@ -43,7 +43,7 @@ The agent follows the patterns in Vercel's [Build Your Own AI Coding Agent Harne
 
 | Course idea | Here |
 | --- | --- |
-| `ToolLoopAgent` with typed tools | `electron/harness/run-cell.ts`, `tools.ts` (AI SDK 7) |
+| `ToolLoopAgent` with typed tools | `apps/desktop/electron/harness/run-cell.ts`, `tools.ts` (AI SDK 7) |
 | Tool descriptions with WHEN TO USE / WHEN NOT TO USE | every tool in `tools.ts` |
 | Bounded tool output | `format.ts`, 500-line `read_file`, clipped outputs |
 | Approval config as a discriminated union | `approval.ts` (interactive, background, delegated) for package installs |
@@ -59,33 +59,41 @@ Subagents and cloud sandboxes from the course are not used: one cell is a small,
 
 ## Commands
 
+The repo is a pnpm workspace run with [Turborepo](https://turborepo.com). Root commands run the task in every package, in dependency order, and cache the results.
+
 ```bash
 pnpm dev          # Vite dev server plus Electron with hot reload
 pnpm test         # unit, component and kernel tests
 pnpm typecheck
 pnpm lint
-pnpm build        # renderer to dist/, Electron main and preload to dist-electron/
-pnpm exec vite preview   # then open /?demo to see the UI with sample data in a browser
-                         # /?demo&welcome for the start page, /?demo&setup for the first-run setup
-ILIOS_E2E=1 pnpm exec vitest run electron/e2e.test.ts   # real Python + real model, costs a few cents
+pnpm build        # renderer to apps/desktop/dist/, Electron main and preload to apps/desktop/dist-electron/
+pnpm --filter @ilios/desktop exec vite preview   # then open /?demo to see the UI with sample data in a browser
+                                                 # /?demo&welcome for the start page, /?demo&setup for the first-run setup
+ILIOS_E2E=1 pnpm --filter @ilios/desktop exec vitest run electron/e2e.test.ts   # real Python + real model, costs a few cents
 ```
+
+To run a task in one package, filter it: `pnpm turbo run test --filter @ilios/shared`.
 
 ## Layout
 
 ```
-electron/
-  main.ts, menu.ts, preload.ts   window, menus, file dialogs, the typed window.ilios bridge
-  session.ts                     owns the kernel and the harness for the open notebook
-  settings.ts                    settings and encrypted keys
-  kernel/                        ilios_kernel.py (JSON lines over fd 3), PythonKernel, Python setup
-  harness/                       the agent: tools, prompt, approval, events, run-cell loop
-src/
-  shared/                        notebook model, .ipynb conversion, IPC contract (used by both sides)
-  store/notebook-store.ts        document state, run queue, live run state
-  components/                    top bar, overview, settings, cells and outputs
-  components/panes/              the side panes: brief, variables, history, files, pinned
-  components/welcome/            the first-run setup and the start page
-  dev/demo.ts                    sample data for looking at the UI in a browser (?demo)
-  components/ui/                 shadcn components
-design/prototype.html            the original single-file prototype
+apps/desktop/                      the Electron app (@ilios/desktop)
+  electron/
+    main.ts, menu.ts, preload.ts   window, menus, file dialogs, the typed window.ilios bridge
+    session.ts                     owns the kernel and the harness for the open notebook
+    settings.ts                    settings and encrypted keys
+    kernel/                        ilios_kernel.py (JSON lines over fd 3), PythonKernel, Python setup
+    harness/                       the agent: tools, prompt, approval, events, run-cell loop
+  src/
+    store/notebook-store.ts        document state, run queue, live run state
+    components/                    top bar, overview, settings, cells and outputs
+    components/panes/              the side panes: brief, variables, history, files, pinned
+    components/welcome/            the first-run setup and the start page
+    dev/demo.ts                    sample data for looking at the UI in a browser (?demo)
+    components/ui/                 shadcn components
+packages/shared/                   notebook model, .ipynb conversion, IPC contract, leaked tool-call cleanup (@ilios/shared, used by both sides)
+design/prototype.html              the original single-file prototype
+turbo.json                         task graph: build, typecheck, test, lint, dev
 ```
+
+`@ilios/shared` ships TypeScript source with no build step. The app imports it as `@ilios/shared/notebook`, `@ilios/shared/ipynb`, `@ilios/shared/ipc` and `@ilios/shared/leaked`, and Vite bundles it into the renderer, the main process and the preload script.
