@@ -5,9 +5,9 @@ import { site } from '@/lib/site'
 import './globals.css'
 
 // The app's three voices: Inter for the interface, Source Serif for the wordmark and answers, JetBrains Mono for code
-const sans = Inter({ subsets: ['latin'], variable: '--font-sans', display: 'swap' })
-const serif = Source_Serif_4({ subsets: ['latin'], variable: '--font-serif', display: 'swap' })
-const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', display: 'swap' })
+const sans = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' })
+const serif = Source_Serif_4({ subsets: ['latin'], variable: '--font-source-serif', display: 'swap' })
+const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-jetbrains-mono', display: 'swap' })
 
 export const metadata: Metadata = {
   metadataBase: new URL(site.url),
@@ -51,7 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Script id="motion" strategy="beforeInteractive">
           {"if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.dataset.motion = ''"}
         </Script>
-        <a className="skip" href="#main">
+        <a className="absolute -top-12 left-3 z-10 rounded-lg bg-brand px-3 py-1.5 text-on-brand no-underline focus:top-3" href="#main">
           Skip to content
         </a>
         {children}

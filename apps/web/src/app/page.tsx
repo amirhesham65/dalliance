@@ -1,9 +1,10 @@
 import type { StaticImageData } from 'next/image'
 import { getImageProps } from 'next/image'
-import { Act, SiteFooter, SiteHeader } from '@/components/Chrome'
+import { Act, Band, SiteFooter, SiteHeader } from '@/components/Chrome'
 import { LiveCell } from '@/components/LiveCell'
 import { type Frame, Reel } from '@/components/Reel'
 import { site } from '@/lib/site'
+import { gutter, headline, sheet, support } from '@/lib/ui'
 import answerDark from '@/assets/shots/answer-dark.png'
 import answerLight from '@/assets/shots/answer-light.png'
 import askDark from '@/assets/shots/ask-dark.png'
@@ -107,11 +108,11 @@ export default function Home() {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }} />
 
       <SiteHeader />
-      <div className="sheet">
-        <div className="masthead split gutter">
+      <div className={sheet}>
+        <div className={`${gutter} grid gap-12 pt-16 pb-14 lg:grid-cols-[minmax(0,1fr)_500px] lg:items-center lg:gap-18 lg:pt-26 lg:pb-22`}>
           <div>
-            <h1>{site.headline}</h1>
-            <p className="support">{site.tagline}</p>
+            <h1 className={headline}>{site.headline}</h1>
+            <p className={support}>{site.tagline}</p>
             <Act />
           </div>
           <LiveCell />
@@ -125,13 +126,13 @@ export default function Home() {
           frames={frames}
         />
 
-        <div className="sheet">
-          <section className="band gutter" aria-labelledby="does">
-            <h2 id="does">What it does</h2>
-            <ol className="facts">
+        <div className={sheet}>
+          <Band title="What it does" labelId="does">
+            {/* Numbered like notebook cells, hanging into the margin so the prose starts on the same line as every other band's */}
+            <ol className="space-y-4 lg:-ml-10">
               {facts.map((f, i) => (
-                <li className="fact" key={f.lead}>
-                  <span className="num" aria-hidden>
+                <li className="grid max-w-[calc(62ch+40px)] grid-cols-[32px_1fr] gap-2" key={f.lead}>
+                  <span className="font-mono text-[12px] leading-[25px] text-ink-faint tabular-nums" aria-hidden>
                     [{i + 1}]
                   </span>
                   <span>
@@ -140,10 +141,9 @@ export default function Home() {
                 </li>
               ))}
             </ol>
-          </section>
+          </Band>
 
-          <section className="band gutter" aria-labelledby="needs">
-            <h2 id="needs">What it needs</h2>
+          <Band title="What it needs" labelId="needs">
             <div>
               <p>
                 <strong>A Mac with Python 3.</strong> Dalliance can create a private environment with pandas, NumPy and matplotlib, or use an interpreter you already have.
@@ -152,10 +152,9 @@ export default function Home() {
                 <strong>A model key.</strong> Pick Claude, GPT, Gemini and more through the Vercel AI Gateway, or use the Anthropic API directly. Dalliance keeps keys in the macOS Keychain.
               </p>
             </div>
-          </section>
+          </Band>
 
-          <section className="band gutter" aria-labelledby="not">
-            <h2 id="not">What it is not</h2>
+          <Band title="What it is not" labelId="not">
             <div>
               <p>
                 <strong>Not a chat.</strong> A chat answers once and scrolls away. Dalliance keeps each answer next to its code, in a notebook you can rerun top to bottom.
@@ -167,17 +166,16 @@ export default function Home() {
                 <strong>Not a cloud service.</strong> Your data, code and Python kernel stay on your Mac. Only your prompt and the context the agent reads go to your model provider.
               </p>
             </div>
-          </section>
+          </Band>
 
-          <section className="band gutter" aria-labelledby="status">
-            <h2 id="status">Status</h2>
+          <Band title="Status" labelId="status">
             <div>
               <p>Dalliance is an early preview, so expect rough edges. Your notebooks are plain .ipynb files, so nothing is locked in.</p>
             </div>
-          </section>
+          </Band>
 
-          <div className="closing gutter">
-            <p>Write the question. Keep the code.</p>
+          <div className={`${gutter} border-b py-14 lg:py-22`}>
+            <p className="max-w-[30ch] font-serif text-[30px] leading-[1.3] font-medium tracking-[-0.02em] text-ink lg:text-[40px]">Write the question. Keep the code.</p>
             <Act />
           </div>
         </div>

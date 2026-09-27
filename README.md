@@ -92,11 +92,13 @@ apps/desktop/                      the Electron app (@dalliance/desktop)
     components/welcome/            the first-run setup and the start page
     dev/demo.ts                    sample data for looking at the UI in a browser (?demo): a clinical trial readout; the last cell asks a question when run
     components/ui/                 shadcn components
-apps/web/                          the website (@dalliance/web), Next.js
+apps/web/                          the website (@dalliance/web), Next.js and Tailwind v4 like the desktop app
   src/app/                         home, /privacy, 404, plus metadata routes: sitemap, robots, manifest, icons, social card
   src/components/Reel.tsx          the screenshot reel
   src/assets/shots/                light and dark captures of the ?demo screens
   src/lib/site.ts                  name, copy, URL and download link used across pages and metadata
+  src/lib/ui.ts                    class groups the pages share: the sheet, gutter, labels, buttons, headline
+  src/app/globals.css              the palette (flips with dark mode), the Tailwind theme and custom utilities
 packages/shared/                   notebook model, .ipynb conversion, IPC contract, leaked tool-call cleanup (@dalliance/shared, used by both sides)
 design/prototype.html              the original single-file prototype
 turbo.json                         task graph: build, typecheck, test, lint, dev
