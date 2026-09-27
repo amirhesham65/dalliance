@@ -101,7 +101,6 @@ apps/web/                          the website (@dalliance/web), Next.js and Tai
   src/lib/ui.ts                    class groups the pages share: the sheet, gutter, labels, buttons, headline
   src/app/globals.css              the palette (flips with dark mode), the Tailwind theme and custom utilities
 packages/shared/                   notebook model, .ipynb conversion, IPC contract, leaked tool-call cleanup (@dalliance/shared, used by both sides)
-design/prototype.html              the original single-file prototype
 turbo.json                         task graph: build, typecheck, test, lint, dev
 ```
 
