@@ -9,6 +9,10 @@
     {
       "files": ["apps/web/src/app/**"],
       "rules": { "react/only-export-components": "off" }
+    },
+    {
+      "files": ["apps/desktop/src/components/ui/**"],
+      "rules": { "react/only-export-components": "off" }
     }
   ]
 }
