@@ -144,7 +144,7 @@ export function BriefPane() {
             className="w-full flex-1 resize-none bg-transparent font-mono text-[13px] leading-[1.75] outline-none"
           />
         ) : text?.trim() ? (
-          <article className="flex flex-col font-serif text-[15.5px] leading-[1.6]" onDoubleClick={() => edit()}>
+          <article className="flex flex-col font-serif text-[15.5px] leading-[1.6]" data-selectable onDoubleClick={() => edit()}>
             {briefBlocks(text).map((b, i) => (
               <BriefBlock key={i} block={b} onToggle={(line) => save(toggleTask(text, line))} />
             ))}

@@ -76,6 +76,8 @@ export interface SettingsView {
   approvalMode: 'interactive' | 'background'
   /** Whether a small model names cells for the outline. */
   autoTitles: boolean
+  /** True once the first-run setup was finished or skipped. */
+  onboarded: boolean
   /** Where the key for the chosen provider comes from, or null if there is none. */
   keySource: 'settings' | 'environment' | null
   hasKey: Record<Provider, boolean>
@@ -88,6 +90,7 @@ export interface SettingsUpdate {
   pythonPath?: string | null
   approvalMode?: 'interactive' | 'background'
   autoTitles?: boolean
+  onboarded?: boolean
   /** Set a key for a provider. An empty string removes it. */
   apiKey?: { provider: Provider; key: string }
 }
@@ -165,6 +168,7 @@ export type MenuAction =
   | 'add-prompt'
   | 'add-note'
   | 'toggle-sidebar'
+  | 'welcome'
   | `pane-${PaneName}`
 
 /** The side panes, as the menu names them. */

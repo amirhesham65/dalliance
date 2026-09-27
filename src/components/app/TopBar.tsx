@@ -1,15 +1,18 @@
-import { ChevronDown, FilePlus, FolderOpen, PanelLeft, Settings, Sparkles } from 'lucide-react'
+import { ChevronDown, FilePlus, FolderOpen, PanelLeft, Settings } from 'lucide-react'
 import { useState } from 'react'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useSidebar } from '@/components/ui/sidebar'
+import { makerOfModel } from '@/lib/makers'
 import { ago, modelLabel } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
 import type { Effort, RecentNotebook } from '@/shared/ipc'
 import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
 import { IconButton } from './IconButton'
+import { MakerLogo } from './MakerLogo'
 
-export function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
+/** `minimal` is for the start page and the first-run setup: nothing but Settings, over a draggable bar. */
+export function TopBar({ minimal, onOpenSettings }: { minimal?: boolean; onOpenSettings: () => void }) {
   const platform = getApi()?.platform
   const { open, toggleSidebar } = useSidebar()
   const mod = platform === 'darwin' || navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+'
@@ -22,12 +25,16 @@ export function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
         platform && platform !== 'darwin' && 'pr-[150px]',
       )}
     >
-      <IconButton label={`${open ? 'Hide' : 'Show'} overview (${mod}B)`} aria-expanded={open} onClick={toggleSidebar} className="app-no-drag">
-        <PanelLeft />
-      </IconButton>
-      <NotebookTab />
+      {!minimal && (
+        <>
+          <IconButton label={`${open ? 'Hide' : 'Show'} overview (${mod}B)`} aria-expanded={open} onClick={toggleSidebar} className="app-no-drag">
+            <PanelLeft />
+          </IconButton>
+          <NotebookTab />
+        </>
+      )}
       <div className="app-no-drag ml-auto flex items-center gap-1">
-        <ModelChip onOpenSettings={onOpenSettings} />
+        {!minimal && <ModelChip onOpenSettings={onOpenSettings} />}
         <IconButton label="Settings" onClick={onOpenSettings}>
           <Settings />
         </IconButton>
@@ -161,7 +168,7 @@ function ModelChip({ onOpenSettings }: { onOpenSettings: () => void }) {
     >
       <PopoverTrigger asChild>
         <button type="button" className="flex h-7 items-center gap-1.5 rounded-lg px-2 text-muted-foreground hover:bg-background hover:text-foreground aria-expanded:bg-background">
-          <Sparkles className="size-3.5" />
+          <MakerLogo maker={current?.maker ?? makerOfModel(settings.provider, settings.model)} />
           <span className="max-w-[180px] truncate">{current?.name.replace(/^Claude /, '') ?? modelLabel(settings.model)}</span>
           {effortApplies && <span className="text-faint">· {EFFORTS.find((e) => e.value === settings.effort)?.label.toLowerCase()}</span>}
         </button>
@@ -182,7 +189,15 @@ function ModelChip({ onOpenSettings }: { onOpenSettings: () => void }) {
               )}
             </CommandEmpty>
             {makers.map((maker) => (
-              <CommandGroup key={maker} heading={maker}>
+              <CommandGroup
+                key={maker}
+                heading={
+                  <span className="flex items-center gap-1.5">
+                    <MakerLogo maker={maker} className="size-3" />
+                    {maker}
+                  </span>
+                }
+              >
                 {models
                   .filter((m) => m.maker === maker)
                   .map((m) => (

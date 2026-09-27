@@ -10,7 +10,9 @@ cp .env.example .env   # add AI_GATEWAY_API_KEY, or add a key later in Settings
 pnpm dev
 ```
 
-The first time, open Settings and choose **Set up a Python environment**. It creates a private virtual environment with pandas, NumPy and matplotlib in the app's data folder. You can point the app at your own interpreter instead.
+The first launch walks through setup: what a cell is, a model key, a Python to run on, and a first notebook (blank, opened, or a sample that makes its own data). **Set up a Python environment** creates a private virtual environment with pandas, NumPy and matplotlib in the app's data folder; you can point the app at your own interpreter instead. Every step can be skipped and done later in Settings.
+
+With no notebook to reopen, the app shows a start page: new, open, the sample, recent notebooks, and a few prompts to try. **Help > Welcome to Ilios** opens it over the current notebook.
 
 ## How a cell runs
 
@@ -64,6 +66,7 @@ pnpm typecheck
 pnpm lint
 pnpm build        # renderer to dist/, Electron main and preload to dist-electron/
 pnpm exec vite preview   # then open /?demo to see the UI with sample data in a browser
+                         # /?demo&welcome for the start page, /?demo&setup for the first-run setup
 ILIOS_E2E=1 pnpm exec vitest run electron/e2e.test.ts   # real Python + real model, costs a few cents
 ```
 
@@ -81,6 +84,7 @@ src/
   store/notebook-store.ts        document state, run queue, live run state
   components/                    top bar, overview, settings, cells and outputs
   components/panes/              the side panes: brief, variables, history, files, pinned
+  components/welcome/            the first-run setup and the start page
   dev/demo.ts                    sample data for looking at the UI in a browser (?demo)
   components/ui/                 shadcn components
 design/prototype.html            the original single-file prototype

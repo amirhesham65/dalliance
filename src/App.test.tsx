@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { newNoteCell, newPromptCell } from '@/shared/notebook'
@@ -330,5 +330,27 @@ describe('question cells', () => {
       [false, true],
       [true, true],
     ])
+  })
+
+  it('keeps Cmd+A to text fields and the block holding the selection, like a desktop app', async () => {
+    const { api } = fakeApi(() => result())
+    setApi(api)
+    render(<App />)
+    await screen.findByRole('textbox', { name: 'Prompt' })
+
+    // On the app's chrome it does nothing, instead of selecting the whole window
+    expect(fireEvent.keyDown(document.body, { key: 'a', metaKey: true })).toBe(false)
+    // In a text field it's left to the field
+    expect(fireEvent.keyDown(screen.getByRole('textbox', { name: 'Prompt' }), { key: 'a', metaKey: true })).toBe(true)
+
+    // Inside a selectable block it selects that block only
+    const block = document.createElement('div')
+    block.setAttribute('data-selectable', '')
+    block.textContent = 'August averaged 41.2.'
+    document.body.append(block)
+    window.getSelection()!.collapse(block.firstChild!, 3)
+    fireEvent.keyDown(document.body, { key: 'a', metaKey: true })
+    expect(window.getSelection()!.toString()).toBe('August averaged 41.2.')
+    block.remove()
   })
 })

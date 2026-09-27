@@ -2,8 +2,8 @@
  * A pretend desktop bridge for looking at the UI in a plain browser: open the renderer with ?demo.
  * Nothing here runs inside Electron, where window.ilios is the real bridge.
  */
-import { fakeApi, result } from '@/test/fake-api'
-import type { RunEvent } from '@/shared/ipc'
+import { fakeApi, fakeSettings, result } from '@/test/fake-api'
+import type { PythonState, RunEvent } from '@/shared/ipc'
 import { type Notebook, type Output, newNoteCell, newPromptCell } from '@/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
 
@@ -57,18 +57,31 @@ function sampleNotebook(): Notebook {
     },
   ]
   const region = { ...newPromptCell('Top 5 regions by revenue in August', "orders[orders.created_at.dt.month == 8].groupby('region').total.sum().nlargest(5)"), state: 'stale' as const, executionCount: 3, outputs: [{ type: 'text', text: 'region\nWest    9,120.4\nSouth   8,702.2' } as Output] }
+  // A question answered in words, with its steps run into a sentence the way models often write them
+  const question = {
+    ...newPromptCell('What could I build with this data to practise machine learning?', ''),
+    state: 'done' as const,
+    durationMs: 8_020,
+    answer:
+      'A **return-risk classifier** fits this data well: `orders` has a `returned` flag on 2,863 rows. A good path: 1) compare return rates by plan, region and order size, 2) fill the 41 missing regions, 3) fit a logistic regression with scikit-learn to predict `returned`, 4) check accuracy and which features matter most. It is small enough to iterate on quickly.\nIf you would rather predict a number, forecasting next month\'s revenue by region is the regression version of the same exercise.',
+    suggestions: ['Return rate by plan and region', 'Fit a logistic regression on returned'],
+  }
   return {
     cells: [
-      newNoteCell('# Summer sales review\nHow did orders and revenue move from May to August, and what drove the August jump?'),
+      newNoteCell(
+        '# Summer sales review\nHow did orders and revenue move from **May to August**, and what drove the August jump?\n\n## Questions\n- Which *regions* grew fastest?\n- Did the `pro` plan pull revenue up, or order volume?\n- Is August a one-off? Compare with @orders from last year.',
+      ),
       load,
       monthly,
       region,
+      question,
       newPromptCell('Which customers ordered more than 5 times, and what did they buy most?'),
     ],
   }
 }
 
-export function installDemo() {
+/** `welcome` opens on the start page. `setup` is a first launch: no key, no Python, nothing recent. */
+export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook') {
   const { api } = fakeApi(async (request, emit: (e: RunEvent) => void) => {
     if (!request.generate) {
       await wait(500)
@@ -115,7 +128,50 @@ export function installDemo() {
     { name: 'orders', type: 'DataFrame', shape: '2,863 × 7', detail: 'id, created_at, customer_id, region, plan, total, returned' },
     { name: 'monthly', type: 'DataFrame', shape: '4 × 2', detail: 'orders, revenue' },
   ]
-  api.updateSettings = async (u) => ({ ...(await api.getSettings()), ...u }) as Awaited<ReturnType<typeof api.getSettings>>
+  let settings = fakeSettings()
+  if (mode === 'setup') settings = { ...settings, onboarded: false, keySource: null, hasKey: { gateway: false, anthropic: false } }
+  api.getSettings = async () => settings
+  api.updateSettings = async ({ apiKey, ...rest }) => {
+    settings = { ...settings, ...rest }
+    if (apiKey) settings.hasKey = { ...settings.hasKey, [apiKey.provider]: apiKey.key.trim() !== '' }
+    settings.keySource = settings.hasKey[settings.provider] ? 'settings' : null
+    return settings
+  }
+  // A first launch finds no Python; setting one up streams a few lines and succeeds
+  let python: PythonState = mode === 'setup' ? { python: null, version: null, source: null, managedEnvExists: false, missingPackages: [] } : { python: '/usr/bin/python3', version: '3.12.4', source: 'system', managedEnvExists: false, missingPackages: [] }
+  const pythonLogs = new Set<(line: string) => void>()
+  api.pythonState = async () => python
+  api.onPythonLog = (l) => {
+    pythonLogs.add(l)
+    return () => pythonLogs.delete(l)
+  }
+  api.setupPython = async () => {
+    for (const line of ['Creating a virtual environment…', 'Installing pandas', 'Installing numpy', 'Installing matplotlib', 'Done.']) {
+      pythonLogs.forEach((l) => l(line))
+      await wait(450)
+    }
+    python = { python: '~/Library/Application Support/Ilios/python/bin/python', version: '3.12.4', source: 'managed', managedEnvExists: true, missingPackages: [] }
+    return python
+  }
+  if (mode === 'setup') api.recentNotebooks = async () => []
+  // A spread of makers like the gateway's, one of them without a logo
+  api.listModels = async () => ({
+    provider: 'gateway',
+    error: null,
+    models: [
+      { id: 'anthropic/claude-opus-5', name: 'Claude Opus 5', maker: 'Anthropic', price: '$5 / $25' },
+      { id: 'anthropic/claude-sonnet-5', name: 'Claude Sonnet 5', maker: 'Anthropic', price: '$3 / $15' },
+      { id: 'openai/gpt-6', name: 'GPT-6', maker: 'OpenAI', price: '$2.50 / $15' },
+      { id: 'openai/gpt-6-luna', name: 'GPT-6 Luna', maker: 'OpenAI', price: '$0.20 / $1.20' },
+      { id: 'google/gemini-3-pro', name: 'Gemini 3 Pro', maker: 'Google', price: '$2 / $12' },
+      { id: 'spacexai/grok-4.20-non-reasoning', name: 'Grok 4.20', maker: 'xAI', price: '$3 / $15' },
+      { id: 'deepseek/deepseek-v4', name: 'DeepSeek V4', maker: 'DeepSeek', price: '$0.28 / $0.42' },
+      { id: 'mistral/mistral-large-3', name: 'Mistral Large 3', maker: 'Mistral', price: '$0.50 / $1.50' },
+      { id: 'moonshotai/kimi-k3', name: 'Kimi K3', maker: 'Moonshot AI', price: '$0.60 / $2.50' },
+      { id: 'zai/glm-5', name: 'GLM 5', maker: 'Z.ai', price: '$0.60 / $2.20' },
+      { id: 'thinkingmachines/inkling', name: 'Inkling', maker: 'Thinking Machines', price: '$1 / $4' },
+    ],
+  })
   setApi(api)
   actions.load(sampleNotebook(), '/Users/demo/Summer sales/review.ipynb')
   useNotebook.setState({ kernel: { status: 'idle', python: '3.12.4', cwd: '/Users/demo/Summer sales', error: null } })
@@ -131,4 +187,8 @@ export function installDemo() {
   ]
   useNotebook.setState({ log: log.map((e, i) => ({ ...e, id: -i - 1 })) })
   void actions.refreshVariables()
+  if (mode !== 'notebook') {
+    useNotebook.setState({ settings, python })
+    actions.showWelcome(false)
+  }
 }

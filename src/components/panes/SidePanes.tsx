@@ -146,13 +146,13 @@ function RevisionEntry({ cell, rev, current = false }: { cell: PromptCell; rev: 
         </p>
       )}
       {rev.answer && (
-        <p className="mt-1 line-clamp-2 font-serif text-[13.5px] leading-[1.5] text-muted-foreground">
+        <p className="mt-1 line-clamp-2 font-serif text-[13.5px] leading-[1.5] text-muted-foreground" data-selectable>
           <InlineText text={rev.answer} />
         </p>
       )}
       {rev.code && (
         <button type="button" onClick={() => setOpen((o) => !o)} className="mt-1.5 block w-full text-left" aria-expanded={open} title={open ? 'Show less' : 'Show all the code'}>
-          <pre className="code scrollbar-thin overflow-x-auto rounded-lg bg-raised px-2.5 py-2 font-mono text-[11.5px] leading-[1.6]">
+          <pre className="code scrollbar-thin overflow-x-auto rounded-lg bg-raised px-2.5 py-2 font-mono text-[11.5px] leading-[1.6]" data-selectable>
             <PythonTokens code={preview} />
             {!open && lines.length > 4 && <span className="text-faint">{`\n… ${lines.length - 4} more lines`}</span>}
           </pre>
@@ -263,7 +263,7 @@ function PinnedCard({ cell }: { cell: PromptCell }) {
       {open && (
         <div className={cn('flex flex-col gap-3 px-3 pb-3', running && 'opacity-60')}>
           {cell.answer && (
-            <p className="font-serif text-[14.5px] leading-[1.55]">
+            <p className="font-serif text-[14.5px] leading-[1.55]" data-selectable>
               <InlineText text={cell.answer} />
             </p>
           )}

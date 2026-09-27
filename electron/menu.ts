@@ -78,6 +78,7 @@ export function buildMenu(send: (action: MenuAction) => void) {
       ],
     },
     { role: 'windowMenu' },
+    { role: 'help', submenu: [item('Welcome to Ilios', 'welcome')] },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }

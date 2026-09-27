@@ -17,26 +17,162 @@ export function splitRefs(text: string): TextPart[] {
   return parts
 }
 
-export type MarkdownBlock = { type: 'h1' | 'h2' | 'p'; text: string }
+export type MarkdownBlock =
+  | { type: 'h1' | 'h2' | 'h3' | 'p' | 'quote'; text: string }
+  | { type: 'list'; ordered: boolean; start: number; items: string[] }
+  | { type: 'code'; lang: string; text: string }
+  | { type: 'rule' }
 
-/** Just enough Markdown for notes: # and ## headings, and paragraphs split by blank lines. */
+/**
+ * The Markdown notes use: headings, paragraphs, lists, quotes, fenced code and rules.
+ * Lines of a paragraph join into one, and a list item keeps the indented lines under it.
+ */
 export function parseMarkdown(md: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = []
   let para: string[] = []
+  let list: Extract<MarkdownBlock, { type: 'list' }> | null = null
+  let quote: string[] = []
+  let fence: { lang: string; lines: string[] } | null = null
   const flush = () => {
     if (para.length) blocks.push({ type: 'p', text: para.join(' ') })
+    if (quote.length) blocks.push({ type: 'quote', text: quote.join(' ') })
     para = []
+    quote = []
+  }
+  const endList = () => {
+    list = null
   }
   for (const line of md.split('\n')) {
-    const heading = line.match(/^(#{1,3})\s+(.*)/)
-    if (heading) {
+    if (fence) {
+      if (/^\s*```/.test(line)) {
+        blocks.push({ type: 'code', lang: fence.lang, text: fence.lines.join('\n') })
+        fence = null
+      } else fence.lines.push(line)
+      continue
+    }
+    const open = line.match(/^\s*```\s*([\w+-]*)/)
+    const heading = line.match(/^(#{1,6})\s+(.*)/)
+    const item = line.match(/^\s*([-*+]|\d+[.)])\s+(.*)/)
+    const quoted = line.match(/^\s*>\s?(.*)/)
+    if (open) {
       flush()
-      blocks.push({ type: heading[1].length === 1 ? 'h1' : 'h2', text: heading[2] })
-    } else if (!line.trim()) flush()
-    else para.push(line)
+      endList()
+      fence = { lang: open[1].toLowerCase(), lines: [] }
+    } else if (heading) {
+      flush()
+      endList()
+      const level = heading[1].length
+      blocks.push({ type: level === 1 ? 'h1' : level === 2 ? 'h2' : 'h3', text: heading[2].replace(/\s+#+\s*$/, '') })
+    } else if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
+      flush()
+      endList()
+      blocks.push({ type: 'rule' })
+    } else if (item) {
+      flush()
+      const ordered = /\d/.test(item[1])
+      const current = list as Extract<MarkdownBlock, { type: 'list' }> | null
+      if (current && current.ordered === ordered) current.items.push(item[2])
+      else {
+        list = { type: 'list', ordered, start: ordered ? parseInt(item[1], 10) : 1, items: [item[2]] }
+        blocks.push(list)
+      }
+    } else if (quoted) {
+      if (para.length) flush()
+      endList()
+      quote.push(quoted[1])
+    } else if (!line.trim()) {
+      // A blank line ends a paragraph; a list carries on if the next line is another item
+      flush()
+    } else {
+      const current = list as Extract<MarkdownBlock, { type: 'list' }> | null
+      if (current && /^\s+/.test(line)) current.items[current.items.length - 1] += ` ${line.trim()}`
+      else {
+        if (quote.length) flush()
+        endList()
+        para.push(line.trim())
+      }
+    }
   }
+  if (fence) blocks.push({ type: 'code', lang: fence.lang, text: fence.lines.join('\n') })
   flush()
   return blocks
+}
+
+export type AnswerBlock = { type: 'p'; text: string } | { type: 'list'; ordered: boolean; items: string[] }
+
+/** Paragraphs and lists, which is all the formatting an answer needs. */
+export function answerBlocks(text: string): AnswerBlock[] {
+  const blocks: AnswerBlock[] = []
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line) continue
+    const item = line.match(/^([-*•]|\d+[.)])\s+(.*)/)
+    const last = blocks[blocks.length - 1]
+    if (item) {
+      const ordered = /\d/.test(item[1])
+      if (last?.type === 'list' && last.ordered === ordered) last.items.push(item[2])
+      else blocks.push({ type: 'list', ordered, items: [item[2]] })
+    } else blocks.push(...inlineList(line))
+  }
+  return blocks
+}
+
+/**
+ * "A good path: 1) explore the data, 2) clean it, 3) fit a model. It's quick." reads better as a list.
+ * Needs a run of at least three "n)" markers counting up from 1. The last item ends with its sentence.
+ */
+function inlineList(line: string): AnswerBlock[] {
+  const run: RegExpMatchArray[] = []
+  for (const m of line.matchAll(/(?:^|\s)\(?(\d+)\)\s/g)) if (Number(m[1]) === run.length + 1) run.push(m)
+  if (run.length < 3) return [{ type: 'p', text: line }]
+  const items = run.map((m, i) => line.slice(m.index! + m[0].length, run[i + 1]?.index).trim())
+  const lastItem = items[items.length - 1]
+  const end = lastItem.search(/[.!?](?=\s+[A-Z])/)
+  const tail = end >= 0 ? lastItem.slice(end + 1).trim() : ''
+  if (end >= 0) items[items.length - 1] = lastItem.slice(0, end + 1)
+  const lead = line.slice(0, run[0].index).trim()
+  return [
+    ...(lead ? [{ type: 'p' as const, text: lead }] : []),
+    {
+      type: 'list',
+      ordered: true,
+      items: items.map((i) => i.replace(/^(?:and|then)\s+/, '').replace(/[,;]\s*(?:and|then)?$/, '').replace(/^[a-z]/, (c) => c.toUpperCase())),
+    },
+    ...(tail ? [{ type: 'p' as const, text: tail }] : []),
+  ]
+}
+
+const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/** **bold** and `code`, the two inline marks an answer carries, as HTML. */
+const inlineHtml = (text: string) =>
+  text
+    .split(/(`[^`]+`|\*\*[^*]+\*\*)/g)
+    .map((part) =>
+      part.startsWith('`') && part.endsWith('`') && part.length > 2
+        ? `<code>${escapeHtml(part.slice(1, -1))}</code>`
+        : part.startsWith('**') && part.endsWith('**') && part.length > 4
+          ? `<strong>${escapeHtml(part.slice(2, -2))}</strong>`
+          : escapeHtml(part),
+    )
+    .join('')
+
+/** An answer as it reads on screen, for pasting into documents and chats that keep formatting. */
+export function answerHtml(text: string): string {
+  return answerBlocks(text)
+    .map((b) => {
+      if (b.type === 'p') return `<p>${inlineHtml(b.text)}</p>`
+      const tag = b.ordered ? 'ol' : 'ul'
+      return `<${tag}>${b.items.map((i) => `<li>${inlineHtml(i)}</li>`).join('')}</${tag}>`
+    })
+    .join('\n')
+}
+
+/** The same answer as Markdown, for editors that paste plain text. Inline lists come out as real lists. */
+export function answerMarkdown(text: string): string {
+  return answerBlocks(text)
+    .map((b) => (b.type === 'p' ? b.text : b.items.map((item, i) => `${b.ordered ? `${i + 1}.` : '-'} ${item}`).join('\n')))
+    .join('\n\n')
 }
 
 export type CodeToken = { type: 'k' | 's' | 'n' | 'f' | 'c' | 'plain'; value: string }

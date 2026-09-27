@@ -53,6 +53,10 @@ export type PaneKind = PaneName
 export const PANE_ORDER: PaneKind[] = ['brief', 'variables', 'history', 'files', 'pinned', 'activity']
 
 export interface NotebookState {
+  /** The start page, or the open notebook. The notebook stays loaded behind the start page. */
+  screen: 'welcome' | 'notebook'
+  /** Whether the start page was opened over a notebook, so it can go back to it. */
+  canReturn: boolean
   notebook: Notebook
   path: string | null
   dirty: boolean
@@ -102,6 +106,8 @@ export function welcomeNotebook(): Notebook {
 const initial = welcomeNotebook()
 
 export const useNotebook = create<NotebookState>(() => ({
+  screen: 'notebook',
+  canReturn: false,
   notebook: initial,
   path: null,
   dirty: false,
@@ -149,6 +155,8 @@ function hasRun(cell: PromptCell) {
 export const actions = {
   load(notebook: Notebook, path: string | null, dirty = false) {
     set({
+      screen: 'notebook',
+      canReturn: false,
       notebook,
       path,
       dirty,
@@ -164,6 +172,15 @@ export const actions = {
     })
     queue.length = 0
     void actions.loadBrief()
+  },
+
+  /** The start page. From the menu it keeps the notebook to go back to; at launch there is none. */
+  showWelcome(canReturn: boolean) {
+    set({ screen: 'welcome', canReturn })
+  },
+
+  closeWelcome() {
+    set({ screen: 'notebook', canReturn: false })
   },
 
   markSaved(path: string) {
