@@ -5,17 +5,19 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 const PROMPT = 'Survival by treatment arm, with a log-rank test'
 
 // A two-arm trial: Kaplan-Meier survival as [month, survival] steps, and months where a patient was censored
-type Arm = { label: string; className: string; steps: [number, number][]; censored: number[] }
+type Arm = { label: string; stroke: string; swatch: string; steps: [number, number][]; censored: number[] }
 const ARMS: Arm[] = [
   {
     label: 'Standard care',
-    className: 'km-standard',
+    stroke: 'stroke-chart-1',
+    swatch: 'before:bg-chart-1',
     steps: [[0, 1], [2, 0.95], [5, 0.88], [8, 0.81], [11, 0.74], [14, 0.67], [18, 0.6], [22, 0.5], [26, 0.43], [30, 0.37], [36, 0.3], [42, 0.25]],
     censored: [13, 27, 40, 46],
   },
   {
     label: 'New regimen',
-    className: 'km-new',
+    stroke: 'stroke-chart-top',
+    swatch: 'before:bg-chart-top',
     steps: [[0, 1], [3, 0.97], [6, 0.93], [9, 0.9], [12, 0.85], [16, 0.8], [20, 0.74], [24, 0.68], [28, 0.6], [31, 0.5], [36, 0.44], [42, 0.39]],
     censored: [10, 19, 34, 45],
   },
@@ -102,51 +104,75 @@ export function LiveCell() {
   const count = shown === 'running' ? '[*]' : shown === 'done' ? '[1]' : '[ ]'
 
   return (
-    <figure ref={ref} className="live-cell" data-ready={motion || undefined} aria-label={`A Dalliance cell. The prompt "${PROMPT}" answered with Kaplan-Meier survival curves for two treatment arms and a log-rank test.`}>
-      <span className={shown === 'running' ? 'lc-count running' : 'lc-count'} aria-hidden>
+    <figure
+      ref={ref}
+      data-ready={motion || undefined}
+      aria-label={`A Dalliance cell. The prompt "${PROMPT}" answered with Kaplan-Meier survival curves for two treatment arms and a log-rank test.`}
+      // One cell drawn the way the app draws it. Stacked on narrow screens it keeps its desktop width, so the
+      // chart's type does not scale up.
+      className="flex w-full max-w-[520px] gap-2 rounded-xl border bg-card pt-4.5 pr-5 pb-5 pl-3.5 text-[14px] leading-[1.6] text-ink shadow-cell max-[480px]:pr-4"
+    >
+      <span className={`w-[30px] shrink-0 pt-0.5 font-mono text-[11px] ${shown === 'running' ? 'text-running' : 'text-ink-faint'}`} aria-hidden>
         {count}
       </span>
-      <div className="lc-body">
-        <p className="lc-prompt">
-          <span className="lc-typed">{text}</span>
-          {(shown === 'idle' || shown === 'typing') && <span className="lc-caret" aria-hidden />}
+      <div className="min-w-0 flex-1">
+        <p className="min-h-[1.6em] text-[15px]">
+          <span data-rewind>{text}</span>
+          {(shown === 'idle' || shown === 'typing') && <span className="ml-px inline-block h-[1.1em] w-[1.5px] bg-ink align-[-0.18em] motion-safe:animate-blink" aria-hidden />}
         </p>
 
-        <div className="lc-stage">
+        {/* The result keeps its space while the agent works, so nothing below the cell moves */}
+        <div className="relative">
           {shown === 'running' && (
-            <ul className="lc-activity" aria-hidden>
+            <ul className="absolute inset-x-0 top-1.5 text-[13px] text-ink-subtle" aria-hidden>
               {STEPS.slice(0, step + 1).map((s, i) => (
-                <li key={s} className={i < step ? 'done' : 'running'}>
-                  {i < step ? <Check /> : <span className="lc-dot" />}
+                <li key={s} className="flex items-center gap-2 motion-safe:animate-rise">
+                  {i < step ? (
+                    <Check />
+                  ) : (
+                    <span className="inline-flex w-[13px] justify-center before:size-1.5 before:rounded-full before:bg-running before:content-[''] motion-safe:before:animate-throb" />
+                  )}
                   {s}
                 </li>
               ))}
             </ul>
           )}
 
-          <div className="lc-result" data-show={shown === 'done' || undefined}>
-            <p className="lc-reading">
-              Time to death, <span className="assumption">censored at last visit</span>, compared with a <span className="assumption">log-rank test</span>.
+          <div
+            data-rewind
+            data-show={shown === 'done' || undefined}
+            className="group/result opacity-0 transition-opacity duration-240 ease-out data-show:opacity-100 motion-reduce:transition-none"
+          >
+            <p className="mt-1 text-[13px] text-ink-faint">
+              Time to death, <Guess>censored at last visit</Guess>, compared with a <Guess>log-rank test</Guess>.
             </p>
-            <div className="lc-tabs" role="tablist" aria-label="Cell view">
-              <button type="button" role="tab" aria-selected={tab === 'result'} onClick={() => setTab('result')}>
+            <div className="mt-3 flex items-center gap-3 text-[12px]" role="tablist" aria-label="Cell view">
+              <button type="button" role="tab" className={tabClass} aria-selected={tab === 'result'} onClick={() => setTab('result')}>
                 Result
               </button>
-              <button type="button" role="tab" aria-selected={tab === 'code'} onClick={() => setTab('code')}>
+              <button type="button" role="tab" className={tabClass} aria-selected={tab === 'code'} onClick={() => setTab('code')}>
                 Code
               </button>
-              <span className="lc-time">4.2s</span>
-              <button type="button" className="lc-replay" aria-label="Play the cell again" title="Play again" onClick={start}>
+              <span className="ml-auto font-mono text-[11px] text-ink-faint">4.2s</span>
+              <button
+                type="button"
+                className="-my-[3px] -mr-[3px] inline-flex cursor-pointer rounded-sm p-[3px] text-ink-faint outline-none hover:bg-hairline hover:text-ink focus-visible:ring-2 focus-visible:ring-ink"
+                aria-label="Play the cell again"
+                title="Play again"
+                onClick={start}
+              >
                 <Replay />
               </button>
             </div>
 
-            {/* Both views share one grid cell, so the card keeps the taller one's height on either tab */}
-            <div className="lc-views">
-              <div className="lc-view" role="tabpanel" aria-label="Result" hidden={tab !== 'result'}>
-                <svg className="km" viewBox="0 0 300 114" aria-hidden>
-                  <line className="km-axis" x1={x(0)} x2={x(MONTHS)} y1={y(0)} y2={y(0)} />
-                  <line className="km-median" x1={x(0)} x2={x(MONTHS)} y1={y(0.5)} y2={y(0.5)} />
+            {/* Both views share one grid cell, so the card keeps the taller one's height on either tab. The
+                inactive one keeps its space but is not shown, focusable or announced. */}
+            <div className="mt-3 grid">
+              <div className={`col-start-1 row-start-1 ${tab === 'result' ? '' : 'invisible'}`} role="tabpanel" aria-label="Result" inert={tab !== 'result'}>
+                {/* Kaplan-Meier curves: step lines that draw themselves in, with censoring ticks */}
+                <svg className="block h-auto w-full overflow-visible [&_text]:fill-ink-faint [&_text]:font-sans [&_text]:text-[8.5px]" viewBox="0 0 300 114" aria-hidden>
+                  <line className="stroke-hairline" x1={x(0)} x2={x(MONTHS)} y1={y(0)} y2={y(0)} />
+                  <line className="stroke-hairline [stroke-dasharray:2_3]" x1={x(0)} x2={x(MONTHS)} y1={y(0.5)} y2={y(0.5)} />
                   {[1, 0.5, 0].map((s) => (
                     <text key={s} x={20} y={y(s) + 3} textAnchor="end">
                       {s === 0 ? '0' : s.toFixed(1)}
@@ -158,32 +184,44 @@ export function LiveCell() {
                     </text>
                   ))}
                   {ARMS.map((arm, i) => (
-                    <g key={arm.label} className={arm.className}>
-                      <path className="km-line" d={curve(arm)} pathLength={1} style={{ animationDelay: `${i * 140}ms` }} />
+                    <g key={arm.label} className={arm.stroke}>
+                      {/* pathLength of 1 makes a dash of 1 the whole line, so the draw-in works on any curve */}
+                      <path
+                        className="fill-none stroke-[1.75] [stroke-dasharray:1] [stroke-linejoin:round] motion-safe:group-data-show/result:animate-draw"
+                        d={curve(arm)}
+                        pathLength={1}
+                        style={{ animationDelay: `${i * 140}ms` }}
+                      />
                       {arm.censored.map((m) => (
-                        <path key={m} className="km-tick" d={`M${x(m)},${y(at(arm, m)) - 3}V${y(at(arm, m)) + 3}`} />
+                        <path key={m} className="stroke-[1.25] motion-safe:group-data-show/result:animate-fade-late" d={`M${x(m)},${y(at(arm, m)) - 3}V${y(at(arm, m)) + 3}`} />
                       ))}
                     </g>
                   ))}
                 </svg>
-                <div className="km-legend" aria-hidden>
+                <div className="mt-1.5 flex gap-4 pl-[26px] text-[11.5px] text-ink-subtle" aria-hidden>
                   {[...ARMS].reverse().map((arm) => (
-                    <span key={arm.label} className={arm.className}>
+                    <span key={arm.label} className={`inline-flex items-center gap-1.5 before:h-0.5 before:w-3 before:rounded-[1px] before:content-[''] ${arm.swatch}`}>
                       {arm.label}
                     </span>
                   ))}
                 </div>
-                <p className="lc-answer">
-                  Median survival was <strong>31 months</strong> on the new regimen and 22 on standard care, log-rank p = .003.
+                <p className="mt-3 font-serif text-[16px] leading-[1.5]">
+                  Median survival was <strong className="font-semibold">31 months</strong> on the new regimen and 22 on standard care, log-rank p = .003.
                 </p>
               </div>
-              <pre className="lc-view lc-code" role="tabpanel" aria-label="Code" hidden={tab !== 'code'}>
+              {/* Code never breaks inside a word; a narrow screen scrolls the block instead */}
+              <pre
+                className={`col-start-1 row-start-1 overflow-x-auto rounded-lg bg-cell p-3 font-mono text-[11.5px] leading-[1.8] whitespace-pre text-ink max-[480px]:p-2.5 max-[480px]:text-[10.5px] ${tab === 'code' ? '' : 'invisible'}`}
+                role="tabpanel"
+                aria-label="Code"
+                inert={tab !== 'code'}
+              >
                 <code>
-                  km = <span className="f">KaplanMeierFitter</span>()
-                  {'\n'}<span className="k">for</span> arm, g <span className="k">in</span> df.<span className="f">groupby</span>(<span className="s">&apos;arm&apos;</span>):
-                  {'\n    '}km.<span className="f">fit</span>(g.months, g.died, label=arm)
-                  {'\n    '}km.<span className="f">plot_survival_function</span>()
-                  {'\n'}<span className="f">multivariate_logrank_test</span>(
+                  km = <span className="text-code-f">KaplanMeierFitter</span>()
+                  {'\n'}<span className="text-code-k">for</span> arm, g <span className="text-code-k">in</span> df.<span className="text-code-f">groupby</span>(<span className="text-code-s">&apos;arm&apos;</span>):
+                  {'\n    '}km.<span className="text-code-f">fit</span>(g.months, g.died, label=arm)
+                  {'\n    '}km.<span className="text-code-f">plot_survival_function</span>()
+                  {'\n'}<span className="text-code-f">multivariate_logrank_test</span>(
                   {'\n    '}df.months, df.arm, df.died)
                 </code>
               </pre>
@@ -195,9 +233,17 @@ export function LiveCell() {
   )
 }
 
+const tabClass =
+  'cursor-pointer border-b-2 border-transparent pb-[3px] text-ink-faint outline-none hover:text-ink-subtle aria-selected:border-ink aria-selected:font-medium aria-selected:text-ink focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ink'
+
+/** An assumption the agent made, underlined the way the app marks one */
+function Guess({ children }: { children: string }) {
+  return <span className="border-b border-dashed border-ink-faint text-ink">{children}</span>
+}
+
 function Check() {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg className="size-[13px] text-go" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M20 6 9 17l-5-5" />
     </svg>
   )
@@ -205,7 +251,7 @@ function Check() {
 
 function Replay() {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg className="size-[13px]" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
       <path d="M3 3v5h5" />
     </svg>

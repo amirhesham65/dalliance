@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
-import { SiteFooter, SiteHeader } from '@/components/Chrome'
+import { Band, SiteFooter, SiteHeader } from '@/components/Chrome'
 import { site } from '@/lib/site'
+import { headline, labelMono, mastheadRuled, sheet, support } from '@/lib/ui'
 
 const description = 'What Dalliance keeps on your Mac and what it sends to your model provider.'
 
@@ -50,27 +51,25 @@ export default function Privacy() {
   return (
     <>
       <SiteHeader />
-      <div className="sheet">
-        <div className="masthead ruled gutter">
-          <p className="eyebrow meta">Updated 27 September 2026</p>
-          <h1>Privacy</h1>
-          <p className="support">This site collects nothing. The app keeps your work on your Mac.</p>
+      <div className={sheet}>
+        <div className={mastheadRuled}>
+          <p className={`${labelMono} mb-4`}>Updated 27 September 2026</p>
+          <h1 className={headline}>Privacy</h1>
+          <p className={support}>This site collects nothing. The app keeps your work on your Mac.</p>
         </div>
       </div>
-      <main id="main" className="sheet">
+      <main id="main" className={sheet}>
         {sections.map((s) => (
-          <section className="band gutter" id={s.id} key={s.id} aria-labelledby={`${s.id}-h`}>
-            <h2 id={`${s.id}-h`}>{s.label}</h2>
-            <div className="rows">
+          <Band key={s.id} id={s.id} labelId={`${s.id}-h`} title={s.label}>
+            {/* The band spaces consecutive paragraphs */}
+            <div className="max-w-[62ch]">
               {s.rows.map((r) => (
-                <div className="row" key={r.k}>
-                  <p>
-                    <span className="k">{r.k}</span> {r.v}
-                  </p>
-                </div>
+                <p key={r.k}>
+                  <span className="font-semibold text-ink">{r.k}</span> {r.v}
+                </p>
               ))}
             </div>
-          </section>
+          </Band>
         ))}
       </main>
       <SiteFooter />
