@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter, JetBrains_Mono, Source_Serif_4 } from 'next/font/google'
 import Script from 'next/script'
+import { Analytics } from '@vercel/analytics/next'
 import { site } from '@/lib/site'
 import './globals.css'
 
@@ -55,6 +56,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Skip to content
         </a>
         {children}
+        {/* Cookieless page views, sent only from Vercel deployments, never in development */}
+        <Analytics />
       </body>
     </html>
   )
