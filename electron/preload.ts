@@ -1,0 +1,35 @@
+import { contextBridge, ipcRenderer } from 'electron'
+import { IPC, type IliosApi } from '../src/shared/ipc'
+
+function subscribe<T extends unknown[]>(channel: string, listener: (...args: T) => void) {
+  const handler = (_event: unknown, ...args: unknown[]) => listener(...(args as T))
+  ipcRenderer.on(channel, handler)
+  return () => {
+    ipcRenderer.removeListener(channel, handler)
+  }
+}
+
+// The renderer gets this typed surface only, never ipcRenderer itself
+const api: IliosApi = {
+  platform: process.platform,
+  runCell: (request) => ipcRenderer.invoke(IPC.runCell, request),
+  onRunEvent: (listener) => subscribe(IPC.runEvent, listener),
+  respond: (requestId, answer) => ipcRenderer.send(IPC.respond, requestId, answer),
+  interrupt: () => ipcRenderer.invoke(IPC.interrupt),
+  restartKernel: () => ipcRenderer.invoke(IPC.restartKernel),
+  kernelState: () => ipcRenderer.invoke(IPC.kernelState),
+  listVariables: () => ipcRenderer.invoke(IPC.listVariables),
+  onKernelState: (listener) => subscribe(IPC.kernelStateChanged, listener),
+  getSettings: () => ipcRenderer.invoke(IPC.getSettings),
+  updateSettings: (update) => ipcRenderer.invoke(IPC.updateSettings, update),
+  pythonState: () => ipcRenderer.invoke(IPC.pythonState),
+  setupPython: () => ipcRenderer.invoke(IPC.setupPython),
+  onPythonLog: (listener) => subscribe(IPC.pythonLog, listener),
+  openNotebook: () => ipcRenderer.invoke(IPC.openNotebook),
+  saveNotebook: (path, notebook) => ipcRenderer.invoke(IPC.saveNotebook, path, notebook),
+  confirmDiscard: () => ipcRenderer.invoke(IPC.confirmDiscard),
+  setDocumentState: (state) => ipcRenderer.send(IPC.documentState, state),
+  onMenu: (listener) => subscribe(IPC.menu, listener),
+}
+
+contextBridge.exposeInMainWorld('ilios', api)
