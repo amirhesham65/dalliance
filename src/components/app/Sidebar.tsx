@@ -1,9 +1,23 @@
-import { ChevronDown, CircleAlert, FileText, FolderOpen, History, Play, RotateCw, Sparkles, Square, Variable } from 'lucide-react'
-import { type ReactNode, useEffect, useState } from 'react'
-import { ago, cellTitle } from '@/lib/notebook/text'
+import { Activity, FileText, FolderOpen, History, Pin, Variable } from 'lucide-react'
+import type { ReactNode } from 'react'
+import {
+  Sidebar as SidebarRoot,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarSeparator,
+} from '@/components/ui/sidebar'
+import { cellTitle } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
 import type { Cell, PromptCell } from '@/shared/notebook'
-import { type CellRun, type LogEntry, type PaneKind, actions, useNotebook } from '@/store/notebook-store'
+import { type CellRun, type PaneKind, actions, useNotebook } from '@/store/notebook-store'
 
 type Progress = 'running' | 'queued' | 'done' | 'error' | 'stale' | 'edited' | 'idle'
 
@@ -21,27 +35,22 @@ function statusDot(cell: Cell, running: boolean) {
   return 'bg-transparent'
 }
 
-/** Re-render every half minute so "2m ago" style times stay true. */
-function useNow(ms = 30_000) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), ms)
-    return () => clearInterval(t)
-  }, [ms])
-  return now
-}
-
+/** The overview: where the notebook stands, what happened, its cells, and the side panes. */
 export function Sidebar() {
   return (
-    <aside aria-label="Overview" className="flex w-[272px] shrink-0 flex-col gap-2">
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background shadow-pane">
-        <div className="scrollbar-thin flex min-h-0 flex-1 flex-col overflow-y-auto">
-          <NotebookStatus />
-          <Outline />
-        </div>
-      </div>
-      <PaneTiles />
-    </aside>
+    <SidebarRoot collapsible="none" role="complementary" aria-label="Overview" className="h-full w-full overflow-hidden rounded-xl border shadow-pane">
+      <SidebarHeader className="gap-3 px-4 pt-4 pb-3">
+        <NotebookStatus />
+      </SidebarHeader>
+      <SidebarSeparator className="mx-0" />
+      <SidebarContent className="scrollbar-thin gap-0">
+        <Outline />
+      </SidebarContent>
+      <SidebarSeparator className="mx-0" />
+      <SidebarFooter className="p-2">
+        <PaneMenu />
+      </SidebarFooter>
+    </SidebarRoot>
   )
 }
 
@@ -52,8 +61,8 @@ function NotebookStatus() {
   const folderPath = path ? path.split(/[\\/]/).slice(0, -1).join('/') : kernel.cwd
   const folder = folderPath.split(/[\\/]/).filter(Boolean).pop() ?? ''
   return (
-    <div className="flex flex-col gap-3 px-4 pt-4 pb-3">
-      <div>
+    <>
+      <div className="min-w-0">
         <h1 className="truncate text-[17px] font-semibold tracking-[-0.01em]" title={path ?? undefined}>
           {name}
         </h1>
@@ -66,8 +75,7 @@ function NotebookStatus() {
       </div>
       <ProgressBar />
       <Summary />
-      <RunLog />
-    </div>
+    </>
   )
 }
 
@@ -149,60 +157,10 @@ function Summary() {
   const cells = useNotebook((s) => s.notebook.cells)
   const runs = useNotebook((s) => s.runs)
   const prompts = cells.filter((c): c is PromptCell => c.kind === 'prompt')
-  if (!prompts.length) return <p className="text-[13.5px] leading-[1.55] text-muted-foreground">Add a prompt cell to get started.</p>
   return (
     <p className="text-[13.5px] leading-[1.55] text-muted-foreground" aria-live="polite">
-      {summaryText(prompts, runs)}
+      {prompts.length ? summaryText(prompts, runs) : 'Add a prompt cell to get started.'}
     </p>
-  )
-}
-
-const LOG_ICON: Record<LogEntry['kind'], ReactNode> = {
-  wrote: <Sparkles className="size-3.5 text-ink" />,
-  ran: <Play className="size-3 fill-current text-ink" />,
-  failed: <CircleAlert className="size-3.5 text-destructive" />,
-  stopped: <Square className="size-3 fill-current text-faint" />,
-  restarted: <RotateCw className="size-3.5 text-faint" />,
-  restored: <History className="size-3.5 text-faint" />,
-}
-
-function RunLog() {
-  const log = useNotebook((s) => s.log)
-  const [expanded, setExpanded] = useState(false)
-  const now = useNow()
-  if (!log.length) return null
-  const shown = expanded ? log : log.slice(0, 4)
-  return (
-    <div className="flex flex-col">
-      <ol className="flex flex-col text-[13px]" aria-label="Run log">
-        {shown.map((e, i) => (
-          <li key={e.id}>
-            <button
-              type="button"
-              disabled={!e.cellId}
-              onClick={() => e.cellId && actions.select(e.cellId)}
-              title={e.text}
-              className="-mx-1.5 flex w-[calc(100%+0.75rem)] items-center gap-2 rounded-md px-1.5 py-1 text-left text-muted-foreground enabled:hover:bg-hover enabled:hover:text-foreground"
-            >
-              <span className="flex w-3.5 shrink-0 justify-center">{LOG_ICON[e.kind]}</span>
-              <span className="truncate">{e.text}</span>
-              {i === 0 && <span className="ml-auto shrink-0 pl-2 text-xs text-faint tabular-nums">{ago(e.at, now)}</span>}
-            </button>
-          </li>
-        ))}
-      </ol>
-      {log.length > 4 && (
-        <button
-          type="button"
-          onClick={() => setExpanded((x) => !x)}
-          className="mt-0.5 flex w-fit items-center gap-1.5 py-0.5 text-[12.5px] text-faint hover:text-muted-foreground"
-          aria-expanded={expanded}
-        >
-          <ChevronDown className={cn('size-3.5 transition-transform', expanded && 'rotate-180')} />
-          {expanded ? 'Show less' : `Show ${log.length - 4} more`}
-        </button>
-      )}
-    </div>
   )
 }
 
@@ -211,68 +169,79 @@ function Outline() {
   const selectedId = useNotebook((s) => s.selectedId)
   const runs = useNotebook((s) => s.runs)
   return (
-    <section className="border-t px-2.5 pt-3 pb-3">
-      <h2 className="eyebrow px-1.5 pb-1.5">Cells</h2>
-      <ol className="flex flex-col text-[13px]">
-        {cells.map((cell) => (
-          <li key={cell.id}>
-            <button
-              type="button"
-              onClick={() => actions.select(cell.id)}
-              className={cn(
-                'flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left',
-                cell.id === selectedId ? 'bg-hover text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <span className={cn('truncate', cell.kind === 'note' && 'font-medium')}>{cellTitle(cell)}</span>
-              <span className={cn('ml-auto size-1.5 shrink-0 rounded-full', statusDot(cell, runs[cell.id]?.status === 'running'))} />
-            </button>
-          </li>
-        ))}
-      </ol>
-    </section>
+    <SidebarGroup>
+      <SidebarGroupLabel className="eyebrow h-6">Cells</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {cells.map((cell) => (
+            <SidebarMenuItem key={cell.id}>
+              <SidebarMenuButton
+                isActive={cell.id === selectedId}
+                onClick={() => actions.select(cell.id)}
+                className={cn('pr-6 text-[13px] text-muted-foreground data-active:font-normal data-active:text-foreground', cell.kind === 'note' && 'font-medium')}
+              >
+                <span className="truncate">{cellTitle(cell)}</span>
+              </SidebarMenuButton>
+              <span
+                className={cn('pointer-events-none absolute top-1/2 right-2.5 size-1.5 -translate-y-1/2 rounded-full', statusDot(cell, runs[cell.id]?.status === 'running'))}
+              />
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
   )
 }
 
-/** Launchers for the side panes, as small cards under the overview. */
-function PaneTiles() {
+const PANES: { kind: PaneKind; label: string; icon: ReactNode; key: string }[] = [
+  { kind: 'brief', label: 'Brief', icon: <FileText />, key: '1' },
+  { kind: 'variables', label: 'Variables', icon: <Variable />, key: '2' },
+  { kind: 'history', label: 'History', icon: <History />, key: '3' },
+  { kind: 'files', label: 'Files', icon: <FolderOpen />, key: '4' },
+  { kind: 'pinned', label: 'Pinned', icon: <Pin />, key: '5' },
+  { kind: 'activity', label: 'Activity', icon: <Activity />, key: '6' },
+]
+
+/** The side panes, opened beside the overview. Cmd+1 to Cmd+6 toggle them too. */
+function PaneMenu() {
   const pane = useNotebook((s) => s.pane)
   const brief = useNotebook((s) => s.brief)
-  const variables = useNotebook((s) => s.variables)
+  const variables = useNotebook((s) => s.variables.length)
+  const pins = useNotebook((s) => s.pinnedIds.length)
+  const failures = useNotebook((s) => s.log.filter((e) => e.kind === 'failed').length)
+  const events = useNotebook((s) => s.log.length)
   const versions = useNotebook((s) => {
     const cell = s.notebook.cells.find((c) => c.id === s.selectedId)
     return cell?.kind === 'prompt' ? cell.history.length : 0
   })
-  const briefTitle = brief?.text?.split('\n').find((l) => l.trim())?.replace(/^#+\s*/, '')
-  const tiles: { kind: PaneKind; label: string; icon: ReactNode; meta: string; preview?: string }[] = [
-    { kind: 'brief', label: 'Brief', icon: <FileText />, meta: brief?.text ? '' : 'Empty', preview: briefTitle },
-    { kind: 'variables', label: 'Variables', icon: <Variable />, meta: variables.length ? String(variables.length) : 'None' },
-    { kind: 'history', label: 'History', icon: <History />, meta: versions ? String(versions) : '' },
-    { kind: 'files', label: 'Files', icon: <FolderOpen />, meta: '' },
-  ]
+  const badge: Record<PaneKind, string> = {
+    brief: brief?.text?.trim() ? '' : 'empty',
+    variables: variables ? String(variables) : '',
+    history: versions ? String(versions) : '',
+    files: '',
+    pinned: pins ? String(pins) : '',
+    activity: failures ? `${failures} failed` : events ? String(events) : '',
+  }
+  const mod = navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+'
   return (
-    <nav aria-label="Panes" className="grid shrink-0 grid-cols-2 gap-2">
-      {tiles.map((t) => (
-        <button
-          key={t.kind}
-          type="button"
-          aria-pressed={pane === t.kind}
-          onClick={() => actions.togglePane(t.kind)}
-          className={cn(
-            'flex h-[68px] flex-col justify-between rounded-xl border bg-background p-3 text-left shadow-pane transition-colors hover:border-ring/70',
-            pane === t.kind && 'border-ink/60 ring-1 ring-ink/20',
+    <SidebarMenu aria-label="Panes">
+      {PANES.map((p) => (
+        <SidebarMenuItem key={p.kind}>
+          <SidebarMenuButton
+            isActive={pane === p.kind}
+            aria-pressed={pane === p.kind}
+            onClick={() => actions.togglePane(p.kind)}
+            title={`${p.label} (${mod}${p.key})`}
+            className="text-[13px] [&_svg]:size-3.5 [&_svg]:text-muted-foreground"
+          >
+            {p.icon}
+            <span>{p.label}</span>
+          </SidebarMenuButton>
+          {badge[p.kind] && (
+            <SidebarMenuBadge className={cn('font-normal text-faint', p.kind === 'activity' && failures > 0 && 'text-destructive')}>{badge[p.kind]}</SidebarMenuBadge>
           )}
-        >
-          <span className="flex items-center gap-2 text-faint [&_svg]:size-3.5">
-            {t.icon}
-            {t.preview && <span className="truncate font-serif text-[12px] text-muted-foreground">{t.preview}</span>}
-          </span>
-          <span className="flex items-baseline justify-between gap-2 text-[13px]">
-            <span>{t.label}</span>
-            <span className="truncate text-[11.5px] text-faint tabular-nums">{t.meta}</span>
-          </span>
-        </button>
+        </SidebarMenuItem>
       ))}
-    </nav>
+    </SidebarMenu>
   )
 }

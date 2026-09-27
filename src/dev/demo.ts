@@ -63,7 +63,7 @@ function sampleNotebook(): Notebook {
       load,
       monthly,
       region,
-      newPromptCell('Which customers ordered more than 5 times?'),
+      newPromptCell('Which customers ordered more than 5 times, and what did they buy most?'),
     ],
   }
 }
@@ -74,6 +74,7 @@ export function installDemo() {
       await wait(500)
       return result({ code: request.code, outputs: [ordersTable], generated: false })
     }
+    if (request.nameIt) setTimeout(() => emit({ type: 'title', title: 'Customers with 5+ orders', prompt: request.prompt }), 900)
     const steps = [
       { id: 'a', label: 'Checked variables' },
       { id: 'b', label: 'Looking at orders.region.value_counts()' },

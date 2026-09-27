@@ -2,9 +2,11 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { BrowserWindow, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
-import { IPC, type MenuAction, type OpenedNotebook, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '../src/shared/ipc'
+import { type DraftState, IPC, type MenuAction, type OpenedNotebook, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '../src/shared/ipc'
 import { fromIpynb, toIpynb } from '../src/shared/ipynb'
 import type { Notebook } from '../src/shared/notebook'
+import { listModels } from './harness/model'
+import { DraftStore } from './draft'
 import { buildMenu } from './menu'
 import { NotebookSession } from './session'
 import { SettingsStore } from './settings'
@@ -23,6 +25,7 @@ let allowClose = false
 let allowCloseAfterSave = false
 
 const settings = new SettingsStore(app.getPath('userData'))
+const drafts = new DraftStore(app.getPath('userData'))
 // Unsaved notebooks run in their own folder, never in all of Documents
 const defaultWorkspace = path.join(app.getPath('documents'), 'Ilios Notebooks')
 mkdirSync(defaultWorkspace, { recursive: true })
@@ -45,6 +48,7 @@ async function openFile(file: string): Promise<OpenedNotebook> {
   app.addRecentDocument(file)
   settings.addRecent(file)
   await session.openWorkspace(path.dirname(file))
+  drafts.update({ path: file, dirty: false, notebook })
   return { path: file, notebook }
 }
 
@@ -103,6 +107,8 @@ function createWindow() {
       sendMenu('save')
     }
     if (choice === 1) {
+      // Don't Save means the next launch shouldn't bring these changes back
+      drafts.forgetChanges()
       allowClose = true
       win.close()
     }
@@ -133,6 +139,7 @@ function registerIpc() {
   ipcMain.handle(IPC.kernelState, () => session.kernelState())
   ipcMain.handle(IPC.listVariables, () => session.variables())
   ipcMain.handle(IPC.getSettings, () => settings.view())
+  ipcMain.handle(IPC.listModels, () => listModels(settings.modelConfig()))
   ipcMain.handle(IPC.updateSettings, async (_e, update: SettingsUpdate) => {
     const pythonChanged = update.pythonPath !== undefined && update.pythonPath !== settings.pythonPath
     const view = settings.update(update)
@@ -188,6 +195,9 @@ function registerIpc() {
     await writeFile(file, `${JSON.stringify(toIpynb(notebook), null, 1)}\n`)
     app.addRecentDocument(file)
     settings.addRecent(file)
+    // Record the save now: the window may close before the renderer reports it
+    drafts.update({ path: file, dirty: false, notebook })
+    drafts.flush()
     await session.moveWorkspace(path.dirname(file))
     if (allowCloseAfterSave) {
       allowClose = true
@@ -207,6 +217,16 @@ function registerIpc() {
     })
     return response === 0
   })
+
+  ipcMain.handle(IPC.restoreSession, async () => {
+    const restored = drafts.restore()
+    if (!restored) return null
+    // After a reload nothing is left to receive a running cell's result, so stop it rather than let it run unseen
+    if (restored.kernelKept) session.interrupt()
+    else if (restored.path) await session.openWorkspace(path.dirname(restored.path))
+    return restored
+  })
+  ipcMain.on(IPC.saveDraft, (_e, state: DraftState) => drafts.update(state))
 
   ipcMain.on(IPC.documentState, (_e, state: { path: string | null; dirty: boolean }) => {
     documentState = state
@@ -229,5 +249,6 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  drafts.flush()
   void session.shutdown()
 })

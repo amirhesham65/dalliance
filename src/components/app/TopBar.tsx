@@ -1,20 +1,18 @@
 import { ChevronDown, FilePlus, FolderOpen, PanelLeft, Settings, Sparkles } from 'lucide-react'
 import { useState } from 'react'
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { useSidebar } from '@/components/ui/sidebar'
 import { ago, modelLabel } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
-import type { Effort, Provider, RecentNotebook } from '@/shared/ipc'
+import type { Effort, RecentNotebook } from '@/shared/ipc'
 import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
 import { IconButton } from './IconButton'
 
-interface TopBarProps {
-  sidebarOpen: boolean
-  onToggleSidebar: () => void
-  onOpenSettings: () => void
-}
-
-export function TopBar({ sidebarOpen, onToggleSidebar, onOpenSettings }: TopBarProps) {
+export function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const platform = getApi()?.platform
+  const { open, toggleSidebar } = useSidebar()
+  const mod = platform === 'darwin' || navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+'
   return (
     <header
       className={cn(
@@ -24,7 +22,7 @@ export function TopBar({ sidebarOpen, onToggleSidebar, onOpenSettings }: TopBarP
         platform && platform !== 'darwin' && 'pr-[150px]',
       )}
     >
-      <IconButton label={sidebarOpen ? 'Hide overview' : 'Show overview'} aria-expanded={sidebarOpen} onClick={onToggleSidebar} className="app-no-drag">
+      <IconButton label={`${open ? 'Hide' : 'Show'} overview (${mod}B)`} aria-expanded={open} onClick={toggleSidebar} className="app-no-drag">
         <PanelLeft />
       </IconButton>
       <NotebookTab />
@@ -124,19 +122,6 @@ function MenuButton({ icon, label, onClick }: { icon: React.ReactNode; label: st
   )
 }
 
-const PRESETS: Record<Provider, { id: string; label: string; note: string }[]> = {
-  gateway: [
-    { id: 'anthropic/claude-opus-5', label: 'Opus 5', note: 'Best for hard analysis' },
-    { id: 'anthropic/claude-sonnet-5', label: 'Sonnet 5', note: 'Fast and capable' },
-    { id: 'anthropic/claude-haiku-4.5', label: 'Haiku 4.5', note: 'Fastest, simple cells' },
-  ],
-  anthropic: [
-    { id: 'claude-opus-5', label: 'Opus 5', note: 'Best for hard analysis' },
-    { id: 'claude-sonnet-5', label: 'Sonnet 5', note: 'Fast and capable' },
-    { id: 'claude-haiku-4-5', label: 'Haiku 4.5', note: 'Fastest, simple cells' },
-  ],
-}
-
 const EFFORTS: { value: Effort; label: string }[] = [
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Med' },
@@ -145,76 +130,110 @@ const EFFORTS: { value: Effort; label: string }[] = [
   { value: 'max', label: 'Max' },
 ]
 
-/** Which model writes the cells, and how hard it thinks. One click away instead of in Settings. */
+/** Which model writes the cells, and how hard it thinks. Searches every model the provider offers. */
 function ModelChip({ onOpenSettings }: { onOpenSettings: () => void }) {
   const settings = useNotebook((s) => s.settings)
+  const list = useNotebook((s) => s.models)
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const api = getApi()
   if (!settings || !api) return null
   const update = async (u: Parameters<typeof api.updateSettings>[0]) => {
     useNotebook.setState({ settings: await api.updateSettings(u) })
   }
-  const presets = PRESETS[settings.provider]
-  const custom = !presets.some((p) => p.id === settings.model)
+  const choose = (id: string) => {
+    void update({ model: id })
+    setOpen(false)
+    setQuery('')
+  }
+  const models = list?.provider === settings.provider ? list.models : []
+  const current = models.find((m) => m.id === settings.model)
+  // Anthropic first, then the other makers alphabetically
+  const makers = [...new Set(models.map((m) => m.maker))].sort((a, b) => (a === 'Anthropic' ? -1 : b === 'Anthropic' ? 1 : a.localeCompare(b)))
+  const effortApplies = settings.provider === 'anthropic' || /^(anthropic|openai)\//.test(settings.model)
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o)
+        if (o) void actions.loadModels()
+      }}
+    >
       <PopoverTrigger asChild>
         <button type="button" className="flex h-7 items-center gap-1.5 rounded-lg px-2 text-muted-foreground hover:bg-background hover:text-foreground aria-expanded:bg-background">
           <Sparkles className="size-3.5" />
-          <span>{modelLabel(settings.model)}</span>
-          <span className="text-faint">· {EFFORTS.find((e) => e.value === settings.effort)?.label.toLowerCase()}</span>
+          <span className="max-w-[180px] truncate">{current?.name.replace(/^Claude /, '') ?? modelLabel(settings.model)}</span>
+          {effortApplies && <span className="text-faint">· {EFFORTS.find((e) => e.value === settings.effort)?.label.toLowerCase()}</span>}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72">
-        <p className="eyebrow px-2 pt-1.5 pb-1">Model</p>
-        <ul className="flex flex-col">
-          {presets.map((p) => (
-            <li key={p.id}>
-              <button
-                type="button"
-                aria-pressed={settings.model === p.id}
-                onClick={() => void update({ model: p.id })}
-                className={cn('flex w-full items-baseline gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-hover', settings.model === p.id && 'bg-hover')}
-              >
-                <span className={cn('size-1.5 shrink-0 translate-y-[-1px] rounded-full', settings.model === p.id ? 'bg-ink' : 'bg-transparent')} />
-                <span>{p.label}</span>
-                <span className="ml-auto text-xs text-faint">{p.note}</span>
-              </button>
-            </li>
-          ))}
-          {custom && (
-            <li className="flex items-baseline gap-2 rounded-lg bg-hover px-2 py-1.5 text-[13px]">
-              <span className="size-1.5 shrink-0 translate-y-[-1px] rounded-full bg-ink" />
-              <span className="truncate font-mono text-xs">{settings.model}</span>
-            </li>
-          )}
-        </ul>
-        <p className="eyebrow px-2 pt-3 pb-1.5">Effort</p>
-        <div className="mx-2 flex rounded-lg bg-hover p-0.5" role="group" aria-label="Effort">
-          {EFFORTS.map((e) => (
-            <button
-              key={e.value}
-              type="button"
-              aria-pressed={settings.effort === e.value}
-              onClick={() => void update({ effort: e.value })}
-              className={cn(
-                'flex-1 rounded-md py-1 text-xs',
-                settings.effort === e.value ? 'bg-background text-foreground shadow-pane' : 'text-muted-foreground hover:text-foreground',
+      <PopoverContent align="end" className="w-[380px] p-0">
+        <Command loop>
+          <CommandInput placeholder="Search models" value={query} onValueChange={setQuery} />
+          <CommandList className="scrollbar-thin max-h-[340px]">
+            {!list && <p className="px-3 py-6 text-center text-[13px] text-faint">Loading models…</p>}
+            {list?.error && <p className="px-3 py-3 text-[13px] text-destructive">{list.error}</p>}
+            <CommandEmpty>
+              {query.trim() ? (
+                <button type="button" className="text-[13px] hover:underline" onClick={() => choose(query.trim())}>
+                  Use <span className="font-mono text-xs">{query.trim()}</span> as the model id
+                </button>
+              ) : (
+                'No models.'
               )}
-            >
-              {e.label}
-            </button>
-          ))}
-        </div>
-        <div className="mt-2 border-t pt-1">
-          <MenuButton
-            icon={<Settings />}
-            label="Provider and keys…"
-            onClick={() => {
-              setOpen(false)
-              onOpenSettings()
-            }}
-          />
+            </CommandEmpty>
+            {makers.map((maker) => (
+              <CommandGroup key={maker} heading={maker}>
+                {models
+                  .filter((m) => m.maker === maker)
+                  .map((m) => (
+                    <CommandItem
+                      key={m.id}
+                      value={`${m.name} ${m.id}`}
+                      data-checked={m.id === settings.model}
+                      onSelect={() => choose(m.id)}
+                      title={m.id}
+                      className="gap-2 text-[13px] [&>svg:last-child]:ml-0 [&>svg:last-child]:size-3.5 [&>svg:last-child]:text-ink"
+                    >
+                      <span className="truncate">{m.name}</span>
+                      {m.price && <span className="ml-auto shrink-0 text-[11.5px] text-faint tabular-nums">{m.price}</span>}
+                    </CommandItem>
+                  ))}
+              </CommandGroup>
+            ))}
+          </CommandList>
+        </Command>
+        <div className="border-t p-1.5">
+          <p className="eyebrow px-2 pt-1 pb-1.5">Effort</p>
+          <div className={cn('mx-2 flex rounded-lg bg-hover p-0.5', !effortApplies && 'opacity-50')} role="group" aria-label="Effort">
+            {EFFORTS.map((e) => (
+              <button
+                key={e.value}
+                type="button"
+                disabled={!effortApplies}
+                aria-pressed={settings.effort === e.value}
+                onClick={() => void update({ effort: e.value })}
+                className={cn(
+                  'flex-1 rounded-md py-1 text-xs',
+                  settings.effort === e.value ? 'bg-background text-foreground shadow-pane' : 'text-muted-foreground enabled:hover:text-foreground',
+                )}
+              >
+                {e.label}
+              </button>
+            ))}
+          </div>
+          <p className="px-2 pt-1.5 text-[11.5px] text-faint">
+            {effortApplies ? 'Prices are per million input / output tokens.' : 'Effort applies to Anthropic and OpenAI models. This one uses its default.'}
+          </p>
+          <div className="mt-1 border-t pt-1">
+            <MenuButton
+              icon={<Settings />}
+              label={`Provider: ${settings.provider === 'gateway' ? 'Vercel AI Gateway' : 'Anthropic API'}…`}
+              onClick={() => {
+                setOpen(false)
+                onOpenSettings()
+              }}
+            />
+          </div>
         </div>
       </PopoverContent>
     </Popover>

@@ -54,7 +54,29 @@ export function buildMenu(send: (action: MenuAction) => void) {
       label: 'Kernel',
       submenu: [item('Interrupt', 'interrupt', 'CmdOrCtrl+.'), item('Restart', 'restart')],
     },
-    { role: 'viewMenu' },
+    {
+      label: 'View',
+      submenu: [
+        // The renderer handles these keys itself, so the menu only shows them
+        { ...item('Toggle Overview', 'toggle-sidebar', 'CmdOrCtrl+B'), registerAccelerator: false },
+        { type: 'separator' },
+        { ...item('Brief', 'pane-brief', 'CmdOrCtrl+1'), registerAccelerator: false },
+        { ...item('Variables', 'pane-variables', 'CmdOrCtrl+2'), registerAccelerator: false },
+        { ...item('History', 'pane-history', 'CmdOrCtrl+3'), registerAccelerator: false },
+        { ...item('Files', 'pane-files', 'CmdOrCtrl+4'), registerAccelerator: false },
+        { ...item('Pinned', 'pane-pinned', 'CmdOrCtrl+5'), registerAccelerator: false },
+        { ...item('Activity', 'pane-activity', 'CmdOrCtrl+6'), registerAccelerator: false },
+        { type: 'separator' },
+        { role: 'reload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
     { role: 'windowMenu' },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))

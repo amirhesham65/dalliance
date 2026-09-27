@@ -80,6 +80,7 @@ export function toIpynb(nb: Notebook): Json {
         metadata: {
           ilios: {
             prompt: cell.prompt,
+            ...(cell.title ? { title: cell.title, titleFrom: cell.titleFrom } : {}),
             generatedFrom: cell.generatedFrom,
             codeEdited: cell.codeEdited,
             interpretation: cell.interpretation,
@@ -117,6 +118,8 @@ export function fromIpynb(raw: unknown): Notebook {
     const cell: PromptCell = {
       ...base,
       id: typeof c.id === 'string' ? c.id : base.id,
+      title: typeof meta.title === 'string' ? meta.title : null,
+      titleFrom: typeof meta.titleFrom === 'string' ? meta.titleFrom : null,
       generatedFrom: meta.generatedFrom === undefined ? (source ? base.prompt : null) : (meta.generatedFrom as string | null),
       codeEdited: Boolean(meta.codeEdited),
       interpretation: (meta.interpretation as string | null) ?? null,

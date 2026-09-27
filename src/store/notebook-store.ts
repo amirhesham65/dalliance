@@ -6,6 +6,8 @@ import type {
   CellRunResult,
   KernelState,
   IliosApi,
+  ModelList,
+  PaneName,
   PythonState,
   RunCellRequest,
   RunEvent,
@@ -18,6 +20,7 @@ import {
   type Output,
   type PromptCell,
   MAX_REVISIONS,
+  MIN_TITLE_PROMPT,
   needsGeneration,
   newNoteCell,
   tablesOpen,
@@ -45,8 +48,9 @@ export interface LogEntry {
   cellId?: string
 }
 
-/** The side panes, one open at a time. */
-export type PaneKind = 'brief' | 'variables' | 'history' | 'files' | 'pinned'
+/** The side panes, one open at a time. Cmd+1 to Cmd+6 open them in this order. */
+export type PaneKind = PaneName
+export const PANE_ORDER: PaneKind[] = ['brief', 'variables', 'history', 'files', 'pinned', 'activity']
 
 export interface NotebookState {
   notebook: Notebook
@@ -69,9 +73,11 @@ export interface NotebookState {
   /** The cell that most recently finished running, which shows its suggested next prompts. */
   lastFinishedId: string | null
   pane: PaneKind | null
-  /** The cell whose result is pinned in the side pane. */
-  pinnedId: string | null
+  /** Cells whose results are pinned in the side pane, in the order they were pinned. */
+  pinnedIds: string[]
   brief: Brief | null
+  /** What the model picker offers. Loaded when the picker first opens. */
+  models: ModelList | null
 }
 
 let api: IliosApi | undefined = typeof window === 'undefined' ? undefined : window.ilios
@@ -111,8 +117,9 @@ export const useNotebook = create<NotebookState>(() => ({
   log: [],
   lastFinishedId: null,
   pane: null,
-  pinnedId: null,
+  pinnedIds: [],
   brief: null,
+  models: null,
 }))
 
 const MAX_LOG = 60
@@ -140,11 +147,11 @@ function hasRun(cell: PromptCell) {
 }
 
 export const actions = {
-  load(notebook: Notebook, path: string | null) {
+  load(notebook: Notebook, path: string | null, dirty = false) {
     set({
       notebook,
       path,
-      dirty: false,
+      dirty,
       selectedId: notebook.cells[0]?.id ?? null,
       runs: {},
       activity: {},
@@ -152,7 +159,7 @@ export const actions = {
       variables: [],
       log: [],
       lastFinishedId: null,
-      pinnedId: null,
+      pinnedIds: [],
       pane: get().pane === 'pinned' ? null : get().pane,
     })
     queue.length = 0
@@ -174,8 +181,20 @@ export const actions = {
     set((s) => ({ pane: s.pane === pane ? null : pane }))
   },
 
-  pin(id: string | null) {
-    set({ pinnedId: id, pane: id ? 'pinned' : get().pane === 'pinned' ? null : get().pane })
+  /** Pin a cell's result to the side, or unpin it. Pinning opens the Pinned pane. */
+  togglePin(id: string) {
+    const pinned = get().pinnedIds.includes(id)
+    set((s) => ({ pinnedIds: pinned ? s.pinnedIds.filter((p) => p !== id) : [...s.pinnedIds, id], ...(pinned ? {} : { pane: 'pinned' as const }) }))
+  },
+
+  clearLog() {
+    set({ log: [] })
+  },
+
+  async loadModels(force = false) {
+    const { models, settings } = get()
+    if (!api || (!force && models && models.provider === settings?.provider && !models.error)) return
+    set({ models: await api.listModels().catch((err: unknown) => ({ provider: settings?.provider ?? 'gateway', models: [], error: String(err) })) })
   },
 
   async loadBrief() {
@@ -382,6 +401,11 @@ export const actions = {
   },
 
   applyRunEvent(id: string, event: RunEvent) {
+    // A title can arrive after the run has ended, so it goes straight to the cell
+    if (event.type === 'title') {
+      updateCell(id, (c) => (c.kind === 'prompt' ? { ...c, title: event.title, titleFrom: event.prompt } : c))
+      return
+    }
     set((s) => {
       const run = s.runs[id]
       if (!run) return {}
@@ -460,6 +484,8 @@ async function pump() {
         prompt: cell.prompt,
         code: cell.code,
         generate,
+        // Any run names a cell that has no title for its current prompt, including reruns of saved code
+        nameIt: cell.prompt.trim().length >= MIN_TITLE_PROMPT && cell.titleFrom?.trim() !== cell.prompt.trim(),
         corrections: cell.corrections,
         previousCells: cells.slice(0, index).map((c) =>
           c.kind === 'note' ? { kind: 'note' as const, text: c.markdown } : { kind: 'prompt' as const, text: c.prompt, code: c.code },
@@ -560,7 +586,8 @@ function logRun(cell: Cell | undefined, generate: boolean, result: CellRunResult
   if (result.error === 'Stopped.') return addLog({ kind: 'stopped', text: `Stopped ${name}`, cellId: cell.id })
   if (!result.ok) {
     const err = result.outputs.find((o) => o.type === 'error')
-    const why = err?.type === 'error' ? err.ename : result.error ? 'the agent gave up' : 'error'
+    const clipped = (t: string) => (t.length > 140 ? `${t.slice(0, 139)}…` : t)
+    const why = err?.type === 'error' ? clipped(`${err.ename}${err.evalue ? `: ${err.evalue}` : ''}`) : result.error ? clipped(result.error) : 'error'
     return addLog({ kind: 'failed', text: `${name} failed: ${why}`, cellId: cell.id })
   }
   addLog({ kind: generate ? 'wrote' : 'ran', text: `${generate ? 'Wrote' : 'Ran'} ${name}`, cellId: cell.id })

@@ -112,7 +112,7 @@ function StatusText({ cell, run }: { cell: PromptCell; run: CellRun | undefined 
 function PromptCellView({ cell, run, selected, onDelete }: { cell: PromptCell; run: CellRun | undefined; selected: boolean; onDelete: (id: string) => void }) {
   const message = useNotebook((s) => s.messages[cell.id])
   const activity = useNotebook((s) => s.activity[cell.id])
-  const pinned = useNotebook((s) => s.pinnedId === cell.id)
+  const pinned = useNotebook((s) => s.pinnedIds.includes(cell.id))
   // Suggestions follow the result you just got, or the cell you're looking at, not every cell at once
   const suggest = useNotebook((s) => s.lastFinishedId === cell.id) || selected
   const running = run?.status === 'running'
@@ -191,7 +191,7 @@ function PromptCellView({ cell, run, selected, onDelete }: { cell: PromptCell; r
                   size="icon-xs"
                   aria-pressed={pinned}
                   className={cn('-my-1 -mr-1', !pinned && 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100', pinned && 'text-ink')}
-                  onClick={() => actions.pin(pinned ? null : cell.id)}
+                  onClick={() => actions.togglePin(cell.id)}
                 >
                   {pinned ? <PinOff /> : <Pin />}
                 </IconButton>
@@ -222,6 +222,7 @@ function PromptCellView({ cell, run, selected, onDelete }: { cell: PromptCell; r
               onKeyDown={editorKeys(cell.id)}
               render={(v) => <PythonTokens code={v} />}
               placeholder="Code appears here after the first run. You can also write it yourself."
+              indent
               className="code rounded-lg bg-raised p-3 font-mono text-[12.5px] leading-[1.7]"
             />
           </TabsContent>

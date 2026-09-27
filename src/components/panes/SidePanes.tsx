@@ -1,5 +1,5 @@
-import { File, FolderOpen, History, LocateFixed, Pencil, Pin, RefreshCw, Sparkles, Variable } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Activity, CircleAlert, File, FolderOpen, History, LocateFixed, Pencil, Pin, PinOff, Play, RefreshCw, RotateCw, Sparkles, Square, Variable } from 'lucide-react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { IconButton } from '@/components/app/IconButton'
 import { PythonTokens } from '@/components/notebook/CellView'
 import { InlineText } from '@/components/notebook/InlineText'
@@ -7,10 +7,11 @@ import { OutputList } from '@/components/notebook/outputs/OutputView'
 import { RefText } from '@/components/notebook/RefText'
 import { Button } from '@/components/ui/button'
 import { ago, cellTitle } from '@/lib/notebook/text'
+import { useNow } from '@/lib/use-now'
 import { cn } from '@/lib/utils'
 import type { FileEntry } from '@/shared/ipc'
 import type { PromptCell, Revision } from '@/shared/notebook'
-import { actions, getApi, useNotebook } from '@/store/notebook-store'
+import { type LogEntry, actions, getApi, useNotebook } from '@/store/notebook-store'
 import { BriefPane } from './BriefPane'
 import { Pane } from './Pane'
 
@@ -19,12 +20,13 @@ export function SidePane() {
   const pane = useNotebook((s) => s.pane)
   if (!pane) return null
   return (
-    <div className="flex w-[380px] shrink-0 flex-col [&>section]:flex-1">
+    <div className="flex min-w-0 flex-1 flex-col [&>section]:flex-1">
       {pane === 'brief' && <BriefPane />}
       {pane === 'variables' && <VariablesPane />}
       {pane === 'history' && <HistoryPane />}
       {pane === 'files' && <FilesPane />}
       {pane === 'pinned' && <PinnedPane />}
+      {pane === 'activity' && <ActivityPane />}
     </div>
   )
 }
@@ -218,39 +220,110 @@ function FilesPane() {
   )
 }
 
-/** A cell's result kept in view while you work further down the notebook. */
+/** Results kept in view while you work further down the notebook, one card per pinned cell. */
 function PinnedPane() {
-  const cell = useNotebook((s) => s.notebook.cells.find((c) => c.id === s.pinnedId))
-  const running = useNotebook((s) => (s.pinnedId ? s.runs[s.pinnedId]?.status === 'running' : false))
-  const prompt = cell?.kind === 'prompt' ? cell : null
+  const pinnedIds = useNotebook((s) => s.pinnedIds)
+  const cells = useNotebook((s) => s.notebook.cells)
+  const pinned = pinnedIds
+    .map((id) => cells.find((c) => c.id === id))
+    .filter((c): c is PromptCell => c?.kind === 'prompt')
+  return (
+    <Pane title="Pinned" icon={<Pin />} onClose={close}>
+      {!pinned.length ? (
+        <Empty>Pin a result with the pin icon next to its run time. Pinned results stay here while you work, and update when their cell reruns.</Empty>
+      ) : (
+        <ol className="flex flex-col gap-2 px-2 pb-3">
+          {pinned.map((cell) => (
+            <PinnedCard key={cell.id} cell={cell} />
+          ))}
+        </ol>
+      )}
+    </Pane>
+  )
+}
+
+function PinnedCard({ cell }: { cell: PromptCell }) {
+  const running = useNotebook((s) => s.runs[cell.id]?.status === 'running')
+  const [open, setOpen] = useState(true)
+  return (
+    <li className="group/pin rounded-lg border bg-background">
+      <div className="flex items-center gap-1 py-1 pr-1 pl-3">
+        <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="min-w-0 flex-1 truncate py-1 text-left font-serif text-[15px]">
+          <RefText text={cellTitle(cell, 80)} />
+        </button>
+        {running && <span className="text-xs text-faint">running</span>}
+        {cell.state === 'stale' && !running && <span className="text-xs text-warn">out of date</span>}
+        <IconButton label="Go to cell" size="icon-xs" onClick={() => actions.select(cell.id)}>
+          <LocateFixed />
+        </IconButton>
+        <IconButton label="Unpin" size="icon-xs" onClick={() => actions.togglePin(cell.id)}>
+          <PinOff />
+        </IconButton>
+      </div>
+      {open && (
+        <div className={cn('flex flex-col gap-3 px-3 pb-3', running && 'opacity-60')}>
+          {cell.answer && (
+            <p className="font-serif text-[14.5px] leading-[1.55]">
+              <InlineText text={cell.answer} />
+            </p>
+          )}
+          <OutputList outputs={cell.outputs} />
+          {!cell.outputs.length && !cell.answer && <p className="text-[13px] text-faint">No result yet.</p>}
+        </div>
+      )}
+    </li>
+  )
+}
+
+const LOG_ICON: Record<LogEntry['kind'], ReactNode> = {
+  wrote: <Sparkles className="text-ink" />,
+  ran: <Play className="fill-current text-ink" />,
+  failed: <CircleAlert className="text-destructive" />,
+  stopped: <Square className="fill-current text-faint" />,
+  restarted: <RotateCw className="text-faint" />,
+  restored: <History className="text-faint" />,
+}
+
+/** What happened in this session, newest first. Click an entry to jump to its cell. */
+function ActivityPane() {
+  const log = useNotebook((s) => s.log)
+  const cells = useNotebook((s) => s.notebook.cells)
+  const now = useNow()
   return (
     <Pane
-      title="Pinned"
-      icon={<Pin />}
-      onClose={() => actions.pin(null)}
+      title="Activity"
+      icon={<Activity />}
+      onClose={close}
       actions={
-        prompt && (
-          <IconButton label="Go to cell" size="icon-xs" onClick={() => actions.select(prompt.id)}>
-            <LocateFixed />
-          </IconButton>
+        log.length > 0 && (
+          <Button size="xs" variant="ghost" className="text-muted-foreground" onClick={() => actions.clearLog()}>
+            Clear
+          </Button>
         )
       }
     >
-      {!prompt ? (
-        <Empty>The pinned cell is gone.</Empty>
+      {!log.length ? (
+        <Empty>Runs, failures, restarts and restores show up here as they happen.</Empty>
       ) : (
-        <div className={cn('flex flex-col gap-3 px-4 pb-5', running && 'opacity-60')}>
-          <p className="font-serif text-[17px] leading-snug">
-            <RefText text={cellTitle(prompt, 120)} />
-          </p>
-          {prompt.answer && (
-            <p className="font-serif text-[15px] leading-[1.6]">
-              <InlineText text={prompt.answer} />
-            </p>
-          )}
-          <OutputList outputs={prompt.outputs} />
-          {!prompt.outputs.length && !prompt.answer && <p className="text-[13px] text-faint">No result yet.</p>}
-        </div>
+        <ol aria-label="Run log" className="flex flex-col px-2 pb-3">
+          {log.map((e) => {
+            const exists = e.cellId != null && cells.some((c) => c.id === e.cellId)
+            return (
+              <li key={e.id}>
+                <button
+                  type="button"
+                  disabled={!exists}
+                  onClick={() => e.cellId && actions.select(e.cellId)}
+                  className="flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13px] leading-[1.45] enabled:hover:bg-hover"
+                >
+                  <span className="flex h-[1.45em] shrink-0 items-center [&_svg]:size-3.5">{LOG_ICON[e.kind]}</span>
+                  <span className={cn('min-w-0 flex-1', e.kind === 'failed' ? 'text-foreground' : 'text-muted-foreground')}>{e.text}</span>
+                  <span className="shrink-0 text-xs leading-[1.45rem] text-faint tabular-nums">{ago(e.at, now)}</span>
+                </button>
+              </li>
+            )
+          })}
+        </ol>
       )}
     </Pane>
   )

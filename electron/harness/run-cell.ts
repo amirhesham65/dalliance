@@ -16,6 +16,7 @@ export interface HarnessDeps {
   bus: EventBus
   pythonVersion: string | null
   projectInstructions: string | null
+  modelId?: string | null
   emit: (event: RunEvent) => void
   askUser: (question: string, options: string[]) => Promise<string | null>
   requestApproval: (title: string, detail: string) => Promise<boolean>
@@ -92,6 +93,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
         pythonVersion: deps.pythonVersion,
         toolNames: [...TOOL_NAMES],
         projectInstructions: deps.projectInstructions,
+        modelId: deps.modelId,
       }),
       providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
     },

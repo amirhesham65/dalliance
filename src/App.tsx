@@ -5,15 +5,18 @@ import { TopBar } from '@/components/app/TopBar'
 import { NotebookView } from '@/components/notebook/NotebookView'
 import { SidePane } from '@/components/panes/SidePanes'
 import { Button } from '@/components/ui/button'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
+import { SidebarProvider, useSidebar } from '@/components/ui/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { useDefaultLayout } from 'react-resizable-panels'
 import type { MenuAction } from '@/shared/ipc'
 import type { Cell } from '@/shared/notebook'
-import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
+import { PANE_ORDER, actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
 
 type Undo = { cell: Cell; index: number }
 
 export default function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(() => readStored('ilios-sidebar') !== 'closed')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [undo, setUndo] = useState<Undo | null>(null)
   const undoTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -82,6 +85,14 @@ export default function App() {
         case 'add-note':
           actions.insertAfterSelected('note')
           break
+        case 'toggle-sidebar':
+          setSidebarOpen((o) => !o)
+          break
+        default:
+          if (action.startsWith('pane-')) {
+            setSidebarOpen(true)
+            actions.openPane(action.slice(5) as (typeof PANE_ORDER)[number])
+          }
       }
     },
     [api, save],
@@ -108,13 +119,31 @@ export default function App() {
 
   useCommandMode(deleteCell)
 
+  useEffect(() => writeStored('ilios-sidebar', sidebarOpen ? 'open' : 'closed'), [sidebarOpen])
+
+  // Cmd+1 to Cmd+5 toggle the side panes, opening the overview first if it's hidden
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return
+      const pane = PANE_ORDER[Number(e.key) - 1]
+      if (!pane) return
+      e.preventDefault()
+      if (!sidebarOpen) {
+        setSidebarOpen(true)
+        actions.openPane(pane)
+      } else actions.togglePane(pane)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [sidebarOpen])
+
   const needsKey = settings != null && settings.keySource == null
   const needsPython = python != null && (!python.python || python.missingPackages.length > 0)
 
   return (
     <TooltipProvider delayDuration={400}>
-      <div className="flex h-full flex-col bg-canvas">
-        <TopBar sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((o) => !o)} onOpenSettings={() => setSettingsOpen(true)} />
+      <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen} className="h-full min-h-0 flex-col bg-canvas">
+        <TopBar onOpenSettings={() => setSettingsOpen(true)} />
         {(needsKey || needsPython || kernel.error) && (
           <div className="mx-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-background px-4 py-2 text-[13px] shadow-pane">
             <span className="text-muted-foreground">
@@ -131,12 +160,8 @@ export default function App() {
             </Button>
           </div>
         )}
-        <div className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
-          {sidebarOpen && <Sidebar />}
-          <NotebookView onDelete={deleteCell} />
-          <SidePane />
-        </div>
-      </div>
+        <Workspace onDelete={deleteCell} />
+      </SidebarProvider>
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       {undo && (
         <div className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-foreground px-3.5 py-2 text-[13px] text-background shadow-xl" role="status">
@@ -154,6 +179,71 @@ export default function App() {
         </div>
       )}
     </TooltipProvider>
+  )
+}
+
+function readStored(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function writeStored(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // Storage can be unavailable; the layout just won't be remembered
+  }
+}
+
+const layoutStorage = { getItem: readStored, setItem: writeStored }
+
+/**
+ * The overview, the open side pane and the notebook, left to right, with draggable gaps between them.
+ * The overview sits in its own group, so opening or closing a side pane never changes its width.
+ * Cmd+B hides the overview and the side pane together, leaving the notebook.
+ */
+function Workspace({ onDelete }: { onDelete: (id: string) => void }) {
+  const { open, openMobile, isMobile } = useSidebar()
+  const pane = useNotebook((s) => s.pane)
+  const visible = isMobile ? openMobile : open
+  const outer = useDefaultLayout({ id: 'ilios-overview', panelIds: visible ? ['overview', 'main'] : ['main'], storage: layoutStorage })
+  const inner = useDefaultLayout({ id: 'ilios-panes', panelIds: visible && pane ? ['side', 'notebook'] : ['notebook'], storage: layoutStorage })
+  return (
+    <ResizablePanelGroup orientation="horizontal" defaultLayout={outer.defaultLayout} onLayoutChanged={outer.onLayoutChanged} className="min-h-0 flex-1 px-2 pb-2">
+      {visible && (
+        <>
+          <ResizablePanel id="overview" defaultSize={272} minSize={220} maxSize={420} groupResizeBehavior="preserve-pixel-size" className="flex">
+            <Sidebar />
+          </ResizablePanel>
+          <Gap />
+        </>
+      )}
+      <ResizablePanel id="main" minSize={360} className="flex">
+        <ResizablePanelGroup orientation="horizontal" defaultLayout={inner.defaultLayout} onLayoutChanged={inner.onLayoutChanged}>
+          {visible && pane && (
+            <>
+              <ResizablePanel id="side" defaultSize={380} minSize={280} maxSize={680} groupResizeBehavior="preserve-pixel-size" className="flex">
+                <SidePane />
+              </ResizablePanel>
+              <Gap />
+            </>
+          )}
+          <ResizablePanel id="notebook" minSize={360} className="flex">
+            <NotebookView onDelete={onDelete} />
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </ResizablePanel>
+    </ResizablePanelGroup>
+  )
+}
+
+/** The canvas between two panes doubles as the drag handle. A hairline shows on hover. */
+function Gap() {
+  return (
+    <ResizableHandle className="w-2 bg-transparent before:absolute before:inset-y-4 before:left-1/2 before:w-px before:-translate-x-1/2 before:rounded-full before:transition-colors after:w-2 hover:before:bg-ring focus-visible:ring-0 focus-visible:before:bg-ring" />
   )
 }
 

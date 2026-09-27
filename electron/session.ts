@@ -6,6 +6,7 @@ import { createApproval, normalize } from './harness/approval'
 import { EventBus } from './harness/events'
 import { MissingKeyError, resolveModel } from './harness/model'
 import { friendlyError, runCell } from './harness/run-cell'
+import { generateTitle, titleModel } from './harness/title'
 import type { KernelInfo } from './kernel/kernel'
 import { installPackages, pythonStatus, setupManagedEnv } from './kernel/python-env'
 import { PythonKernel } from './kernel/python-kernel'
@@ -196,6 +197,16 @@ export class NotebookSession {
       return fail(err instanceof Error ? err.message : String(err))
     }
 
+    // Name the cell with the small model while the cell runs. It never holds up the run.
+    if (request.nameIt && this.options.settings.autoTitles) {
+      const small = titleModel(this.options.settings.modelConfig())
+      if (small) {
+        void generateTitle(request.prompt, small).then((title) => {
+          if (title) emit({ type: 'title', title, prompt: request.prompt })
+        })
+      }
+    }
+
     const controller = new AbortController()
     this.controller = controller
     const ask = (event: (requestId: string) => RunEvent) =>
@@ -215,6 +226,7 @@ export class NotebookSession {
         bus: this.bus,
         pythonVersion,
         projectInstructions: (await this.readBrief()).text,
+        modelId: this.options.settings.modelConfig().model,
         emit,
         askUser: async (question, options) => {
           const answer = await ask((requestId) => ({ type: 'question', requestId, question, options }))

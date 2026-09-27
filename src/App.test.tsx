@@ -190,6 +190,7 @@ describe('question cells', () => {
     expect(requests.map((r) => r.prompt)).toEqual(['Revenue by month', 'Plot revenue by month'])
     // The empty cell below the first one is reused rather than stacking a new one
     expect(screen.getAllByRole('article', { name: 'Prompt cell' })).toHaveLength(2)
+    await user.click(screen.getByRole('button', { name: /Activity/ }))
     expect(screen.getByRole('list', { name: 'Run log' })).toHaveTextContent('Wrote “Plot revenue by month”')
   })
 
@@ -249,5 +250,85 @@ describe('question cells', () => {
     await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Total sales')
     await user.click(screen.getByRole('button', { name: 'Run cell' }))
     expect(await screen.findByText('The cell is up to date.')).toBeInTheDocument()
+  })
+
+  it('pins several results side by side', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi((req) => result({ answer: `Answer to ${req.prompt}.` }))
+    setApi(api)
+    actions.load({ cells: [newPromptCell('First'), newPromptCell('Second')] }, null)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: 'Run all' }))
+    await screen.findByText('Answer to Second.')
+    for (const pin of screen.getAllByRole('button', { name: 'Pin result to the side' })) await user.click(pin)
+
+    const pane = screen.getByRole('region', { name: 'Pinned' })
+    expect(within(pane).getAllByRole('listitem')).toHaveLength(2)
+    await user.click(within(pane).getAllByRole('button', { name: 'Unpin' })[0])
+    expect(within(pane).getAllByRole('listitem')).toHaveLength(1)
+    expect(within(pane).getByText('Answer to Second.')).toBeInTheDocument()
+  })
+
+  it('picks a model from any maker the gateway offers', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    const updates: unknown[] = []
+    api.updateSettings = async (u) => {
+      updates.push(u)
+      return { ...(await api.getSettings()), ...u }
+    }
+    setApi(api)
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: /Opus 5/ }))
+    await user.type(await screen.findByPlaceholderText('Search models'), 'gemini')
+    await user.click(await screen.findByRole('option', { name: /Gemini 3 Pro/ }))
+    expect(updates).toContainEqual({ model: 'google/gemini-3-pro' })
+  })
+
+  it('shows the short title a small model wrote for a long prompt', async () => {
+    const user = userEvent.setup()
+    const long = 'Plot the return rate for each product category over time, month by month'
+    const { api, requests } = fakeApi((req, emit) => {
+      if (req.nameIt) emit({ type: 'title', title: 'Return rate by category', prompt: req.prompt })
+      return result()
+    })
+    setApi(api)
+    render(<App />)
+
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), long)
+    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    const outline = screen.getByRole('complementary', { name: 'Overview' })
+    expect(await within(outline).findByRole('button', { name: 'Return rate by category' })).toBeInTheDocument()
+    expect(requests[0].nameIt).toBe(true)
+
+    // Rerunning the same prompt doesn't ask again, and editing it shows the prompt until it's named anew
+    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    await waitFor(() => expect(requests).toHaveLength(2))
+    expect(requests[1].nameIt).toBeFalsy()
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), ' for Pro')
+    expect(within(outline).queryByRole('button', { name: 'Return rate by category' })).not.toBeInTheDocument()
+  })
+
+  it('names short shorthand prompts and saved cells that rerun without the agent', async () => {
+    const user = userEvent.setup()
+    const { api, requests } = fakeApi((req, emit) => {
+      if (req.nameIt) emit({ type: 'title', title: req.prompt.startsWith('plt') ? 'Monthly revenue by category' : 'Data overview', prompt: req.prompt })
+      return result({ generated: req.generate })
+    })
+    setApi(api)
+    // A cell that already has code from an earlier session, and a new shorthand prompt
+    actions.load({ cells: [newPromptCell('Load the data and describe it', 'orders = pd.read_csv("orders.csv")'), newPromptCell('plt monthly rev by category?')] }, null)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: 'Run all' }))
+    const outline = screen.getByRole('complementary', { name: 'Overview' })
+    expect(await within(outline).findByRole('button', { name: 'Monthly revenue by category' })).toBeInTheDocument()
+    expect(within(outline).getByRole('button', { name: 'Data overview' })).toBeInTheDocument()
+    expect(requests.map((r) => [r.generate, r.nameIt])).toEqual([
+      [false, true],
+      [true, true],
+    ])
   })
 })

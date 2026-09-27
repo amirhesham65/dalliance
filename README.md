@@ -20,13 +20,20 @@ The first time, open Settings and choose **Set up a Python environment**. It cre
 - **Corrected assumption:** click an underlined assumption under the prompt, change it, and the next run regenerates with your correction.
 - Rerunning a cell marks later cells as out of date, as in Jupyter.
 - **Next prompts:** `finish` can return up to three follow-up prompts. They show under the cell that just ran; clicking one adds it as the next cell and runs it.
+- **Titles:** while a cell runs, a small model (GPT-6 Luna through the gateway, Claude Haiku 4.5 on the Anthropic API) names the cell in a few words for the overview. The name sticks until the prompt changes. Settings can turn it off.
 - **History:** every run with new code keeps that version in the cell. The History pane lists them and restores one without calling the model.
 
 ## Panes
 
-The left pane shows the notebook's progress (one segment per prompt cell), a one-line summary and a run log. The tiles under it open one side pane at a time: **Brief** (the folder's `AGENTS.md`, edited in place and read before every cell), **Variables**, **History** for the selected cell, and **Files** in the notebook's folder. A result can also be pinned to the side while you work further down.
+The window is three resizable columns: the overview (a shadcn sidebar), the open side pane, and the notebook. The overview shows the notebook's progress (one segment per prompt cell), a one-line summary and the cells. The side pane opens next to it, so everything you look at stays on the left: **Brief** (the folder's `AGENTS.md`, edited in place and read before every cell), **Variables**, **History** for the selected cell, **Files** in the notebook's folder, **Pinned** results (as many as you like), and **Activity**, the session's log of runs, failures and restores.
 
-Notebooks save as `.ipynb`. The prompt, interpretation and answer live in each cell's `metadata.ilios`, so Jupyter can open the files, and plain Jupyter notebooks open as runnable code cells.
+Shortcuts: Cmd+B hides or shows the overview and the side pane together. Cmd+1 to Cmd+6 toggle Brief, Variables, History, Files, Pinned and Activity. Column widths are remembered.
+
+## Models
+
+The model picker in the top bar lists every language model the provider offers: through the Vercel AI Gateway that includes OpenAI, Google, xAI and others, grouped by maker with prices. You can also type any model id. Effort applies to Anthropic models (adaptive thinking) and OpenAI models (reasoning effort); other makers use their defaults.
+
+Default: Claude Opus 5 through the Vercel AI Gateway (`anthropic/claude-opus-5`), adaptive thinking, medium effort. Settings can switch to the Anthropic API directly, change the model and effort, and store keys encrypted with the system keychain. In development, keys can come from `.env`.
 
 ## The harness
 
@@ -47,10 +54,6 @@ The agent follows the patterns in Vercel's [Build Your Own AI Coding Agent Harne
 | Event bus with block and modify | `events.ts`; built-in extensions keep `.env` files private and log every run to `logs/agent.jsonl` in the app data folder |
 
 Subagents and cloud sandboxes from the course are not used: one cell is a small, bounded task, and the kernel runs locally.
-
-## Models
-
-Default: Claude Opus 5 through the Vercel AI Gateway (`anthropic/claude-opus-5`), adaptive thinking, medium effort. Settings can switch to the Anthropic API directly, change the model and effort, and store keys encrypted with the system keychain. In development, keys can come from `.env`.
 
 ## Commands
 

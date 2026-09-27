@@ -20,7 +20,7 @@ export function NotebookView({ onDelete }: { onDelete: (id: string) => void }) {
   }, [selectedId])
 
   return (
-    <main className="flex min-h-0 min-w-[360px] flex-1 flex-col overflow-hidden rounded-xl border bg-background shadow-pane">
+    <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background shadow-pane">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b px-4 text-[13px]">
         <NotebookText className="size-3.5 text-muted-foreground" />
         <h2 className="font-medium">Notebook</h2>

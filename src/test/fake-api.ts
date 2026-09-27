@@ -29,8 +29,19 @@ export function fakeApi(onRun: RunHandler) {
       effort: 'medium',
       pythonPath: null,
       approvalMode: 'interactive',
+      autoTitles: true,
       keySource: 'environment',
       hasKey: { gateway: true, anthropic: false },
+    }),
+    listModels: async () => ({
+      provider: 'gateway',
+      models: [
+        { id: 'anthropic/claude-opus-5', name: 'Claude Opus 5', maker: 'Anthropic', price: '$5 / $25' },
+        { id: 'anthropic/claude-sonnet-5', name: 'Claude Sonnet 5', maker: 'Anthropic', price: '$3 / $15' },
+        { id: 'openai/gpt-5.2', name: 'GPT-5.2', maker: 'OpenAI', price: '$1.75 / $14' },
+        { id: 'google/gemini-3-pro', name: 'Gemini 3 Pro', maker: 'Google', price: '$2 / $12' },
+      ],
+      error: null,
     }),
     updateSettings: async () => {
       throw new Error('not used')
@@ -48,6 +59,8 @@ export function fakeApi(onRun: RunHandler) {
     listFiles: async () => [],
     saveNotebook: async () => '/tmp/test.ipynb',
     confirmDiscard: async () => true,
+    restoreSession: async () => null,
+    saveDraft: () => {},
     setDocumentState: () => {},
     onMenu: () => () => {},
   }

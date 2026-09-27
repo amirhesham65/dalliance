@@ -104,14 +104,13 @@ export function BriefPane() {
     setEditing(false)
   }
 
-  const folder = brief?.path.split(/[\\/]/).slice(-2, -1)[0]
 
   return (
     <Pane
       title="Brief"
       icon={<FileText />}
       onClose={() => actions.openPane(null)}
-      footer={editing && !saved ? 'Saving…' : `AGENTS.md${folder ? ` in ${folder}` : ''}. The agent reads it before every cell.`}
+      footer={editing && !saved ? 'Saving…' : 'The agent reads it before every cell.'}
       actions={
         (editing || text != null) &&
         (editing ? (

@@ -21,6 +21,7 @@ const api: IliosApi = {
   listVariables: () => ipcRenderer.invoke(IPC.listVariables),
   onKernelState: (listener) => subscribe(IPC.kernelStateChanged, listener),
   getSettings: () => ipcRenderer.invoke(IPC.getSettings),
+  listModels: () => ipcRenderer.invoke(IPC.listModels),
   updateSettings: (update) => ipcRenderer.invoke(IPC.updateSettings, update),
   pythonState: () => ipcRenderer.invoke(IPC.pythonState),
   setupPython: () => ipcRenderer.invoke(IPC.setupPython),
@@ -33,6 +34,8 @@ const api: IliosApi = {
   listFiles: () => ipcRenderer.invoke(IPC.listFiles),
   saveNotebook: (path, notebook) => ipcRenderer.invoke(IPC.saveNotebook, path, notebook),
   confirmDiscard: () => ipcRenderer.invoke(IPC.confirmDiscard),
+  restoreSession: () => ipcRenderer.invoke(IPC.restoreSession),
+  saveDraft: (state) => ipcRenderer.send(IPC.saveDraft, state),
   setDocumentState: (state) => ipcRenderer.send(IPC.documentState, state),
   onMenu: (listener) => subscribe(IPC.menu, listener),
 }
