@@ -46,6 +46,10 @@ Both variables are read at build time. `turbo.json` lists them in the build task
 
 Every download button links to `/download`. The redirect lives in `next.config.ts` and is temporary, not permanent, so moving the installer only means changing the variable. `robots.ts` disallows `/download`. The config also sets `nosniff`, `DENY` framing, a strict referrer policy and a permissions policy on every route.
 
+## Analytics
+
+`layout.tsx` renders `<Analytics />` from `@vercel/analytics/next`, which counts page views without cookies. It only sends data from a Vercel deployment with Web Analytics turned on in the project's dashboard, never from `next dev` or a local `next start`. There are no custom events.
+
 ## Design
 
 The site shares its palette and type with the app, so the page and the screenshots match. `globals.css` copies the app's light and dark colours from `apps/desktop/src/index.css` into its own tokens: `--paper`, `--ink`, `--hairline`, `--brand` and the rest. Utilities read them through `@theme`, so they flip with the system theme without `dark:` on every class. When you change an app colour that the site shows, change it in both files.
@@ -77,4 +81,4 @@ The demo notebook lives in `apps/desktop/src/dev/demo.ts`. Change it there if a 
 
 ## Privacy page
 
-The privacy page says the site collects nothing and the app keeps work on the user's Mac. Update it in the same change if either stops being true, for example if you add analytics to the site or telemetry to the app.
+The privacy page lists what the site counts through Vercel Web Analytics, and says the app sends no telemetry and keeps work on the user's Mac. Update it in the same change if any of that stops being true, for example if you add custom analytics events or telemetry in the app.

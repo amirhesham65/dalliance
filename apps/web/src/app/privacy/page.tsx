@@ -3,7 +3,7 @@ import { Band, SiteFooter, SiteHeader } from '@/components/Chrome'
 import { site } from '@/lib/site'
 import { headline, labelMono, mastheadRuled, sheet, support } from '@/lib/ui'
 
-const description = 'What Dalliance keeps on your Mac and what it sends to your model provider.'
+const description = 'What this site counts, what Dalliance keeps on your Mac, and what it sends to your model provider.'
 
 export const metadata: Metadata = {
   title: 'Privacy',
@@ -18,7 +18,10 @@ const sections = [
   {
     id: 'site',
     label: 'This website',
-    rows: [{ k: 'No tracking.', v: 'No cookies, analytics or third-party scripts.' }],
+    rows: [
+      { k: 'Page views.', v: 'Counted with Vercel Web Analytics: the page, the site that sent you, your country, browser, operating system and device type.' },
+      { k: 'No cookies.', v: 'Nothing is stored on your device, and visits are not linked across days or other sites.' },
+    ],
   },
   {
     id: 'local',
@@ -43,7 +46,7 @@ const sections = [
   {
     id: 'telemetry',
     label: 'Telemetry',
-    rows: [{ k: 'None.', v: 'No analytics, crash reports or usage tracking.' }],
+    rows: [{ k: 'None.', v: 'The app sends no analytics, crash reports or usage data.' }],
   },
 ]
 
@@ -55,7 +58,7 @@ export default function Privacy() {
         <div className={mastheadRuled}>
           <p className={`${labelMono} mb-4`}>Updated 27 September 2026</p>
           <h1 className={headline}>Privacy</h1>
-          <p className={support}>This site collects nothing. The app keeps your work on your Mac.</p>
+          <p className={support}>This site counts visits without cookies. The app keeps your work on your Mac and sends nothing about how you use it.</p>
         </div>
       </div>
       <main id="main" className={sheet}>
