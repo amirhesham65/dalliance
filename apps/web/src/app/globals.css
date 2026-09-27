@@ -331,9 +331,9 @@ a:focus-visible {
 /* Home: copy on the left, the live cell on the right; stacked on narrow screens */
 .masthead.split { display: grid; gap: 48px; }
 /* Stacked, the cell keeps its desktop width so the chart's type does not scale up */
-.masthead.split > .live-cell { width: 100%; max-width: 480px; }
+.masthead.split > .live-cell { width: 100%; max-width: 520px; }
 @media (min-width: 1000px) {
-  .masthead.split { grid-template-columns: minmax(0, 1fr) 460px; gap: 72px; align-items: center; }
+  .masthead.split { grid-template-columns: minmax(0, 1fr) 500px; gap: 72px; align-items: center; }
 }
 
 @media (min-width: 1000px) {
