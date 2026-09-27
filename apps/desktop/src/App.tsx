@@ -127,7 +127,7 @@ export default function App() {
 
   useEffect(() => writeStored('dalliance-sidebar', sidebarOpen ? 'open' : 'closed'), [sidebarOpen])
 
-  // Cmd+1 to Cmd+5 toggle the side panes, opening the overview first if it's hidden
+  // Cmd+1 to Cmd+6 toggle the side panes, opening the overview first if it's hidden
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return
