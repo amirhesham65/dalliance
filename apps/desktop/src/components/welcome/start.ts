@@ -1,5 +1,5 @@
-import type { OpenedNotebook, PythonState } from '@ilios/shared/ipc'
-import type { Notebook } from '@ilios/shared/notebook'
+import type { OpenedNotebook, PythonState } from '@dalliance/shared/ipc'
+import type { Notebook } from '@dalliance/shared/notebook'
 import { actions, getApi, useNotebook } from '@/store/notebook-store'
 
 export const modKey = () => (getApi()?.platform === 'darwin' || navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+')

@@ -3,9 +3,9 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Readable } from 'node:stream'
-import type { Output } from '@ilios/shared/notebook'
+import type { Output } from '@dalliance/shared/notebook'
 import type { ExecuteOptions, ExecuteResult, Kernel, KernelInfo, KernelStatus, VariableInfo } from './kernel'
-import kernelSource from './ilios_kernel.py?raw'
+import kernelSource from './dalliance_kernel.py?raw'
 
 interface Pending {
   outputs: Output[]
@@ -46,7 +46,7 @@ export class PythonKernel implements Kernel {
 
   start(): Promise<void> {
     mkdirSync(this.options.scratchDir, { recursive: true })
-    const script = path.join(this.options.scratchDir, 'ilios_kernel.py')
+    const script = path.join(this.options.scratchDir, 'dalliance_kernel.py')
     writeFileSync(script, kernelSource)
     this.setStatus('starting')
     this.error = null

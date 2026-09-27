@@ -1,9 +1,7 @@
 import { type Cell, type ColumnProfile, type CreatedVariable, type Notebook, type Output, type PromptCell, type Revision, type TableValue, newNoteCell, newPromptCell } from './notebook'
 
 /** Custom MIME type for tables, so outputs render natively instead of through pandas HTML. */
-export const TABLE_MIME = 'application/vnd.ilios.table+json'
-/** Notebooks saved before the rename to Ilios used these names. */
-const LEGACY_TABLE_MIME = 'application/vnd.prose.table+json'
+export const TABLE_MIME = 'application/vnd.dalliance.table+json'
 
 type Json = Record<string, unknown>
 
@@ -45,7 +43,7 @@ function outputFromNb(o: Json): Output | null {
   }
   if (type === 'execute_result' || type === 'display_data') {
     const data = (o.data ?? {}) as Json
-    const table = (data[TABLE_MIME] ?? data[LEGACY_TABLE_MIME]) as Json | undefined
+    const table = data[TABLE_MIME] as Json | undefined
     if (table) {
       return {
         type: 'table',
@@ -69,7 +67,7 @@ export function toIpynb(nb: Notebook): Json {
     metadata: {
       kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' },
       language_info: { name: 'python' },
-      ilios: { version: 1 },
+      dalliance: { version: 1 },
     },
     cells: nb.cells.map((cell): Json => {
       if (cell.kind === 'note') return { id: cell.id, cell_type: 'markdown', metadata: {}, source: lines(cell.markdown) }
@@ -78,7 +76,7 @@ export function toIpynb(nb: Notebook): Json {
         cell_type: 'code',
         execution_count: cell.executionCount,
         metadata: {
-          ilios: {
+          dalliance: {
             prompt: cell.prompt,
             ...(cell.title ? { title: cell.title, titleFrom: cell.titleFrom } : {}),
             generatedFrom: cell.generatedFrom,
@@ -113,7 +111,7 @@ export function fromIpynb(raw: unknown): Notebook {
     }
     if (c.cell_type !== 'code') continue
     const metadata = (c.metadata ?? {}) as Json
-    const meta = (metadata.ilios ?? metadata.prose ?? {}) as Json
+    const meta = (metadata.dalliance ?? {}) as Json
     const base = newPromptCell(String(meta.prompt ?? ''), source)
     const cell: PromptCell = {
       ...base,

@@ -1,96 +1,135 @@
 /**
  * A pretend desktop bridge for looking at the UI in a plain browser: open the renderer with ?demo.
- * Nothing here runs inside Electron, where window.ilios is the real bridge.
+ * Nothing here runs inside Electron, where window.dalliance is the real bridge.
  */
 import { fakeApi, fakeSettings, result } from '@/test/fake-api'
-import type { PythonState, RunEvent } from '@ilios/shared/ipc'
-import { type Notebook, type Output, newNoteCell, newPromptCell } from '@ilios/shared/notebook'
+import type { PythonState, RunEvent } from '@dalliance/shared/ipc'
+import { type Notebook, type Output, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-const ordersTable: Output = {
+// A phase II trial readout: does a new regimen extend survival over standard care?
+const survivalTable: Output = {
   type: 'table',
-  columns: ['month', 'orders', 'revenue'],
-  index: ['0', '1', '2', '3'],
+  columns: ['arm', 'patients', 'deaths', 'median_months', 'survival_24m'],
+  index: ['0', '1'],
   rows: [
-    ['May', 612, 24_310.5],
-    ['Jun', 701, 27_902.1],
-    ['Jul', 688, 26_144.8],
-    ['Aug', 862, 35_512.4],
+    ['New regimen', 206, 88, 31.2, 0.68],
+    ['Standard care', 206, 121, 22.4, 0.5],
   ],
-  totalRows: 4,
+  totalRows: 2,
 }
 
 function sampleNotebook(): Notebook {
   const now = Date.now()
   const load = {
-    ...newPromptCell('Load orders.csv', "orders = pd.read_csv('orders.csv', parse_dates=['created_at'])\norders"),
+    ...newPromptCell('Load patients.csv', "patients = pd.read_csv('patients.csv')\npatients"),
     state: 'done' as const,
     executionCount: 1,
-    durationMs: 412,
-    answer: 'Loaded **2,863 orders** from May to August.',
-    outputs: [{ type: 'text', text: '<DataFrame 2,863 rows × 7 columns>' } as Output],
-    variables: [{ name: 'orders', type: 'DataFrame', shape: '2,863 × 7' }],
+    durationMs: 388,
+    answer: 'Loaded **412 patients**, 206 per arm, followed for up to 48 months.',
+    outputs: [{ type: 'text', text: '<DataFrame 412 rows × 9 columns>' } as Output],
+    variables: [{ name: 'patients', type: 'DataFrame', shape: '412 × 9' }],
   }
-  const monthly = {
-    ...newPromptCell('Revenue and orders by month', "monthly = orders.groupby(orders.created_at.dt.strftime('%b')).agg(orders=('id','count'), revenue=('total','sum'))\nmonthly"),
+  const survival = {
+    ...newPromptCell(
+      'Median survival and 2-year survival by arm',
+      "km = KaplanMeierFitter()\nrows = []\nfor arm, g in patients.groupby('arm'):\n    km.fit(g.months, g.died)\n    rows.append((arm, len(g), g.died.sum(), km.median_survival_time_, km.predict(24)))\nsummary = pd.DataFrame(rows, columns=['arm', 'patients', 'deaths', 'median_months', 'survival_24m'])\nsummary",
+    ),
     state: 'done' as const,
     executionCount: 2,
-    durationMs: 8_420,
-    interpretation: 'Revenue is [[total including tax]], grouped by [[order creation month]].',
-    answer: 'August was the strongest month with **$35.5k** from **862 orders**, up 36% on July.',
-    outputs: [ordersTable],
+    durationMs: 6_240,
+    interpretation: 'Survival is [[time to death, censored at last visit]], measured from [[randomisation]].',
+    answer: 'Median survival was **31.2 months** on the new regimen and **22.4** on standard care. At 2 years, **68%** and **50%** were alive.',
+    outputs: [survivalTable],
     showTables: true,
-    suggestions: ['Plot monthly revenue as a bar chart', 'Why did August jump? Break it down by region', 'Average order value by month'],
-    variables: [{ name: 'monthly', type: 'DataFrame', shape: '4 × 2' }],
+    suggestions: ['Plot Kaplan-Meier curves by arm', 'Is the difference significant? Run a log-rank test', 'Hazard ratio adjusted for age and stage'],
+    variables: [{ name: 'summary', type: 'DataFrame', shape: '2 × 5' }],
   }
-  monthly.history = [
-    { at: now - 4 * 60_000, prompt: monthly.prompt, code: monthly.code, interpretation: monthly.interpretation, answer: monthly.answer, edited: false },
+  // The first version took a plain median of follow-up time, which ignores patients still alive at their last visit
+  survival.history = [
+    { at: now - 3 * 60_000, prompt: survival.prompt, code: survival.code, interpretation: survival.interpretation, answer: survival.answer, edited: false },
     {
-      at: now - 26 * 60_000,
-      prompt: 'Revenue by month',
-      code: "monthly = orders.groupby(orders.created_at.dt.month).total.sum()\nmonthly",
+      at: now - 21 * 60_000,
+      prompt: 'Survival by arm',
+      code: "patients.groupby('arm').months.median()",
       interpretation: null,
-      answer: 'August had the most revenue.',
+      answer: 'The new regimen arm had a longer median follow-up.',
       edited: false,
     },
   ]
-  const region = { ...newPromptCell('Top 5 regions by revenue in August', "orders[orders.created_at.dt.month == 8].groupby('region').total.sum().nlargest(5)"), state: 'stale' as const, executionCount: 3, outputs: [{ type: 'text', text: 'region\nWest    9,120.4\nSouth   8,702.2' } as Output] }
+  const older = {
+    ...newPromptCell('Same comparison for patients over 65', "older = patients[patients.age > 65]\nolder.groupby('arm').months.median()"),
+    state: 'stale' as const,
+    executionCount: 3,
+    outputs: [{ type: 'text', text: 'arm\nNew regimen      27.9\nStandard care    21.0' } as Output],
+  }
   // A question answered in words, with its steps run into a sentence the way models often write them
   const question = {
-    ...newPromptCell('What could I build with this data to practise machine learning?', ''),
+    ...newPromptCell('What else should I check before reporting this?', ''),
     state: 'done' as const,
-    durationMs: 8_020,
+    durationMs: 7_310,
     answer:
-      'A **return-risk classifier** fits this data well: `orders` has a `returned` flag on 2,863 rows. A good path: 1) compare return rates by plan, region and order size, 2) fill the 41 missing regions, 3) fit a logistic regression with scikit-learn to predict `returned`, 4) check accuracy and which features matter most. It is small enough to iterate on quickly.\nIf you would rather predict a number, forecasting next month\'s revenue by region is the regression version of the same exercise.',
-    suggestions: ['Return rate by plan and region', 'Fit a logistic regression on returned'],
+      'Check **proportional hazards** first: follow-up in `patients` runs to 48 months and the curves could cross late. A good path: 1) fit a Cox model and test its Schoenfeld residuals, 2) compare dropout rates by arm, 3) look at the 17 patients with missing `stage`, 4) report the hazard ratio with a 95% CI.\nIf proportional hazards do not hold, restricted mean survival time is the usual alternative.',
+    suggestions: ['Compare dropout rates by arm', 'Fit a Cox model and test proportional hazards'],
   }
   return {
     cells: [
       newNoteCell(
-        '# Summer sales review\nHow did orders and revenue move from **May to August**, and what drove the August jump?\n\n## Questions\n- Which *regions* grew fastest?\n- Did the `pro` plan pull revenue up, or order volume?\n- Is August a one-off? Compare with @orders from last year.',
+        '# REGIMEN-2 trial readout\nDoes the **new regimen** extend survival over standard care, and for whom?\n\n## Questions\n- Is the survival gain *significant*?\n- Does it hold for patients over 65?\n- Were dropouts balanced between arms? Start from @patients.',
       ),
       load,
-      monthly,
-      region,
+      survival,
+      older,
       question,
-      newPromptCell('Which customers ordered more than 5 times, and what did they buy most?'),
+      newPromptCell('Which patients stopped treatment early, and why?'),
     ],
   }
 }
 
 /** `welcome` opens on the start page. `setup` is a first launch: no key, no Python, nothing recent. */
 export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook') {
+  // Questions the agent is waiting on, answered from the card in the cell
+  const pending = new Map<string, (answer: string | boolean | null) => void>()
   const { api } = fakeApi(async (request, emit: (e: RunEvent) => void) => {
     if (!request.generate) {
       await wait(500)
-      return result({ code: request.code, outputs: [ordersTable], generated: false })
+      return result({ code: request.code, outputs: [survivalTable], generated: false })
     }
-    if (request.nameIt) setTimeout(() => emit({ type: 'title', title: 'Customers with 5+ orders', prompt: request.prompt }), 900)
+    if (request.nameIt) setTimeout(() => emit({ type: 'title', title: 'Early stops by reason', prompt: request.prompt }), 900)
+    // The sample's last cell is ambiguous on purpose: patients who switched arms change the counts, so the agent asks
+    if (/stopped treatment early/.test(request.prompt)) {
+      const look = { id: 'q1', label: 'Looking at patients.switched.value_counts()' }
+      emit({ type: 'activity', item: { id: 'q0', label: 'Checked variables', status: 'done' } })
+      emit({ type: 'activity', item: { ...look, status: 'running' } })
+      await wait(600)
+      emit({ type: 'activity', item: { ...look, status: 'done', detail: '38 switched' } })
+      emit({ type: 'status', text: 'Waiting for your answer' })
+      const answer = await new Promise<string | boolean | null>((resolve) => {
+        pending.set('switched', resolve)
+        emit({
+          type: 'question',
+          requestId: 'switched',
+          question: '38 patients switched arms after progression. Count them in the arm they were randomised to?',
+          options: ['Yes, intention to treat', 'No, per protocol'],
+        })
+      })
+      const itt = answer !== 'No, per protocol'
+      return result({
+        code: `stopped = patients${itt ? '' : '[~patients.switched]'}.query('stopped_early')\nstopped.groupby('arm').reason.value_counts()`,
+        outputs: [{ type: 'text', text: 'reason\ntoxicity       19\nprogression    14\nwithdrew        8' }],
+        answer: `**41 patients** (10%) stopped early, most often for **toxicity** (19) and **progression** (14). Counted ${itt ? 'by intention to treat' : 'per protocol'}.`,
+        activity: [
+          { id: 'q0', label: 'Checked variables', status: 'done' },
+          { ...look, status: 'done', detail: '312 returned' },
+        ],
+        durationMs: 3_100,
+      })
+    }
     const steps = [
       { id: 'a', label: 'Checked variables' },
-      { id: 'b', label: 'Looking at orders.region.value_counts()' },
+      { id: 'b', label: 'Looking at patients.stage.value_counts()' },
       { id: 'c', label: 'Ran the cell', detail: 'in 84 ms' },
     ]
     for (const s of steps) {
@@ -100,15 +139,19 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
       emit({ type: 'activity', item: { ...s, status: 'done' } })
     }
     return result({
-      code: "orders.groupby('region').total.sum().sort_values(ascending=False)",
-      outputs: [ordersTable],
-      answer: 'The **West** region led with **$9.1k**.',
-      suggestions: ['Compare West and South week by week', 'Plot revenue by region'],
+      code: "patients.groupby('stage').died.mean().sort_values(ascending=False)",
+      outputs: [{ type: 'text', text: 'stage\nIII    0.58\nII     0.41\nI      0.27' }],
+      answer: 'Stage **III** patients had the highest death rate, **58%**.',
+      suggestions: ['Survival curves by stage', 'Adjust the arm comparison for stage'],
       activity: steps.map((s) => ({ ...s, status: 'done' as const })),
       durationMs: 2_300,
     })
   })
-  const brief = { path: '/Users/demo/Summer sales/AGENTS.md', text: null as string | null }
+  api.respond = (id, answer) => {
+    pending.get(id)?.(answer)
+    pending.delete(id)
+  }
+  const brief = { path: '/Users/demo/REGIMEN-2/AGENTS.md', text: null as string | null }
   api.platform = 'darwin'
   api.readBrief = async () => ({ ...brief })
   api.writeBrief = async (text) => {
@@ -116,17 +159,17 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
     return { ...brief }
   }
   api.listFiles = async () => [
-    { path: 'orders.csv', size: '412.6 KB' },
-    { path: 'customers.csv', size: '88.1 KB' },
-    { path: 'regions/targets.xlsx', size: '19.4 KB' },
+    { path: 'patients.csv', size: '61.3 KB' },
+    { path: 'adverse_events.csv', size: '144.8 KB' },
+    { path: 'protocol/statistical_analysis_plan.pdf', size: '812.0 KB' },
   ]
   api.recentNotebooks = async () => [
-    { path: '/Users/demo/Summer sales/review.ipynb', name: 'review', folder: 'Summer sales', openedAt: Date.now() - 60_000 },
-    { path: '/Users/demo/Churn/cohorts.ipynb', name: 'cohorts', folder: 'Churn', openedAt: Date.now() - 3 * 3600_000 },
+    { path: '/Users/demo/REGIMEN-2/readout.ipynb', name: 'readout', folder: 'REGIMEN-2', openedAt: Date.now() - 60_000 },
+    { path: '/Users/demo/Registry/cohorts.ipynb', name: 'cohorts', folder: 'Registry', openedAt: Date.now() - 3 * 3600_000 },
   ]
   api.listVariables = async () => [
-    { name: 'orders', type: 'DataFrame', shape: '2,863 × 7', detail: 'id, created_at, customer_id, region, plan, total, returned' },
-    { name: 'monthly', type: 'DataFrame', shape: '4 × 2', detail: 'orders, revenue' },
+    { name: 'patients', type: 'DataFrame', shape: '412 × 9', detail: 'id, arm, age, stage, months, died, stopped_early, reason, switched' },
+    { name: 'summary', type: 'DataFrame', shape: '2 × 5', detail: 'arm, patients, deaths, median_months, survival_24m' },
   ]
   let settings = fakeSettings()
   if (mode === 'setup') settings = { ...settings, onboarded: false, keySource: null, hasKey: { gateway: false, anthropic: false } }
@@ -150,7 +193,7 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
       pythonLogs.forEach((l) => l(line))
       await wait(450)
     }
-    python = { python: '~/Library/Application Support/Ilios/python/bin/python', version: '3.12.4', source: 'managed', managedEnvExists: true, missingPackages: [] }
+    python = { python: '~/Library/Application Support/Dalliance/python/bin/python', version: '3.12.4', source: 'managed', managedEnvExists: true, missingPackages: [] }
     return python
   }
   if (mode === 'setup') api.recentNotebooks = async () => []
@@ -173,17 +216,17 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
     ],
   })
   setApi(api)
-  actions.load(sampleNotebook(), '/Users/demo/Summer sales/review.ipynb')
-  useNotebook.setState({ kernel: { status: 'idle', python: '3.12.4', cwd: '/Users/demo/Summer sales', error: null } })
+  actions.load(sampleNotebook(), '/Users/demo/REGIMEN-2/readout.ipynb')
+  useNotebook.setState({ kernel: { status: 'idle', python: '3.12.4', cwd: '/Users/demo/REGIMEN-2', error: null } })
   const cells = useNotebook.getState().notebook.cells
   useNotebook.setState({ selectedId: cells[2].id, lastFinishedId: cells[2].id })
   // A little history for the run log
   const log = [
-    { kind: 'wrote' as const, text: 'Wrote “Revenue and orders by month”', cellId: cells[2].id, at: Date.now() - 4 * 60_000 },
-    { kind: 'failed' as const, text: '“Revenue and orders by month” failed: KeyError', cellId: cells[2].id, at: Date.now() - 6 * 60_000 },
-    { kind: 'ran' as const, text: 'Ran “Load orders.csv”', cellId: cells[1].id, at: Date.now() - 12 * 60_000 },
+    { kind: 'wrote' as const, text: 'Wrote “Median survival and 2-year survival by arm”', cellId: cells[2].id, at: Date.now() - 3 * 60_000 },
+    { kind: 'failed' as const, text: '“Median survival and 2-year survival by arm” failed: ModuleNotFoundError', cellId: cells[2].id, at: Date.now() - 5 * 60_000 },
+    { kind: 'ran' as const, text: 'Ran “Load patients.csv”', cellId: cells[1].id, at: Date.now() - 12 * 60_000 },
     { kind: 'restarted' as const, text: 'Restarted Python', at: Date.now() - 14 * 60_000 },
-    { kind: 'wrote' as const, text: 'Wrote “Load orders.csv”', cellId: cells[1].id, at: Date.now() - 30 * 60_000 },
+    { kind: 'wrote' as const, text: 'Wrote “Load patients.csv”', cellId: cells[1].id, at: Date.now() - 30 * 60_000 },
   ]
   useNotebook.setState({ log: log.map((e, i) => ({ ...e, id: -i - 1 })) })
   void actions.refreshVariables()

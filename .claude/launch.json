@@ -4,20 +4,50 @@
     {
       "name": "renderer-preview",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@ilios/desktop", "exec", "vite", "preview", "--port", "4173", "--strictPort"],
+      "runtimeArgs": [
+        "--filter",
+        "@dalliance/desktop",
+        "exec",
+        "vite",
+        "preview",
+        "--port",
+        "4173",
+        "--strictPort"
+      ],
       "port": 4173
     },
     {
       "name": "renderer-preview-2",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@ilios/desktop", "exec", "vite", "preview", "--port", "4174", "--strictPort"],
+      "runtimeArgs": [
+        "--filter",
+        "@dalliance/desktop",
+        "exec",
+        "vite",
+        "preview",
+        "--port",
+        "4174",
+        "--strictPort"
+      ],
       "port": 4174
     },
     {
       "name": "desktop",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev"],
+      "runtimeArgs": [
+        "dev"
+      ],
       "port": 5173
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@dalliance/web",
+        "start"
+      ],
+      "port": 3100
     }
   ]
 }

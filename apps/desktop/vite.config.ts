@@ -6,7 +6,7 @@ import electron from 'vite-plugin-electron/simple'
 
 // Strict CSP for packaged builds only. The dev server needs inline scripts for React Fast Refresh.
 const csp: Plugin = {
-  name: 'ilios-csp',
+  name: 'dalliance-csp',
   apply: 'build',
   transformIndexHtml: () => [
     {

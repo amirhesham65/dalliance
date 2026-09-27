@@ -5,7 +5,7 @@ import type {
   Brief,
   CellRunResult,
   KernelState,
-  IliosApi,
+  DallianceApi,
   ModelList,
   PaneName,
   PythonState,
@@ -13,7 +13,7 @@ import type {
   RunEvent,
   SettingsView,
   VariableView,
-} from '@ilios/shared/ipc'
+} from '@dalliance/shared/ipc'
 import {
   type Cell,
   type Notebook,
@@ -25,7 +25,7 @@ import {
   newNoteCell,
   tablesOpen,
   newPromptCell,
-} from '@ilios/shared/notebook'
+} from '@dalliance/shared/notebook'
 
 /** What a cell shows while it is queued or running. Not saved with the notebook. */
 export interface CellRun {
@@ -84,10 +84,10 @@ export interface NotebookState {
   models: ModelList | null
 }
 
-let api: IliosApi | undefined = typeof window === 'undefined' ? undefined : window.ilios
+let api: DallianceApi | undefined = typeof window === 'undefined' ? undefined : window.dalliance
 
 /** Tests and the browser preview swap in a fake bridge. */
-export function setApi(next: IliosApi | undefined) {
+export function setApi(next: DallianceApi | undefined) {
   api = next
 }
 export const getApi = () => api

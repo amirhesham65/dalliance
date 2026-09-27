@@ -1,4 +1,4 @@
-import type { Output } from '@ilios/shared/notebook'
+import type { Output } from '@dalliance/shared/notebook'
 import type { VariableInfo } from '../kernel/kernel'
 
 /** Every tool result is bounded, so one big output can't eat the context window. */

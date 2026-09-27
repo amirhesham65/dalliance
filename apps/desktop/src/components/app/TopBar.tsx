@@ -6,7 +6,7 @@ import { useSidebar } from '@/components/ui/sidebar'
 import { makerOfModel } from '@/lib/makers'
 import { ago, modelLabel } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
-import type { Effort, RecentNotebook } from '@ilios/shared/ipc'
+import type { Effort, RecentNotebook } from '@dalliance/shared/ipc'
 import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
 import { IconButton } from './IconButton'
 import { MakerLogo } from './MakerLogo'
@@ -53,7 +53,7 @@ function NotebookTab() {
   const api = getApi()
   const name = path ? (path.split(/[\\/]/).pop() ?? path).replace(/\.ipynb$/, '') : 'Untitled'
 
-  const load = async (fn: () => Promise<{ notebook: import('@ilios/shared/notebook').Notebook; path: string | null } | null>) => {
+  const load = async (fn: () => Promise<{ notebook: import('@dalliance/shared/notebook').Notebook; path: string | null } | null>) => {
     setOpen(false)
     if (!api || !(await api.confirmDiscard())) return
     const opened = await fn()

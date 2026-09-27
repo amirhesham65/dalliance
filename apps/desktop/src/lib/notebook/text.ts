@@ -1,4 +1,4 @@
-import type { Cell } from '@ilios/shared/notebook'
+import type { Cell } from '@dalliance/shared/notebook'
 
 export type TextPart = { type: 'text'; value: string } | { type: 'ref'; value: string }
 

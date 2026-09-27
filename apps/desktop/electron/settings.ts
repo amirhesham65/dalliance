@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { safeStorage } from 'electron'
-import type { Effort, Provider, SettingsUpdate, SettingsView } from '@ilios/shared/ipc'
+import type { Effort, Provider, SettingsUpdate, SettingsView } from '@dalliance/shared/ipc'
 import { DEFAULT_MODELS, type ModelConfig } from './harness/model'
 
 interface Stored {

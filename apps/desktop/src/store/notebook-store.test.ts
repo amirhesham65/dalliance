@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { type PromptCell, newNoteCell, newPromptCell } from '@ilios/shared/notebook'
+import { type PromptCell, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { fakeApi, result } from '@/test/fake-api'
 import { actions, setApi, useNotebook } from './notebook-store'
 

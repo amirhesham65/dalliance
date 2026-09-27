@@ -174,8 +174,8 @@ export type MenuAction =
 /** The side panes, as the menu names them. */
 export type PaneName = 'brief' | 'variables' | 'history' | 'files' | 'pinned' | 'activity'
 
-/** Everything the preload script exposes as window.ilios. */
-export interface IliosApi {
+/** Everything the preload script exposes as window.dalliance. */
+export interface DallianceApi {
   platform: string
   runCell(request: RunCellRequest): Promise<CellRunResult>
   onRunEvent(listener: (cellId: string, event: RunEvent) => void): () => void

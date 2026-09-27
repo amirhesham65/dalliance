@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { stripAnsi } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
-import type { ColumnProfile, Output } from '@ilios/shared/notebook'
+import type { ColumnProfile, Output } from '@dalliance/shared/notebook'
 
 type Stream = Extract<Output, { type: 'stream' }>
 type Table = Extract<Output, { type: 'table' }>

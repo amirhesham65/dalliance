@@ -1,5 +1,5 @@
 import { Menu, type MenuItemConstructorOptions, app } from 'electron'
-import type { MenuAction } from '@ilios/shared/ipc'
+import type { MenuAction } from '@dalliance/shared/ipc'
 
 export function buildMenu(send: (action: MenuAction) => void) {
   const isMac = process.platform === 'darwin'
@@ -78,7 +78,7 @@ export function buildMenu(send: (action: MenuAction) => void) {
       ],
     },
     { role: 'windowMenu' },
-    { role: 'help', submenu: [item('Welcome to Ilios', 'welcome')] },
+    { role: 'help', submenu: [item('Welcome to Dalliance', 'welcome')] },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }

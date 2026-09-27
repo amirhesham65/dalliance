@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import type { IliosApi } from '@ilios/shared/ipc'
+import type { DallianceApi } from '@dalliance/shared/ipc'
 import { useNotebook } from '@/store/notebook-store'
 
 /** Creates the app's own Python environment, streaming the installer's output. Settings and the first-run setup share it. */
-export function usePythonSetup(api: IliosApi) {
+export function usePythonSetup(api: DallianceApi) {
   const [log, setLog] = useState<string[]>([])
   const [installing, setInstalling] = useState(false)
   const [error, setError] = useState<string | null>(null)

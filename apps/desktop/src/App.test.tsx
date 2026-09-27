@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { newNoteCell, newPromptCell } from '@ilios/shared/notebook'
+import { newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
 import { fakeApi, result } from '@/test/fake-api'
 import App from './App'

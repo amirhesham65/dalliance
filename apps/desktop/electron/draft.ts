@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import type { DraftState, RestoredSession } from '@ilios/shared/ipc'
-import { fromIpynb, toIpynb } from '@ilios/shared/ipynb'
+import type { DraftState, RestoredSession } from '@dalliance/shared/ipc'
+import { fromIpynb, toIpynb } from '@dalliance/shared/ipynb'
 
 /** What goes to disk: where the notebook lives, and its contents only when there are unsaved changes. */
 interface OnDisk {
