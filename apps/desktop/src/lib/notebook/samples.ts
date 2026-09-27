@@ -1,4 +1,4 @@
-import { type Notebook, newNoteCell, newPromptCell } from '@ilios/shared/notebook'
+import { type Notebook, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 
 /** One-line prompts that need no data files, for trying the app on the start page. */
 export const STARTERS: { prompt: string; hint: string }[] = [

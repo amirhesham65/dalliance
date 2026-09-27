@@ -2,9 +2,9 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { BrowserWindow, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
-import { type DraftState, IPC, type MenuAction, type OpenedNotebook, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '@ilios/shared/ipc'
-import { fromIpynb, toIpynb } from '@ilios/shared/ipynb'
-import type { Notebook } from '@ilios/shared/notebook'
+import { type DraftState, IPC, type MenuAction, type OpenedNotebook, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '@dalliance/shared/ipc'
+import { fromIpynb, toIpynb } from '@dalliance/shared/ipynb'
+import type { Notebook } from '@dalliance/shared/notebook'
 import { listModels } from './harness/model'
 import { DraftStore } from './draft'
 import { buildMenu } from './menu'
@@ -27,7 +27,7 @@ let allowCloseAfterSave = false
 const settings = new SettingsStore(app.getPath('userData'))
 const drafts = new DraftStore(app.getPath('userData'))
 // Unsaved notebooks run in their own folder, never in all of Documents
-const defaultWorkspace = path.join(app.getPath('documents'), 'Ilios Notebooks')
+const defaultWorkspace = path.join(app.getPath('documents'), 'Dalliance Notebooks')
 mkdirSync(defaultWorkspace, { recursive: true })
 const session = new NotebookSession({
   settings,
@@ -58,7 +58,7 @@ function createWindow() {
     height: 860,
     minWidth: 720,
     minHeight: 480,
-    title: 'Ilios',
+    title: 'Dalliance',
     backgroundColor: canvas().color,
     show: false,
     // The renderer draws its own top bar. macOS keeps native traffic lights,
@@ -124,7 +124,7 @@ function createWindow() {
 function updateTitle() {
   if (!win) return
   const name = documentState.path ? path.basename(documentState.path) : 'Untitled'
-  win.setTitle(`${name}${documentState.dirty ? ' (edited)' : ''} · Ilios`)
+  win.setTitle(`${name}${documentState.dirty ? ' (edited)' : ''} · Dalliance`)
   if (isMac) {
     win.setRepresentedFilename(documentState.path ?? '')
     win.setDocumentEdited(documentState.dirty)

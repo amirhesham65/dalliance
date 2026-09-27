@@ -1,4 +1,4 @@
-"""Ilios kernel.
+"""Dalliance kernel.
 
 A small Python process that keeps one namespace alive between cells.
 Requests arrive as JSON lines on stdin. Replies go out as JSON lines on fd 3,
@@ -253,7 +253,7 @@ def run(code, store):
         stderr.flush()
         frames = traceback.format_exception(type(error), error, error.__traceback__)
         # Drop the kernel's own frames so the traceback starts at the user's code
-        frames = [f for f in frames if "ilios_kernel.py" not in f]
+        frames = [f for f in frames if "dalliance_kernel.py" not in f]
         emit({"type": "error", "ename": type(error).__name__, "evalue": str(error), "traceback": frames})
         if "matplotlib.pyplot" in sys.modules:
             sys.modules["matplotlib.pyplot"].close("all")

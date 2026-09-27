@@ -70,7 +70,7 @@ export function Reel({ title, intro, frames }: { title: string; intro: string; f
         </div>
       </div>
 
-      <div className={live ? 'track live' : 'track'} id="track" ref={track} tabIndex={0} role="group" aria-label="Screenshots of Ilios, scrollable">
+      <div className={live ? 'track live' : 'track'} id="track" ref={track} tabIndex={0} role="group" aria-label="Screenshots of Dalliance, scrollable">
         {frames.map((f, i) => (
           <figure key={f.label} className={i === current ? 'frame here' : 'frame'} onClick={i === current ? undefined : () => go(i)}>
             {/* One picture per frame, so a dark page never shows a light app and the browser fetches only one file */}

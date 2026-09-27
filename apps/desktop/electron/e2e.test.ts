@@ -1,14 +1,14 @@
 // @vitest-environment node
 /**
  * End-to-end: real Python environment, real kernel, real model through the AI Gateway.
- * Costs money and needs the network, so it only runs with ILIOS_E2E=1:
- *   ILIOS_E2E=1 pnpm exec vitest run electron/e2e.test.ts
+ * Costs money and needs the network, so it only runs with DALLIANCE_E2E=1:
+ *   DALLIANCE_E2E=1 pnpm exec vitest run electron/e2e.test.ts
  */
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { RunCellRequest, RunEvent } from '@ilios/shared/ipc'
+import type { RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
 import { createApproval } from './harness/approval'
 import { EventBus } from './harness/events'
 import { DEFAULT_MODELS, resolveModel } from './harness/model'
@@ -17,10 +17,10 @@ import { setupManagedEnv } from './kernel/python-env'
 import { PythonKernel } from './kernel/python-kernel'
 
 if (existsSync('.env')) process.loadEnvFile('.env')
-const enabled = process.env.ILIOS_E2E === '1' && Boolean(process.env.AI_GATEWAY_API_KEY)
+const enabled = process.env.DALLIANCE_E2E === '1' && Boolean(process.env.AI_GATEWAY_API_KEY)
 
 describe.skipIf(!enabled)('end to end', () => {
-  const root = path.join(tmpdir(), 'ilios-e2e')
+  const root = path.join(tmpdir(), 'dalliance-e2e')
   const workspace = path.join(root, 'workspace')
   let kernel: PythonKernel
   let deps: Omit<HarnessDeps, 'emit'>
@@ -41,7 +41,7 @@ describe.skipIf(!enabled)('end to end', () => {
     await kernel.start()
     const { model, providerOptions } = resolveModel({
       provider: 'gateway',
-      model: process.env.ILIOS_E2E_MODEL ?? DEFAULT_MODELS.gateway,
+      model: process.env.DALLIANCE_E2E_MODEL ?? DEFAULT_MODELS.gateway,
       effort: 'low',
       apiKey: process.env.AI_GATEWAY_API_KEY!,
     })

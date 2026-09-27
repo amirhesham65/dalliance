@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { WebContents } from 'electron'
-import { type Brief, type CellRunResult, type FileEntry, IPC, type KernelState, type PythonState, type RunCellRequest, type RunEvent } from '@ilios/shared/ipc'
+import { type Brief, type CellRunResult, type FileEntry, IPC, type KernelState, type PythonState, type RunCellRequest, type RunEvent } from '@dalliance/shared/ipc'
 import { createApproval, normalize } from './harness/approval'
 import { EventBus } from './harness/events'
 import { MissingKeyError, resolveModel } from './harness/model'

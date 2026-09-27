@@ -1,4 +1,4 @@
-import type { Output } from '@ilios/shared/notebook'
+import type { Output } from '@dalliance/shared/notebook'
 
 export interface VariableInfo {
   name: string

@@ -10,14 +10,14 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { SidebarProvider, useSidebar } from '@/components/ui/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useDefaultLayout } from 'react-resizable-panels'
-import type { MenuAction } from '@ilios/shared/ipc'
-import type { Cell } from '@ilios/shared/notebook'
+import type { MenuAction } from '@dalliance/shared/ipc'
+import type { Cell } from '@dalliance/shared/notebook'
 import { PANE_ORDER, actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
 
 type Undo = { cell: Cell; index: number }
 
 export default function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(() => readStored('ilios-sidebar') !== 'closed')
+  const [sidebarOpen, setSidebarOpen] = useState(() => readStored('dalliance-sidebar') !== 'closed')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [undo, setUndo] = useState<Undo | null>(null)
   const undoTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -125,7 +125,7 @@ export default function App() {
   useCommandMode(deleteCell)
   useScopedSelectAll()
 
-  useEffect(() => writeStored('ilios-sidebar', sidebarOpen ? 'open' : 'closed'), [sidebarOpen])
+  useEffect(() => writeStored('dalliance-sidebar', sidebarOpen ? 'open' : 'closed'), [sidebarOpen])
 
   // Cmd+1 to Cmd+5 toggle the side panes, opening the overview first if it's hidden
   useEffect(() => {
@@ -222,8 +222,8 @@ function Workspace({ onDelete }: { onDelete: (id: string) => void }) {
   const { open, openMobile, isMobile } = useSidebar()
   const pane = useNotebook((s) => s.pane)
   const visible = isMobile ? openMobile : open
-  const outer = useDefaultLayout({ id: 'ilios-overview', panelIds: visible ? ['overview', 'main'] : ['main'], storage: layoutStorage })
-  const inner = useDefaultLayout({ id: 'ilios-panes', panelIds: visible && pane ? ['side', 'notebook'] : ['notebook'], storage: layoutStorage })
+  const outer = useDefaultLayout({ id: 'dalliance-overview', panelIds: visible ? ['overview', 'main'] : ['main'], storage: layoutStorage })
+  const inner = useDefaultLayout({ id: 'dalliance-panes', panelIds: visible && pane ? ['side', 'notebook'] : ['notebook'], storage: layoutStorage })
   return (
     <ResizablePanelGroup orientation="horizontal" defaultLayout={outer.defaultLayout} onLayoutChanged={outer.onLayoutChanged} className="min-h-0 flex-1 px-2 pb-2">
       {visible && (

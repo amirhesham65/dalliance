@@ -18,7 +18,7 @@ const render = () =>
   )
 
 /** Pick up the notebook that was open before a reload or the last quit, then keep the main process up to date. */
-async function restore(api: NonNullable<typeof window.ilios>) {
+async function restore(api: NonNullable<typeof window.dalliance>) {
   const session = await api.restoreSession().catch(() => null)
   if (session) {
     actions.load(session.notebook, session.path, session.dirty)
@@ -43,7 +43,7 @@ async function restore(api: NonNullable<typeof window.ilios>) {
 // In a plain browser, ?demo fills the app with sample data so the UI can be looked at without Electron.
 // ?demo&welcome opens on the start page, ?demo&setup on the first-run setup.
 const params = new URLSearchParams(location.search)
-if (window.ilios) void restore(window.ilios).finally(render)
+if (window.dalliance) void restore(window.dalliance).finally(render)
 else if (params.has('demo'))
   void import('./dev/demo').then((m) => (m.installDemo(params.has('setup') ? 'setup' : params.has('welcome') ? 'welcome' : 'notebook'), render()))
 else render()

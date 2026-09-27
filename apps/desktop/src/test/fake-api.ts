@@ -1,4 +1,4 @@
-import type { CellRunResult, IliosApi, RunCellRequest, RunEvent, SettingsView } from '@ilios/shared/ipc'
+import type { CellRunResult, DallianceApi, RunCellRequest, RunEvent, SettingsView } from '@dalliance/shared/ipc'
 
 type RunHandler = (request: RunCellRequest, emit: (event: RunEvent) => void) => Promise<CellRunResult> | CellRunResult
 
@@ -7,7 +7,7 @@ export function fakeApi(onRun: RunHandler) {
   const runListeners = new Set<(cellId: string, event: RunEvent) => void>()
   const requests: RunCellRequest[] = []
   const responses: [string, unknown][] = []
-  const api: IliosApi = {
+  const api: DallianceApi = {
     platform: 'darwin',
     runCell: async (request) => {
       requests.push(request)

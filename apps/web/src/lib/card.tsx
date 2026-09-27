@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ImageResponse } from 'next/og'
+import { MARK_SQUARES } from './mark'
 import { site } from './site'
 
 export const cardSize = { width: 1200, height: 630 }
@@ -8,14 +9,14 @@ export const cardAlt = `${site.name}, ${site.headline.toLowerCase()}. ${site.tag
 
 const font = (pkg: string, file: string) => readFile(join(process.cwd(), 'node_modules/@fontsource', pkg, 'files', file))
 
-const ink = '#1f3b2d'
 const hatch = (gap: number) => `repeating-linear-gradient(-45deg, #c9c8c2 0px, #c9c8c2 1.5px, transparent 1.5px, transparent ${gap}px)`
 
 /** The social card: the site's masthead on warm paper, under the same hatched band. */
 export async function socialCard() {
-  const [serif, serifMedium, sans] = await Promise.all([
+  const [serif, serifMedium, serifBold, sans] = await Promise.all([
     font('source-serif-4', 'source-serif-4-latin-400-normal.woff'),
     font('source-serif-4', 'source-serif-4-latin-500-normal.woff'),
+    font('source-serif-4', 'source-serif-4-latin-600-normal.woff'),
     font('inter', 'inter-latin-500-normal.woff'),
   ])
   return new ImageResponse(
@@ -24,11 +25,12 @@ export async function socialCard() {
         <div style={{ display: 'flex', height: 92, borderBottom: '2px solid #e7e6e2', backgroundImage: hatch(9) }} />
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, padding: '56px 80px 60px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{ display: 'flex', width: 38, height: 38, borderRadius: 999, border: `3px solid ${ink}`, overflow: 'hidden' }}>
-              <div style={{ width: '50%', height: '100%', background: ink }} />
-              <div style={{ width: '50%', height: '100%', backgroundImage: hatch(6) }} />
-            </div>
-            <div style={{ fontFamily: 'Serif', fontWeight: 500, fontSize: 40, letterSpacing: '-0.015em' }}>Ilios</div>
+            <svg width={36} height={42} viewBox="0 0 6 7" shapeRendering="crispEdges">
+              {MARK_SQUARES.map(([x, y]) => (
+                <rect key={`${x}-${y}`} x={x} y={y} width={1} height={1} fill="#1d1d1b" />
+              ))}
+            </svg>
+            <div style={{ fontFamily: 'Serif', fontWeight: 600, fontSize: 42, letterSpacing: '-0.02em' }}>Dalliance</div>
           </div>
           <div style={{ marginTop: 44, fontFamily: 'Serif', fontWeight: 500, fontSize: 72, lineHeight: 1.08, letterSpacing: '-0.02em', maxWidth: 1000 }}>
             {site.headline}
@@ -46,6 +48,7 @@ export async function socialCard() {
       fonts: [
         { name: 'Serif', data: serif, weight: 400, style: 'normal' },
         { name: 'Serif', data: serifMedium, weight: 500, style: 'normal' },
+        { name: 'Serif', data: serifBold, weight: 600, style: 'normal' },
         { name: 'Sans', data: sans, weight: 500, style: 'normal' },
       ],
     },

@@ -250,11 +250,11 @@
 /* Small uppercase labels that name a group, like STAGED or EARLIER */
 .eyebrow { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); font-weight: 500; }
 
-@keyframes ilios-pulse { 50% { opacity: 0.45; } }
-.pulse { animation: ilios-pulse 1.4s ease-in-out infinite; }
+@keyframes dalliance-pulse { 50% { opacity: 0.45; } }
+.pulse { animation: dalliance-pulse 1.4s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
 
 /* Bars in the first-run example cell rise from the axis, one after another */
-@keyframes ilios-grow { from { transform: scaleY(0); } }
-.grow-up { transform-origin: bottom; animation: ilios-grow 600ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+@keyframes dalliance-grow { from { transform: scaleY(0); } }
+.grow-up { transform-origin: bottom; animation: dalliance-grow 600ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
 @media (prefers-reduced-motion: reduce) { .grow-up { animation: none; } }

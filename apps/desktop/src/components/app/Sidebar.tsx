@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/sidebar'
 import { cellTitle } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
-import type { Cell, PromptCell } from '@ilios/shared/notebook'
+import type { Cell, PromptCell } from '@dalliance/shared/notebook'
 import { type CellRun, type PaneKind, actions, useNotebook } from '@/store/notebook-store'
 
 type Progress = 'running' | 'queued' | 'done' | 'error' | 'stale' | 'edited' | 'idle'

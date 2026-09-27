@@ -1,10 +1,10 @@
 /**
  * A pretend desktop bridge for looking at the UI in a plain browser: open the renderer with ?demo.
- * Nothing here runs inside Electron, where window.ilios is the real bridge.
+ * Nothing here runs inside Electron, where window.dalliance is the real bridge.
  */
 import { fakeApi, fakeSettings, result } from '@/test/fake-api'
-import type { PythonState, RunEvent } from '@ilios/shared/ipc'
-import { type Notebook, type Output, newNoteCell, newPromptCell } from '@ilios/shared/notebook'
+import type { PythonState, RunEvent } from '@dalliance/shared/ipc'
+import { type Notebook, type Output, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -193,7 +193,7 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
       pythonLogs.forEach((l) => l(line))
       await wait(450)
     }
-    python = { python: '~/Library/Application Support/Ilios/python/bin/python', version: '3.12.4', source: 'managed', managedEnvExists: true, missingPackages: [] }
+    python = { python: '~/Library/Application Support/Dalliance/python/bin/python', version: '3.12.4', source: 'managed', managedEnvExists: true, missingPackages: [] }
     return python
   }
   if (mode === 'setup') api.recentNotebooks = async () => []

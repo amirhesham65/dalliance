@@ -1,4 +1,4 @@
-/* The Ilios site
+/* The Dalliance site
  *
  * One stylesheet for the home page, /privacy and the 404. They share one grammar: a ruled sheet of
  * warm paper, hairline bands, short labels in the left margin. The colours, type and the hatched
@@ -249,24 +249,14 @@ a:hover { text-decoration-color: currentColor; }
   color: var(--ink);
   font-family: var(--font-serif), ui-serif, Georgia, serif;
   font-size: var(--font-size-title);
-  font-weight: 500;
-  letter-spacing: -0.015em;
+  font-weight: 600;
+  letter-spacing: -0.02em;
   text-decoration: none;
 }
 
-/* The mark: a sun, half in ink and half hatched */
-.mark {
-  --mark-color: var(--mark, var(--brand));
-  display: inline-flex;
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  overflow: hidden;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--mark-color) 80%, transparent);
-}
-.mark > span { width: 50%; }
-.mark > span:first-child { background: var(--mark-color); }
+/* The pixel mark, in the text colour so it follows the theme */
+/* 17.5px keeps each of the seven rows on whole device pixels on Retina screens */
+.mark { display: block; height: 17.5px; width: auto; flex-shrink: 0; fill: currentColor; }
 
 /* ---------------------------------------------------------------------------
  * Buttons and focus
@@ -340,6 +330,8 @@ a:focus-visible {
 
 /* Home: copy on the left, the live cell on the right; stacked on narrow screens */
 .masthead.split { display: grid; gap: 48px; }
+/* Stacked, the cell keeps its desktop width so the chart's type does not scale up */
+.masthead.split > .live-cell { width: 100%; max-width: 480px; }
 @media (min-width: 1000px) {
   .masthead.split { grid-template-columns: minmax(0, 1fr) 460px; gap: 72px; align-items: center; }
 }

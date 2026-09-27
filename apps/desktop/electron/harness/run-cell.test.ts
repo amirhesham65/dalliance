@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test'
 import { describe, expect, it } from 'vitest'
-import type { RunCellRequest, RunEvent } from '@ilios/shared/ipc'
+import type { RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
 import { FakeKernel } from '../kernel/fake-kernel'
 import { createApproval } from './approval'
 import { EventBus } from './events'
@@ -63,7 +63,7 @@ function harness(model: MockLanguageModelV4, kernel: FakeKernel, extra: Partial<
   const deps: HarnessDeps = {
     model,
     kernel,
-    workspaceDir: mkdtempSync(path.join(tmpdir(), 'ilios-ws-')),
+    workspaceDir: mkdtempSync(path.join(tmpdir(), 'dalliance-ws-')),
     bus: new EventBus(),
     pythonVersion: '3.12.0',
     projectInstructions: null,

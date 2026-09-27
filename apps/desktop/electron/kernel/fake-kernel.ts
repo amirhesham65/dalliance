@@ -1,4 +1,4 @@
-import type { Output } from '@ilios/shared/notebook'
+import type { Output } from '@dalliance/shared/notebook'
 import type { ExecuteOptions, ExecuteResult, Kernel, KernelInfo, VariableInfo } from './kernel'
 
 type Handler = (code: string) => { ok: boolean; outputs: Output[]; assigned?: VariableInfo[] }

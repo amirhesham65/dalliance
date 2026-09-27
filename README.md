@@ -1,4 +1,4 @@
-# Ilios
+# Dalliance
 
 A desktop notebook where each cell is written in plain language. An agent turns the prompt into Python, runs it on a live kernel, checks the result, fixes errors, and keeps the working code. Cells behave like Jupyter cells: edit, rerun, reorder, and read or edit the generated code.
 
@@ -12,7 +12,7 @@ pnpm dev
 
 The first launch walks through setup: what a cell is, a model key, a Python to run on, and a first notebook (blank, opened, or a sample that makes its own data). **Set up a Python environment** creates a private virtual environment with pandas, NumPy and matplotlib in the app's data folder; you can point the app at your own interpreter instead. Every step can be skipped and done later in Settings.
 
-With no notebook to reopen, the app shows a start page: new, open, the sample, recent notebooks, and a few prompts to try. **Help > Welcome to Ilios** opens it over the current notebook.
+With no notebook to reopen, the app shows a start page: new, open, the sample, recent notebooks, and a few prompts to try. **Help > Welcome to Dalliance** opens it over the current notebook.
 
 ## How a cell runs
 
@@ -67,23 +67,23 @@ pnpm test         # unit, component and kernel tests
 pnpm typecheck
 pnpm lint
 pnpm build        # renderer to apps/desktop/dist/, Electron main and preload to apps/desktop/dist-electron/, the website to apps/web/.next/
-pnpm --filter @ilios/web dev                     # just the website, on http://localhost:3100
-pnpm --filter @ilios/desktop exec vite preview   # then open /?demo to see the UI with sample data in a browser
+pnpm --filter @dalliance/web dev                     # just the website, on http://localhost:3100
+pnpm --filter @dalliance/desktop exec vite preview   # then open /?demo to see the UI with sample data in a browser
                                                  # /?demo&welcome for the start page, /?demo&setup for the first-run setup
-ILIOS_E2E=1 pnpm --filter @ilios/desktop exec vitest run electron/e2e.test.ts   # real Python + real model, costs a few cents
+DALLIANCE_E2E=1 pnpm --filter @dalliance/desktop exec vitest run electron/e2e.test.ts   # real Python + real model, costs a few cents
 ```
 
-To run a task in one package, filter it: `pnpm turbo run test --filter @ilios/shared`.
+To run a task in one package, filter it: `pnpm turbo run test --filter @dalliance/shared`.
 
 ## Layout
 
 ```
-apps/desktop/                      the Electron app (@ilios/desktop)
+apps/desktop/                      the Electron app (@dalliance/desktop)
   electron/
-    main.ts, menu.ts, preload.ts   window, menus, file dialogs, the typed window.ilios bridge
+    main.ts, menu.ts, preload.ts   window, menus, file dialogs, the typed window.dalliance bridge
     session.ts                     owns the kernel and the harness for the open notebook
     settings.ts                    settings and encrypted keys
-    kernel/                        ilios_kernel.py (JSON lines over fd 3), PythonKernel, Python setup
+    kernel/                        dalliance_kernel.py (JSON lines over fd 3), PythonKernel, Python setup
     harness/                       the agent: tools, prompt, approval, events, run-cell loop
   src/
     store/notebook-store.ts        document state, run queue, live run state
@@ -92,16 +92,16 @@ apps/desktop/                      the Electron app (@ilios/desktop)
     components/welcome/            the first-run setup and the start page
     dev/demo.ts                    sample data for looking at the UI in a browser (?demo): a clinical trial readout; the last cell asks a question when run
     components/ui/                 shadcn components
-apps/web/                          the website (@ilios/web), Next.js
+apps/web/                          the website (@dalliance/web), Next.js
   src/app/                         home, /privacy, 404, plus metadata routes: sitemap, robots, manifest, icons, social card
   src/components/Reel.tsx          the screenshot reel
   src/assets/shots/                light and dark captures of the ?demo screens
   src/lib/site.ts                  name, copy, URL and download link used across pages and metadata
-packages/shared/                   notebook model, .ipynb conversion, IPC contract, leaked tool-call cleanup (@ilios/shared, used by both sides)
+packages/shared/                   notebook model, .ipynb conversion, IPC contract, leaked tool-call cleanup (@dalliance/shared, used by both sides)
 design/prototype.html              the original single-file prototype
 turbo.json                         task graph: build, typecheck, test, lint, dev
 ```
 
-The website reads two environment variables at build time (see `apps/web/.env.example`): `NEXT_PUBLIC_SITE_URL` for canonical links, the sitemap and social cards, and `ILIOS_DOWNLOAD_URL`, where every Download button (`/download`) redirects. To refresh the screenshots, serve the renderer, open `/?demo` at 1600x1000 in both themes, and capture six scenes into `apps/web/src/assets/shots/`: the "Median survival and 2-year survival by arm" cell (`answer`), the last cell after pressing Run, where the agent asks how to count patients who switched arms (`ask`), an underlined assumption being corrected (`guess`), that cell's Code tab (`code`), the History pane with Cmd+3 (`history`) and the model picker (`models`).
+The website reads two environment variables at build time (see `apps/web/.env.example`): `NEXT_PUBLIC_SITE_URL` for canonical links, the sitemap and social cards, and `DALLIANCE_DOWNLOAD_URL`, where every Download button (`/download`) redirects. To refresh the screenshots, serve the renderer, open `/?demo` at 1600x1000 in both themes, and capture six scenes into `apps/web/src/assets/shots/`: the "Median survival and 2-year survival by arm" cell (`answer`), the last cell after pressing Run, where the agent asks how to count patients who switched arms (`ask`), an underlined assumption being corrected (`guess`), that cell's Code tab (`code`), the History pane with Cmd+3 (`history`) and the model picker (`models`).
 
-`@ilios/shared` ships TypeScript source with no build step. The app imports it as `@ilios/shared/notebook`, `@ilios/shared/ipynb`, `@ilios/shared/ipc` and `@ilios/shared/leaked`, and Vite bundles it into the renderer, the main process and the preload script.
+`@dalliance/shared` ships TypeScript source with no build step. The app imports it as `@dalliance/shared/notebook`, `@dalliance/shared/ipynb`, `@dalliance/shared/ipc` and `@dalliance/shared/leaked`, and Vite bundles it into the renderer, the main process and the preload script.

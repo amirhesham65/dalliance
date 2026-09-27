@@ -1,6 +1,6 @@
 import { type LanguageModel, ToolLoopAgent, type ToolLoopAgentSettings, stepCountIs } from 'ai'
-import type { ActivityItem, CellRunResult, RunCellRequest, RunEvent } from '@ilios/shared/ipc'
-import type { Output } from '@ilios/shared/notebook'
+import type { ActivityItem, CellRunResult, RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
+import type { Output } from '@dalliance/shared/notebook'
 import type { Kernel } from '../kernel/kernel'
 import type { EventBus } from './events'
 import { clip, formatVariables } from './format'

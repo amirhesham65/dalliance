@@ -1,9 +1,9 @@
 {
-  "name": "@ilios/web",
+  "name": "@dalliance/web",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "The Ilios website: the landing page, privacy and the download redirect.",
+  "description": "The Dalliance website: the landing page, privacy and the download redirect.",
   "scripts": {
     "dev": "next dev --port 3100",
     "build": "next build",

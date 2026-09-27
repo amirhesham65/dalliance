@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { SiteFooter, SiteHeader } from '@/components/Chrome'
 import { site } from '@/lib/site'
 
-const description = 'What Ilios keeps on your Mac and what it sends to your model provider.'
+const description = 'What Dalliance keeps on your Mac and what it sends to your model provider.'
 
 export const metadata: Metadata = {
   title: 'Privacy',

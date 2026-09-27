@@ -40,7 +40,7 @@ const subscribeMotion = (onChange: () => void) => {
 }
 
 /**
- * One Ilios cell that plays through once when it comes into view: the prompt types itself, the agent
+ * One Dalliance cell that plays through once when it comes into view: the prompt types itself, the agent
  * works, then the reading, the chart and the answer land. The Code tab shows what ran. With reduced
  * motion it starts finished.
  */
@@ -102,7 +102,7 @@ export function LiveCell() {
   const count = shown === 'running' ? '[*]' : shown === 'done' ? '[1]' : '[ ]'
 
   return (
-    <figure ref={ref} className="live-cell" data-ready={motion || undefined} aria-label={`An Ilios cell. The prompt "${PROMPT}" answered with Kaplan-Meier survival curves for two treatment arms and a log-rank test.`}>
+    <figure ref={ref} className="live-cell" data-ready={motion || undefined} aria-label={`A Dalliance cell. The prompt "${PROMPT}" answered with Kaplan-Meier survival curves for two treatment arms and a log-rank test.`}>
       <span className={shown === 'running' ? 'lc-count running' : 'lc-count'} aria-hidden>
         {count}
       </span>

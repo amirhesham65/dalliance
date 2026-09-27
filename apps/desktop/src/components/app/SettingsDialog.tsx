@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { usePythonSetup } from '@/components/welcome/use-python-setup'
-import type { Effort, IliosApi, Provider, SettingsView } from '@ilios/shared/ipc'
+import type { Effort, DallianceApi, Provider, SettingsView } from '@dalliance/shared/ipc'
 import { getApi, useNotebook } from '@/store/notebook-store'
 
 const PROVIDERS: Record<Provider, { label: string; keyLabel: string; placeholder: string }> = {
@@ -33,7 +33,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   )
 }
 
-function SettingsForm({ settings, api, onClose }: { settings: SettingsView; api: IliosApi; onClose: () => void }) {
+function SettingsForm({ settings, api, onClose }: { settings: SettingsView; api: DallianceApi; onClose: () => void }) {
   const python = useNotebook((s) => s.python)
   const [key, setKey] = useState('')
   const [model, setModel] = useState(settings.model)

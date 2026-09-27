@@ -7,7 +7,7 @@ import { BROAD_FOLDER_MESSAGE, isBroadFolder, listFiles, readFileBounded } from 
 describe('workspace access', () => {
   it('treats home, Documents, Desktop and Downloads as too broad to list', async () => {
     for (const d of ['', 'Documents', 'Desktop', 'Downloads']) expect(isBroadFolder(path.join(homedir(), d))).toBe(true)
-    expect(isBroadFolder(path.join(homedir(), 'Documents', 'Ilios Notebooks'))).toBe(false)
+    expect(isBroadFolder(path.join(homedir(), 'Documents', 'Dalliance Notebooks'))).toBe(false)
     expect(isBroadFolder('/tmp/project')).toBe(false)
     expect(isBroadFolder('/Volumes')).toBe(true)
     expect(await listFiles(path.join(homedir(), 'Documents'))).toEqual([BROAD_FOLDER_MESSAGE])

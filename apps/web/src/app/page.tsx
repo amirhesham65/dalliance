@@ -121,7 +121,7 @@ export default function Home() {
       <main id="main">
         <Reel
           title="In short"
-          intro="Ask a question in plain words. Ilios answers in a sentence and shows the table and the code behind it. When a prompt could mean two things, it asks you first."
+          intro="Ask a question in plain words. Dalliance answers in a sentence and shows the table and the code behind it. When a prompt could mean two things, it asks you first."
           frames={frames}
         />
 
@@ -146,10 +146,10 @@ export default function Home() {
             <h2 id="needs">What it needs</h2>
             <div>
               <p>
-                <strong>A Mac with Python 3.</strong> Ilios can create a private environment with pandas, NumPy and matplotlib, or use an interpreter you already have.
+                <strong>A Mac with Python 3.</strong> Dalliance can create a private environment with pandas, NumPy and matplotlib, or use an interpreter you already have.
               </p>
               <p>
-                <strong>A model key.</strong> Pick Claude, GPT, Gemini and more through the Vercel AI Gateway, or use the Anthropic API directly. Ilios keeps keys in the macOS Keychain.
+                <strong>A model key.</strong> Pick Claude, GPT, Gemini and more through the Vercel AI Gateway, or use the Anthropic API directly. Dalliance keeps keys in the macOS Keychain.
               </p>
             </div>
           </section>
@@ -158,7 +158,7 @@ export default function Home() {
             <h2 id="not">What it is not</h2>
             <div>
               <p>
-                <strong>Not a chat.</strong> A chat answers once and scrolls away. Ilios keeps each answer next to its code, in a notebook you can rerun top to bottom.
+                <strong>Not a chat.</strong> A chat answers once and scrolls away. Dalliance keeps each answer next to its code, in a notebook you can rerun top to bottom.
               </p>
               <p>
                 <strong>Not a black box.</strong> Every cell has a Code tab with the exact Python that ran. Notebooks save as standard .ipynb files and open in Jupyter.
@@ -172,7 +172,7 @@ export default function Home() {
           <section className="band gutter" aria-labelledby="status">
             <h2 id="status">Status</h2>
             <div>
-              <p>Ilios is an early preview, so expect rough edges. Your notebooks are plain .ipynb files, so nothing is locked in.</p>
+              <p>Dalliance is an early preview, so expect rough edges. Your notebooks are plain .ipynb files, so nothing is locked in.</p>
             </div>
           </section>
 

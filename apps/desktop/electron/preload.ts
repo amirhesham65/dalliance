@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC, type IliosApi } from '@ilios/shared/ipc'
+import { IPC, type DallianceApi } from '@dalliance/shared/ipc'
 
 function subscribe<T extends unknown[]>(channel: string, listener: (...args: T) => void) {
   const handler = (_event: unknown, ...args: unknown[]) => listener(...(args as T))
@@ -10,7 +10,7 @@ function subscribe<T extends unknown[]>(channel: string, listener: (...args: T) 
 }
 
 // The renderer gets this typed surface only, never ipcRenderer itself
-const api: IliosApi = {
+const api: DallianceApi = {
   platform: process.platform,
   runCell: (request) => ipcRenderer.invoke(IPC.runCell, request),
   onRunEvent: (listener) => subscribe(IPC.runEvent, listener),
@@ -40,4 +40,4 @@ const api: IliosApi = {
   onMenu: (listener) => subscribe(IPC.menu, listener),
 }
 
-contextBridge.exposeInMainWorld('ilios', api)
+contextBridge.exposeInMainWorld('dalliance', api)

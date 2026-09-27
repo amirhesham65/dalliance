@@ -1,19 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- The app's mark: a sun, half in ink and half hatched, like a progress bar that is partly done -->
-  <defs>
-    <pattern id="h" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-      <rect width="1.3" height="4" fill="#1f3b2d" opacity=".55" />
-    </pattern>
-    <clipPath id="c"><circle cx="16" cy="16" r="13" /></clipPath>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -0.5 8 8" shape-rendering="crispEdges">
+  <!-- The mark: sixteen squares on a 6 by 7 grid, dark on light tabs and light on dark ones -->
   <style>
-    .ring { stroke: #1f3b2d } .ink { fill: #1f3b2d } .paper { fill: #f7f6f3 }
-    @media (prefers-color-scheme: dark) { .ring { stroke: #7fbf93 } .ink { fill: #7fbf93 } .paper { fill: #141413 } }
+    rect { fill: #1d1d1b }
+    @media (prefers-color-scheme: dark) { rect { fill: #ecebe7 } }
   </style>
-  <g clip-path="url(#c)">
-    <rect class="paper" width="32" height="32" />
-    <rect x="16" width="16" height="32" fill="url(#h)" />
-    <rect class="ink" width="16" height="32" />
-  </g>
-  <circle class="ring" cx="16" cy="16" r="13" fill="none" stroke-width="2" />
+  <rect x="1" y="0" width="1" height="1" /><rect x="3" y="0" width="1" height="1" />
+  <rect x="0" y="1" width="1" height="1" /><rect x="2" y="1" width="1" height="1" /><rect x="4" y="1" width="1" height="1" />
+  <rect x="1" y="2" width="1" height="1" /><rect x="5" y="2" width="1" height="1" />
+  <rect x="0" y="3" width="1" height="1" /><rect x="5" y="3" width="1" height="1" />
+  <rect x="1" y="4" width="1" height="1" /><rect x="5" y="4" width="1" height="1" />
+  <rect x="0" y="5" width="1" height="1" /><rect x="2" y="5" width="1" height="1" /><rect x="4" y="5" width="1" height="1" />
+  <rect x="1" y="6" width="1" height="1" /><rect x="3" y="6" width="1" height="1" />
 </svg>

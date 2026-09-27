@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { newNoteCell, newPromptCell } from '@ilios/shared/notebook'
+import { newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { answerBlocks, answerHtml, answerMarkdown, cellTitle, formatDuration, highlightPython, parseMarkdown, splitRefs, stripAnsi } from './text'
 
 describe('splitRefs', () => {

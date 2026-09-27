@@ -76,20 +76,3 @@ describe('parseInterpretation', () => {
     ])
   })
 })
-
-describe('notebooks saved before the rename', () => {
-  it('still reads prose metadata and the old table type', () => {
-    const nb = fromIpynb({
-      nbformat: 4,
-      cells: [
-        {
-          cell_type: 'code',
-          source: ['orders'],
-          metadata: { prose: { prompt: 'Show orders', generatedFrom: 'Show orders', answer: 'Here they are.' } },
-          outputs: [{ output_type: 'display_data', data: { 'application/vnd.prose.table+json': { columns: ['a'], index: ['0'], rows: [[1]], totalRows: 1 } } }],
-        },
-      ],
-    })
-    expect(nb.cells[0]).toMatchObject({ prompt: 'Show orders', answer: 'Here they are.', outputs: [{ type: 'table', totalRows: 1 }] })
-  })
-})

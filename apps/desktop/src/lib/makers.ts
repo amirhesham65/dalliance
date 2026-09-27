@@ -1,4 +1,4 @@
-import type { Provider } from '@ilios/shared/ipc'
+import type { Provider } from '@dalliance/shared/ipc'
 
 // One logo per maker, named after the maker's label: "Moonshot AI" is moonshotai.svg, "Z.ai" is zai.svg
 const files = import.meta.glob<string>('/src/assets/makers/*.svg', { eager: true, query: '?url', import: 'default' })

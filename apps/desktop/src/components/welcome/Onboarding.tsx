@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { sampleNotebook } from '@/lib/notebook/samples'
 import { cn } from '@/lib/utils'
-import type { IliosApi, Provider, PythonState, SettingsView } from '@ilios/shared/ipc'
+import type { DallianceApi, Provider, PythonState, SettingsView } from '@dalliance/shared/ipc'
 import { getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
 import { Kbd, StepBar, Wordmark } from './parts'
 import { finishOnboarding, fresh, modKey, pythonReady, startWith } from './start'
@@ -50,7 +50,7 @@ export function Onboarding({ initialStep = 0, onClose, onOpenSettings }: { initi
 
   return (
     <div className="scrollbar-thin flex min-h-0 flex-1 justify-center overflow-y-auto px-2 pb-2">
-      <section aria-label="Set up Ilios" className="my-auto flex w-full max-w-[620px] flex-col rounded-xl border bg-background shadow-pane">
+      <section aria-label="Set up Dalliance" className="my-auto flex w-full max-w-[620px] flex-col rounded-xl border bg-background shadow-pane">
         <header className="flex flex-col gap-5 px-8 pt-7 short:gap-3 short:pt-4">
           <div className="flex items-center justify-between">
             <Wordmark />
@@ -110,7 +110,7 @@ function IntroStep() {
   return (
     <>
       <StepHeading title="Write what you want to know">
-        Each cell in an Ilios notebook is a sentence. An agent turns it into Python, runs it on this computer, checks the result, and keeps the code that worked.
+        Each cell in a Dalliance notebook is a sentence. An agent turns it into Python, runs it on this computer, checks the result, and keeps the code that worked.
       </StepHeading>
       <SampleCell />
       <ol className="mt-5 grid gap-3 short:mt-2.5 text-[13px] leading-[1.55] text-muted-foreground sm:grid-cols-3">
@@ -179,13 +179,13 @@ function SampleCell() {
   )
 }
 
-function ModelStep({ settings, api }: { settings: SettingsView; api: IliosApi }) {
+function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceApi }) {
   const [key, setKey] = useState('')
   const [saving, setSaving] = useState(false)
   const [replacing, setReplacing] = useState(false)
   const provider = PROVIDERS[settings.provider]
 
-  const update = async (u: Parameters<IliosApi['updateSettings']>[0]) => {
+  const update = async (u: Parameters<DallianceApi['updateSettings']>[0]) => {
     useNotebook.setState({ settings: await api.updateSettings(u) })
   }
   const save = async () => {
@@ -288,7 +288,7 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: IliosApi })
   )
 }
 
-function PythonStep({ python, api, onOpenSettings }: { python: PythonState | null; api: IliosApi; onOpenSettings: () => void }) {
+function PythonStep({ python, api, onOpenSettings }: { python: PythonState | null; api: DallianceApi; onOpenSettings: () => void }) {
   const { log, installing, error, setup } = usePythonSetup(api)
   const version = python?.version?.split('.').slice(0, 2).join('.')
   const ready = pythonReady(python)

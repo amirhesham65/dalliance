@@ -1,23 +1,23 @@
 import { cn } from '@/lib/utils'
 
-/**
- * The app's mark: a sun, half drawn in ink and half hatched, like a progress bar that is partly done.
- * Ilios is Greek for sun.
- */
+// The mark: sixteen squares on a 6 by 7 grid, a checkered left edge and a solid right one
+const SQUARES = [[1, 0], [3, 0], [0, 1], [2, 1], [4, 1], [1, 2], [5, 2], [0, 3], [5, 3], [1, 4], [5, 4], [0, 5], [2, 5], [4, 5], [1, 6], [3, 6]]
+
 export function Mark({ className }: { className?: string }) {
   return (
-    <span aria-hidden className={cn('relative inline-flex size-3.5 shrink-0 overflow-hidden rounded-full border border-ink/80', className)}>
-      <span className="w-1/2 bg-ink" />
-      <span className="hatch w-1/2" />
-    </span>
+    <svg aria-hidden viewBox="0 0 6 7" shapeRendering="crispEdges" className={cn('h-3.5 w-auto shrink-0 fill-current', className)}>
+      {SQUARES.map(([x, y]) => (
+        <rect key={`${x}-${y}`} x={x} y={y} width={1} height={1} />
+      ))}
+    </svg>
   )
 }
 
 export function Wordmark({ size = 'sm' }: { size?: 'sm' | 'lg' }) {
   return (
-    <span className={cn('flex items-center font-serif font-medium tracking-[-0.015em]', size === 'lg' ? 'gap-2.5 text-[34px] leading-none' : 'gap-2 text-[17px]')}>
-      <Mark className={size === 'lg' ? 'size-6' : undefined} />
-      Ilios
+    <span className={cn('flex items-center font-serif font-semibold tracking-[-0.02em]', size === 'lg' ? 'gap-3 text-[34px] leading-none' : 'gap-2 text-[17px]')}>
+      <Mark className={size === 'lg' ? 'h-7' : undefined} />
+      Dalliance
     </span>
   )
 }

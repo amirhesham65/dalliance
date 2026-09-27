@@ -3,11 +3,11 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { toIpynb } from '@ilios/shared/ipynb'
-import { newPromptCell } from '@ilios/shared/notebook'
+import { toIpynb } from '@dalliance/shared/ipynb'
+import { newPromptCell } from '@dalliance/shared/notebook'
 import { DraftStore } from './draft'
 
-const dir = () => mkdtempSync(path.join(tmpdir(), 'ilios-draft-'))
+const dir = () => mkdtempSync(path.join(tmpdir(), 'dalliance-draft-'))
 const notebook = (prompt: string) => ({ cells: [{ ...newPromptCell(prompt, 'x = 1'), state: 'done' as const, executionCount: 1 }] })
 
 describe('DraftStore', () => {

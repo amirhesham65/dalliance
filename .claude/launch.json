@@ -6,7 +6,7 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
         "--filter",
-        "@ilios/desktop",
+        "@dalliance/desktop",
         "exec",
         "vite",
         "preview",
@@ -21,7 +21,7 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
         "--filter",
-        "@ilios/desktop",
+        "@dalliance/desktop",
         "exec",
         "vite",
         "preview",
@@ -44,7 +44,7 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
         "--filter",
-        "@ilios/web",
+        "@dalliance/web",
         "start"
       ],
       "port": 3100

@@ -1,7 +1,7 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createGateway } from '@ai-sdk/gateway'
 import type { LanguageModel, ToolLoopAgentSettings } from 'ai'
-import type { Effort, ModelList, ModelOption, Provider } from '@ilios/shared/ipc'
+import type { Effort, ModelList, ModelOption, Provider } from '@dalliance/shared/ipc'
 
 export const DEFAULT_MODELS: Record<Provider, string> = {
   gateway: 'anthropic/claude-opus-5',

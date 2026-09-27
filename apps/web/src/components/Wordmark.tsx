@@ -1,23 +1,21 @@
 import Link from 'next/link'
+import { MARK_SQUARES } from '@/lib/mark'
 
-/**
- * The app's mark: a sun, half drawn in ink and half hatched, like a progress bar that is partly done.
- * Ilios is Greek for sun.
- */
 export function Mark() {
   return (
-    <span className="mark" aria-hidden>
-      <span />
-      <span className="hatch" />
-    </span>
+    <svg className="mark" viewBox="0 0 6 7" shapeRendering="crispEdges" aria-hidden>
+      {MARK_SQUARES.map(([x, y]) => (
+        <rect key={`${x}-${y}`} x={x} y={y} width={1} height={1} />
+      ))}
+    </svg>
   )
 }
 
 export function Wordmark() {
   return (
-    <Link className="wordmark" href="/" aria-label="Ilios home">
+    <Link className="wordmark" href="/" aria-label="Dalliance home">
       <Mark />
-      Ilios
+      Dalliance
     </Link>
   )
 }

@@ -9,7 +9,7 @@ import { PythonKernel } from './python-kernel'
 const python = await findSystemPython()
 
 describe.skipIf(!python)('PythonKernel (real Python)', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'ilios-kernel-'))
+  const dir = mkdtempSync(path.join(tmpdir(), 'dalliance-kernel-'))
   const kernel = new PythonKernel({ python: python!, cwd: dir, scratchDir: dir })
 
   beforeAll(() => kernel.start(), 20_000)
@@ -31,7 +31,7 @@ describe.skipIf(!python)('PythonKernel (real Python)', () => {
     expect(r.ok).toBe(false)
     const err = r.outputs.find((o) => o.type === 'error')
     expect(err).toMatchObject({ type: 'error', ename: 'ZeroDivisionError' })
-    expect(JSON.stringify(err)).not.toContain('ilios_kernel.py')
+    expect(JSON.stringify(err)).not.toContain('dalliance_kernel.py')
   })
 
   it('does not advance the counter for exploratory runs', async () => {
@@ -67,7 +67,7 @@ describe.skipIf(!python)('PythonKernel (real Python)', () => {
 })
 
 describe.skipIf(!python)('PythonKernel assigned names', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'ilios-kernel-'))
+  const dir = mkdtempSync(path.join(tmpdir(), 'dalliance-kernel-'))
   const kernel = new PythonKernel({ python: python!, cwd: dir, scratchDir: dir })
   beforeAll(() => kernel.start(), 20_000)
   afterAll(() => kernel.shutdown())
