@@ -1,5 +1,6 @@
 import { tool } from 'ai'
 import { z } from 'zod'
+import { leakedList, splitLeaked } from '@ilios/shared/leaked'
 import type { Output } from '@ilios/shared/notebook'
 import type { ExecuteResult, Kernel } from '../kernel/kernel'
 import type { EventBus } from './events'
@@ -171,16 +172,25 @@ WHEN NOT TO USE: the prompt asks for a computed result and no run_cell has succe
         interpretation: z
           .string()
           .describe('How you read the prompt, with changeable assumptions in [[double brackets]]. Empty string if nothing needed interpreting.'),
-        answer: z.string().describe('One to three sentences answering the question with numbers from the output. Empty string if the prompt was not a question.'),
+        answer: z
+          .string()
+          .describe('The answer in words, grounded in the output. Plain text with **bold** and `code`; lists one item per line. Empty string if the prompt was not a question.'),
         next: z
           .array(z.string())
           .max(3)
           .optional()
           .describe('Up to three short prompts the user could run as the next cell, written the way they would type them. Empty if nothing obvious follows.'),
       }),
-      execute: ({ interpretation, answer, next }) =>
-        guarded('finish', { interpretation, answer, next }, async () => {
-          const suggestions = (next ?? []).map((n) => n.trim().replace(/^["“]|["”]$/g, '')).filter(Boolean).slice(0, 3)
+      execute: (input) =>
+        guarded('finish', input, async () => {
+          // Recover the fields a model wrote into the text instead of passing them
+          const leakedInterpretation = splitLeaked(input.interpretation)
+          const leakedAnswer = splitLeaked(input.answer)
+          const leaked = { ...leakedInterpretation.params, ...leakedAnswer.params }
+          const interpretation = leakedInterpretation.text
+          const answer = leakedAnswer.text || leaked.answer || ''
+          const next = input.next?.length ? input.next : leakedList(leaked.next)
+          const suggestions = next.map((n) => n.trim().replace(/^["“]|["”]$/g, '')).filter(Boolean).slice(0, 3)
           // A question answered in words needs no code, but it does need an answer
           if (!state.lastRun) {
             if (!answer.trim()) return 'Nothing has run yet. Call run_cell with the cell code, or give an answer if the prompt is a question.'

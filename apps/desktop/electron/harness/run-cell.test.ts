@@ -261,6 +261,14 @@ describe('questions answered in words', () => {
     expect(kernel.executed.filter((e) => e.store)).toHaveLength(0)
   })
 
+  it('recovers follow-ups a model wrote into the answer as tool markup', async () => {
+    const leaked = 'Try the Titanic dataset.</answer>\n<parameter name="next">["Load the titanic dataset", "Load the tips dataset"]'
+    const { model } = scriptedModel([{ tool: 'finish', input: { interpretation: '', answer: leaked } }])
+    const { deps } = harness(model, new FakeKernel())
+    const result = await runCell(request({ prompt: 'Which dataset should I learn on?' }), deps)
+    expect(result).toMatchObject({ ok: true, answer: 'Try the Titanic dataset.', suggestions: ['Load the titanic dataset', 'Load the tips dataset'] })
+  })
+
   it('still refuses to finish with no code and no answer', async () => {
     const { model, prompts } = scriptedModel([{ tool: 'finish', input: { interpretation: '', answer: '' } }, { text: 'hm' }])
     const { deps } = harness(model, new FakeKernel())

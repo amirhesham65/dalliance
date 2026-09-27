@@ -10,7 +10,9 @@ cp apps/desktop/.env.example apps/desktop/.env   # add AI_GATEWAY_API_KEY, or ad
 pnpm dev
 ```
 
-The first time, open Settings and choose **Set up a Python environment**. It creates a private virtual environment with pandas, NumPy and matplotlib in the app's data folder. You can point the app at your own interpreter instead.
+The first launch walks through setup: what a cell is, a model key, a Python to run on, and a first notebook (blank, opened, or a sample that makes its own data). **Set up a Python environment** creates a private virtual environment with pandas, NumPy and matplotlib in the app's data folder; you can point the app at your own interpreter instead. Every step can be skipped and done later in Settings.
+
+With no notebook to reopen, the app shows a start page: new, open, the sample, recent notebooks, and a few prompts to try. **Help > Welcome to Ilios** opens it over the current notebook.
 
 ## How a cell runs
 
@@ -66,6 +68,7 @@ pnpm typecheck
 pnpm lint
 pnpm build        # renderer to apps/desktop/dist/, Electron main and preload to apps/desktop/dist-electron/
 pnpm --filter @ilios/desktop exec vite preview   # then open /?demo to see the UI with sample data in a browser
+                                                 # /?demo&welcome for the start page, /?demo&setup for the first-run setup
 ILIOS_E2E=1 pnpm --filter @ilios/desktop exec vitest run electron/e2e.test.ts   # real Python + real model, costs a few cents
 ```
 
@@ -85,11 +88,12 @@ apps/desktop/                      the Electron app (@ilios/desktop)
     store/notebook-store.ts        document state, run queue, live run state
     components/                    top bar, overview, settings, cells and outputs
     components/panes/              the side panes: brief, variables, history, files, pinned
+    components/welcome/            the first-run setup and the start page
     dev/demo.ts                    sample data for looking at the UI in a browser (?demo)
     components/ui/                 shadcn components
-packages/shared/                   notebook model, .ipynb conversion, IPC contract (@ilios/shared, used by both sides)
+packages/shared/                   notebook model, .ipynb conversion, IPC contract, leaked tool-call cleanup (@ilios/shared, used by both sides)
 design/prototype.html              the original single-file prototype
 turbo.json                         task graph: build, typecheck, test, lint, dev
 ```
 
-`@ilios/shared` ships TypeScript source with no build step. The app imports it as `@ilios/shared/notebook`, `@ilios/shared/ipynb` and `@ilios/shared/ipc`, and Vite bundles it into the renderer, the main process and the preload script.
+`@ilios/shared` ships TypeScript source with no build step. The app imports it as `@ilios/shared/notebook`, `@ilios/shared/ipynb`, `@ilios/shared/ipc` and `@ilios/shared/leaked`, and Vite bundles it into the renderer, the main process and the preload script.

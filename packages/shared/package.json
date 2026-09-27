@@ -3,11 +3,12 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "The notebook model, .ipynb conversion and IPC contract, used by the renderer and the Electron main process.",
+  "description": "The notebook model, .ipynb conversion, IPC contract and leaked tool-call cleanup, used by the renderer and the Electron main process.",
   "exports": {
     "./notebook": "./src/notebook.ts",
     "./ipynb": "./src/ipynb.ts",
-    "./ipc": "./src/ipc.ts"
+    "./ipc": "./src/ipc.ts",
+    "./leaked": "./src/leaked.ts"
   },
   "scripts": {
     "test": "vitest run",

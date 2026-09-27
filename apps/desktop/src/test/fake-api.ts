@@ -1,4 +1,4 @@
-import type { CellRunResult, IliosApi, RunCellRequest, RunEvent } from '@ilios/shared/ipc'
+import type { CellRunResult, IliosApi, RunCellRequest, RunEvent, SettingsView } from '@ilios/shared/ipc'
 
 type RunHandler = (request: RunCellRequest, emit: (event: RunEvent) => void) => Promise<CellRunResult> | CellRunResult
 
@@ -23,16 +23,7 @@ export function fakeApi(onRun: RunHandler) {
     kernelState: async () => ({ status: 'idle', python: '3.12.0', cwd: '/tmp', error: null }),
     listVariables: async () => [{ name: 'orders', type: 'DataFrame', shape: '10 × 2', detail: '' }],
     onKernelState: () => () => {},
-    getSettings: async () => ({
-      provider: 'gateway',
-      model: 'anthropic/claude-opus-5',
-      effort: 'medium',
-      pythonPath: null,
-      approvalMode: 'interactive',
-      autoTitles: true,
-      keySource: 'environment',
-      hasKey: { gateway: true, anthropic: false },
-    }),
+    getSettings: async () => fakeSettings(),
     listModels: async () => ({
       provider: 'gateway',
       models: [
@@ -65,6 +56,20 @@ export function fakeApi(onRun: RunHandler) {
     onMenu: () => () => {},
   }
   return { api, requests, responses }
+}
+
+export function fakeSettings(): SettingsView {
+  return {
+    provider: 'gateway',
+    model: 'anthropic/claude-opus-5',
+    effort: 'medium',
+    pythonPath: null,
+    approvalMode: 'interactive',
+    autoTitles: true,
+    onboarded: true,
+    keySource: 'environment',
+    hasKey: { gateway: true, anthropic: false },
+  }
 }
 
 export function result(overrides: Partial<CellRunResult> = {}): CellRunResult {

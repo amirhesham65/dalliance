@@ -1,15 +1,17 @@
-import { ArrowDown, ArrowRight, ArrowUp, Check, ChevronRight, Loader2, Pin, PinOff, Play, RefreshCw, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowRight, ArrowUp, Check, ChevronRight, Copy, Loader2, Pin, PinOff, Play, RefreshCw, Trash2, X } from 'lucide-react'
 import { type KeyboardEvent, type ReactNode, useState } from 'react'
 import { IconButton } from '@/components/app/IconButton'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { formatDuration, highlightPython, parseMarkdown } from '@/lib/notebook/text'
+import { answerBlocks, answerHtml, answerMarkdown, formatDuration, highlightPython, parseMarkdown } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
 import type { ActivityItem } from '@ilios/shared/ipc'
+import { splitLeaked } from '@ilios/shared/leaked'
 import { type Cell, type NoteCell, type PromptCell, needsGeneration, parseInterpretation, tablesOpen } from '@ilios/shared/notebook'
 import { type CellRun, actions, useNotebook } from '@/store/notebook-store'
 import { HighlightedEditor } from './HighlightedEditor'
 import { InlineText } from './InlineText'
+import { MarkdownText } from './MarkdownText'
 import { OutputList } from './outputs/OutputView'
 import { RefText } from './RefText'
 
@@ -152,7 +154,7 @@ function PromptCellView({ cell, run, selected, onDelete }: { cell: PromptCell; r
       {run && <RunProgress cellId={cell.id} run={run} />}
       {message && !run && (
         <div className="mt-2 flex items-start gap-2 text-[13px] text-destructive" role="alert">
-          <span className="flex-1">{message}</span>
+          <span className="flex-1" data-selectable>{message}</span>
           <button type="button" aria-label="Dismiss" className="text-faint hover:text-foreground" onClick={() => actions.dismissMessage(cell.id)}>
             <X className="size-3.5" />
           </button>
@@ -255,54 +257,74 @@ function Suggestions({ cell }: { cell: PromptCell }) {
 
 const hasAssumptions = (text: string | null) => Boolean(text && /\[\[[^\]]+\]\]/.test(text))
 
-/** Paragraphs and "- " lists, which is all the formatting an answer needs. */
-function answerBlocks(text: string): ({ type: 'p'; text: string } | { type: 'list'; items: string[] })[] {
-  const blocks: ({ type: 'p'; text: string } | { type: 'list'; items: string[] })[] = []
-  for (const raw of text.split('\n')) {
-    const line = raw.trim()
-    if (!line) continue
-    const item = line.match(/^(?:[-*•]|\d+[.)])\s+(.*)/)
-    const last = blocks[blocks.length - 1]
-    if (item) {
-      if (last?.type === 'list') last.items.push(item[1])
-      else blocks.push({ type: 'list', items: [item[1]] })
-    } else blocks.push({ type: 'p', text: line })
-  }
-  return blocks
-}
-
 /** The answer leads the result. Long answers fold until you ask for more. */
 function Answer({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
-  const long = text.length > 420
+  // Answers saved before the harness cleaned up leaked tool markup still carry it
+  const clean = splitLeaked(text).text
+  const long = clean.length > 600
   return (
-    <div className="max-w-[62ch]">
-      <div className={cn('flex flex-col gap-2 font-serif text-[16px] leading-[1.6]', long && !open && 'max-h-[7.5rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]')}>
-        {answerBlocks(text).map((b, i) =>
-          b.type === 'p' ? (
-            <p key={i}>
-              <InlineText text={b.text} />
-            </p>
-          ) : (
-            <ul key={i} className="flex flex-col gap-1">
-              {b.items.map((item, j) => (
-                <li key={j} className="flex gap-2.5">
-                  <span className="text-faint">•</span>
-                  <span>
-                    <InlineText text={item} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ),
+    <div className="flex items-start gap-1">
+      <div className="max-w-[62ch] min-w-0 flex-1">
+        <div
+          data-selectable
+          className={cn('flex flex-col gap-3 font-serif text-[16px] leading-[1.6]', long && !open && 'max-h-[11rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]')}
+        >
+          {answerBlocks(clean).map((b, i) =>
+            b.type === 'p' ? (
+              <p key={i}>
+                <InlineText text={b.text} />
+              </p>
+            ) : (
+              <ul key={i} className="flex flex-col gap-1.5">
+                {b.items.map((item, j) => (
+                  <li key={j} className="flex gap-2.5">
+                    <span className={cn('shrink-0 text-faint tabular-nums', b.ordered && 'min-w-[1.1em] text-right')}>{b.ordered ? `${j + 1}.` : '•'}</span>
+                    <span>
+                      <InlineText text={item} />
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ),
+          )}
+        </div>
+        {long && (
+          <button type="button" onClick={() => setOpen((o) => !o)} className="mt-1 text-xs text-faint hover:text-muted-foreground">
+            {open ? 'Less' : 'More'}
+          </button>
         )}
       </div>
-      {long && (
-        <button type="button" onClick={() => setOpen((o) => !o)} className="mt-1 text-xs text-faint hover:text-muted-foreground">
-          {open ? 'Less' : 'More'}
-        </button>
-      )}
+      <CopyAnswer text={clean} />
     </div>
+  )
+}
+
+/** Copies the answer with its formatting for documents and chats, and as Markdown for plain-text editors. */
+function CopyAnswer({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    const html = answerHtml(text)
+    const plain = answerMarkdown(text)
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([plain], { type: 'text/plain' }) }),
+      ])
+    } catch {
+      await navigator.clipboard.writeText(plain)
+    }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <IconButton
+      label={copied ? 'Copied' : 'Copy answer'}
+      size="icon-xs"
+      onClick={() => void copy()}
+      className={cn('shrink-0', copied ? 'text-go hover:text-go' : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 group-data-selected:opacity-100')}
+    >
+      {copied ? <Check /> : <Copy />}
+    </IconButton>
   )
 }
 
@@ -345,7 +367,7 @@ function Interpretation({ cell }: { cell: PromptCell }) {
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   return (
-    <p className="mt-1.5 max-w-[62ch] text-[13px] leading-[1.7] text-faint">
+    <p className="mt-1.5 max-w-[62ch] text-[13px] leading-[1.7] text-faint" data-selectable>
       {parseInterpretation(cell.interpretation ?? '').map((seg, i) => {
         if (!seg.assumption) return <InlineText key={i} text={seg.text} />
         if (editing === seg.text)
@@ -542,29 +564,66 @@ function NoteMarkdown({ markdown, onEdit }: { markdown: string; onEdit: () => vo
   return (
     <div
       className="flex min-w-0 flex-1 cursor-text flex-col gap-2"
+      data-selectable
       onDoubleClick={onEdit}
       role="button"
       tabIndex={-1}
       title="Double-click to edit"
     >
       {blocks.map((b, i) => {
-        if (b.type === 'h1')
-          return (
-            <h1 key={i} className="font-serif text-[27px] leading-[1.2] font-medium tracking-[-0.015em] text-balance">
-              <RefText text={b.text} />
-            </h1>
-          )
-        if (b.type === 'h2')
-          return (
-            <h2 key={i} className="mt-1 font-serif text-[19px] font-medium text-balance">
-              <RefText text={b.text} />
-            </h2>
-          )
-        return (
-          <p key={i} className="max-w-[62ch] font-serif text-[16px] leading-[1.6] text-muted-foreground">
-            <RefText text={b.text} />
-          </p>
-        )
+        switch (b.type) {
+          case 'h1':
+            return (
+              <h1 key={i} className="font-serif text-[27px] leading-[1.2] font-medium tracking-[-0.015em] text-balance">
+                <MarkdownText text={b.text} />
+              </h1>
+            )
+          case 'h2':
+            return (
+              <h2 key={i} className="mt-1 font-serif text-[19px] font-medium text-balance">
+                <MarkdownText text={b.text} />
+              </h2>
+            )
+          case 'h3':
+            return (
+              <h3 key={i} className="mt-1 font-serif text-[16px] font-semibold text-balance">
+                <MarkdownText text={b.text} />
+              </h3>
+            )
+          case 'p':
+            return (
+              <p key={i} className="max-w-[62ch] font-serif text-[16px] leading-[1.6] text-muted-foreground">
+                <MarkdownText text={b.text} />
+              </p>
+            )
+          case 'quote':
+            return (
+              <blockquote key={i} className="max-w-[62ch] border-l-2 border-ring pl-4 font-serif text-[16px] leading-[1.6] text-muted-foreground italic">
+                <MarkdownText text={b.text} />
+              </blockquote>
+            )
+          case 'list':
+            return (
+              <ul key={i} className="flex max-w-[62ch] flex-col gap-1.5 font-serif text-[16px] leading-[1.6] text-muted-foreground">
+                {b.items.map((item, j) => (
+                  <li key={j} className="flex gap-2.5">
+                    <span className={cn('shrink-0 text-faint tabular-nums', b.ordered && 'min-w-[1.1em] text-right')}>{b.ordered ? `${b.start + j}.` : '•'}</span>
+                    <span className="min-w-0">
+                      <MarkdownText text={item} />
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )
+          case 'code':
+            return (
+              <pre key={i} className="code scrollbar-thin overflow-x-auto rounded-lg bg-raised p-3 font-mono text-[12.5px] leading-[1.7]">
+                {b.lang === '' || b.lang === 'python' || b.lang === 'py' ? <PythonTokens code={b.text} /> : b.text}
+              </pre>
+            )
+          case 'rule':
+            return <hr key={i} className="my-1 border-border" />
+        }
       })}
     </div>
   )

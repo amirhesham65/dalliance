@@ -1,10 +1,11 @@
 import { Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { usePythonSetup } from '@/components/welcome/use-python-setup'
 import type { Effort, IliosApi, Provider, SettingsView } from '@ilios/shared/ipc'
 import { getApi, useNotebook } from '@/store/notebook-store'
 
@@ -37,11 +38,7 @@ function SettingsForm({ settings, api, onClose }: { settings: SettingsView; api:
   const [key, setKey] = useState('')
   const [model, setModel] = useState(settings.model)
   const [pythonPath, setPythonPath] = useState(settings.pythonPath ?? '')
-  const [log, setLog] = useState<string[]>([])
-  const [installing, setInstalling] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => api.onPythonLog((line) => setLog((l) => [...l.slice(-200), line])), [api])
+  const { log, installing, error, setup } = usePythonSetup(api)
 
   const provider = PROVIDERS[settings.provider]
 
@@ -57,19 +54,6 @@ function SettingsForm({ settings, api, onClose }: { settings: SettingsView; api:
     })
     useNotebook.setState({ python: await api.pythonState() })
     onClose()
-  }
-
-  const setup = async () => {
-    setInstalling(true)
-    setError(null)
-    setLog([])
-    try {
-      useNotebook.setState({ python: await api.setupPython() })
-    } catch (err) {
-      setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err))
-    } finally {
-      setInstalling(false)
-    }
   }
 
   return (

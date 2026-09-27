@@ -24,7 +24,7 @@ async function restore(api: NonNullable<typeof window.ilios>) {
     actions.load(session.notebook, session.path, session.dirty)
     // The kernel outlived the reload, so its variables are still there to list
     if (session.kernelKept) void actions.refreshVariables().catch(() => {})
-  }
+  } else actions.showWelcome(false)
   let timer: ReturnType<typeof setTimeout> | undefined
   const send = () => {
     clearTimeout(timer)
@@ -40,7 +40,10 @@ async function restore(api: NonNullable<typeof window.ilios>) {
   window.addEventListener('beforeunload', send)
 }
 
-// In a plain browser, ?demo fills the app with sample data so the UI can be looked at without Electron
+// In a plain browser, ?demo fills the app with sample data so the UI can be looked at without Electron.
+// ?demo&welcome opens on the start page, ?demo&setup on the first-run setup.
+const params = new URLSearchParams(location.search)
 if (window.ilios) void restore(window.ilios).finally(render)
-else if (new URLSearchParams(location.search).has('demo')) void import('./dev/demo').then((m) => (m.installDemo(), render()))
+else if (params.has('demo'))
+  void import('./dev/demo').then((m) => (m.installDemo(params.has('setup') ? 'setup' : params.has('welcome') ? 'welcome' : 'notebook'), render()))
 else render()

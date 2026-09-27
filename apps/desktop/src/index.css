@@ -6,6 +6,8 @@
 @import "@fontsource-variable/source-serif-4";
 
 @custom-variant dark (&:is(.dark *));
+/* Windows too short for the roomy spacing, like a laptop with the dock showing */
+@custom-variant short (@media (max-height: 760px));
 
 @theme inline {
     --font-heading: var(--font-sans);
@@ -196,6 +198,13 @@
     overflow: hidden;
     font-feature-settings: "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
+    /* A desktop app: the chrome doesn't select like a web page. Content opts back in with data-selectable */
+    user-select: none;
+    cursor: default;
+  }
+  [data-selectable] {
+    user-select: text;
+    cursor: auto;
   }
 }
 
@@ -244,3 +253,8 @@
 @keyframes ilios-pulse { 50% { opacity: 0.45; } }
 .pulse { animation: ilios-pulse 1.4s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+
+/* Bars in the first-run example cell rise from the axis, one after another */
+@keyframes ilios-grow { from { transform: scaleY(0); } }
+.grow-up { transform-origin: bottom; animation: ilios-grow 600ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+@media (prefers-reduced-motion: reduce) { .grow-up { animation: none; } }

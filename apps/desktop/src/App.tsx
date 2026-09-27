@@ -4,6 +4,7 @@ import { Sidebar } from '@/components/app/Sidebar'
 import { TopBar } from '@/components/app/TopBar'
 import { NotebookView } from '@/components/notebook/NotebookView'
 import { SidePane } from '@/components/panes/SidePanes'
+import { WelcomeScreen } from '@/components/welcome/Welcome'
 import { Button } from '@/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { SidebarProvider, useSidebar } from '@/components/ui/sidebar'
@@ -25,6 +26,7 @@ export default function App() {
   const kernel = useNotebook((s) => s.kernel)
   const path = useNotebook((s) => s.path)
   const dirty = useNotebook((s) => s.dirty)
+  const screen = useNotebook((s) => s.screen)
   const api = getApi()
 
   const deleteCell = useCallback((id: string) => {
@@ -88,6 +90,9 @@ export default function App() {
         case 'toggle-sidebar':
           setSidebarOpen((o) => !o)
           break
+        case 'welcome':
+          if (useNotebook.getState().screen === 'notebook') actions.showWelcome(true)
+          break
         default:
           if (action.startsWith('pane-')) {
             setSidebarOpen(true)
@@ -118,6 +123,7 @@ export default function App() {
   }, [api, path, dirty])
 
   useCommandMode(deleteCell)
+  useScopedSelectAll()
 
   useEffect(() => writeStored('ilios-sidebar', sidebarOpen ? 'open' : 'closed'), [sidebarOpen])
 
@@ -125,6 +131,7 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return
+      if (useNotebook.getState().screen !== 'notebook') return
       const pane = PANE_ORDER[Number(e.key) - 1]
       if (!pane) return
       e.preventDefault()
@@ -143,24 +150,30 @@ export default function App() {
   return (
     <TooltipProvider delayDuration={400}>
       <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen} className="h-full min-h-0 flex-col bg-canvas">
-        <TopBar onOpenSettings={() => setSettingsOpen(true)} />
-        {(needsKey || needsPython || kernel.error) && (
-          <div className="mx-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-background px-4 py-2 text-[13px] shadow-pane">
-            <span className="text-muted-foreground">
-              {needsKey
-                ? 'Add an API key to turn prompts into code.'
-                : !python?.python
-                  ? 'Python is not set up yet.'
-                  : needsPython
-                    ? `Python is missing ${python!.missingPackages.join(', ')}. Cells that need them will fail.`
-                    : kernel.error}
-            </span>
-            <Button size="xs" variant="secondary" onClick={() => setSettingsOpen(true)}>
-              Open Settings
-            </Button>
-          </div>
+        <TopBar minimal={screen === 'welcome'} onOpenSettings={() => setSettingsOpen(true)} />
+        {screen === 'welcome' ? (
+          <WelcomeScreen onOpenSettings={() => setSettingsOpen(true)} />
+        ) : (
+          <>
+            {(needsKey || needsPython || kernel.error) && (
+              <div className="mx-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-background px-4 py-2 text-[13px] shadow-pane">
+                <span className="text-muted-foreground">
+                  {needsKey
+                    ? 'Add an API key to turn prompts into code.'
+                    : !python?.python
+                      ? 'Python is not set up yet.'
+                      : needsPython
+                        ? `Python is missing ${python!.missingPackages.join(', ')}. Cells that need them will fail.`
+                        : kernel.error}
+                </span>
+                <Button size="xs" variant="secondary" onClick={() => setSettingsOpen(true)}>
+                  Open Settings
+                </Button>
+              </div>
+            )}
+            <Workspace onDelete={deleteCell} />
+          </>
         )}
-        <Workspace onDelete={deleteCell} />
       </SidebarProvider>
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       {undo && (
@@ -248,6 +261,26 @@ function Gap() {
 }
 
 /**
+ * Cmd+A behaves like a desktop app, not a web page: text fields select their own text, a selection inside
+ * an answer or an output grows to that block, and anywhere else nothing happens.
+ */
+function useScopedSelectAll() {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'a') return
+      if ((e.target as HTMLElement).closest('input, textarea, [contenteditable="true"]')) return
+      e.preventDefault()
+      const selection = window.getSelection()
+      const anchor = selection?.anchorNode
+      const block = (anchor instanceof Element ? anchor : anchor?.parentElement)?.closest('[data-selectable]')
+      if (selection && block) selection.selectAllChildren(block)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+}
+
+/**
  * Jupyter's command mode: when no editor has focus, single keys act on the selected cell.
  * A/B insert above/below, M/Y switch to note/prompt, T folds tables, D D deletes, arrows or J/K move, Enter edits.
  */
@@ -256,6 +289,7 @@ function useCommandMode(deleteCell: (id: string) => void) {
     let lastD = 0
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
+      if (useNotebook.getState().screen !== 'notebook') return
       if (target.closest('textarea, input, [contenteditable="true"], [role="dialog"], [role="alertdialog"], [role="listbox"]')) return
       if (target.closest('button, a, summary, [role="tab"]') && (e.key === 'Enter' || e.key === ' ')) return
       const { selectedId, notebook } = useNotebook.getState()
