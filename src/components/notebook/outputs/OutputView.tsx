@@ -36,7 +36,7 @@ export function OutputList({ outputs, tablesOpen = true, onTables, tableName }: 
   const streams = merged.filter((o): o is Stream => o.type === 'stream')
   const rest = hasResult ? merged.filter((o) => o.type !== 'stream') : merged
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3" data-selectable>
       {rest.map((o, i) =>
         o.type !== 'table' ? (
           <OutputView key={i} output={o} />

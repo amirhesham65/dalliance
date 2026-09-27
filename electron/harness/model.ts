@@ -56,6 +56,8 @@ const MAKERS: Record<string, string> = {
   openai: 'OpenAI',
   google: 'Google',
   xai: 'xAI',
+  // Grok models moved under SpaceX's prefix on the gateway
+  spacexai: 'xAI',
   meta: 'Meta',
   mistral: 'Mistral',
   deepseek: 'DeepSeek',
@@ -66,6 +68,24 @@ const MAKERS: Record<string, string> = {
   cohere: 'Cohere',
   perplexity: 'Perplexity',
   vercel: 'Vercel',
+  minimax: 'MiniMax',
+  nvidia: 'NVIDIA',
+  tencent: 'Tencent',
+  xiaomi: 'Xiaomi',
+  sakana: 'Sakana',
+  bytedance: 'ByteDance',
+  inception: 'Inception',
+  stepfun: 'StepFun',
+  morph: 'Morph',
+  poolside: 'Poolside',
+  'arcee-ai': 'Arcee',
+  fireworks: 'Fireworks',
+  meituan: 'Meituan',
+  'inference-net': 'Inference.net',
+  inclusionai: 'inclusionAI',
+  thinkingmachines: 'Thinking Machines',
+  quiverai: 'Quiver AI',
+  mixedbread: 'Mixedbread',
 }
 
 const makerOf = (id: string) => {

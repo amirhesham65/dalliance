@@ -12,6 +12,7 @@ interface Stored {
   pythonPath: string | null
   approvalMode: 'interactive' | 'background'
   autoTitles: boolean
+  onboarded: boolean
   /** Encrypted with the OS keychain when available. */
   keys: Partial<Record<Provider, string>>
   /** Notebooks opened or saved lately, newest first. */
@@ -29,6 +30,7 @@ const DEFAULTS: Stored = {
   pythonPath: null,
   approvalMode: 'interactive',
   autoTitles: true,
+  onboarded: false,
   keys: {},
   recent: [],
 }
@@ -43,7 +45,9 @@ export class SettingsStore {
     this.data = { ...DEFAULTS }
     if (existsSync(this.file)) {
       try {
-        this.data = { ...DEFAULTS, ...JSON.parse(readFileSync(this.file, 'utf-8')) }
+        const stored = JSON.parse(readFileSync(this.file, 'utf-8')) as Partial<Stored>
+        // Settings from before the first-run setup existed: anyone who has opened a notebook is past it
+        this.data = { ...DEFAULTS, onboarded: (stored.recent?.length ?? 0) > 0, ...stored }
       } catch {
         // A corrupt settings file falls back to the defaults
       }
@@ -110,6 +114,7 @@ export class SettingsStore {
       pythonPath: this.data.pythonPath,
       approvalMode: this.data.approvalMode,
       autoTitles: this.data.autoTitles,
+      onboarded: this.data.onboarded,
       keySource: this.apiKey(this.data.provider).source,
       hasKey: { gateway: this.apiKey('gateway').key != null, anthropic: this.apiKey('anthropic').key != null },
     }
@@ -126,6 +131,7 @@ export class SettingsStore {
     if (update.pythonPath !== undefined) this.data.pythonPath = update.pythonPath?.trim().replace(/^~(?=$|\/)/, homedir()) || null
     if (update.approvalMode) this.data.approvalMode = update.approvalMode
     if (update.autoTitles !== undefined) this.data.autoTitles = update.autoTitles
+    if (update.onboarded !== undefined) this.data.onboarded = update.onboarded
     if (update.apiKey) {
       const { provider, key } = update.apiKey
       const trimmed = key.trim()
