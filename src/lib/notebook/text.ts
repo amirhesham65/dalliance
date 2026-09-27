@@ -58,7 +58,9 @@ export function highlightPython(code: string): CodeToken[] {
 }
 
 export function cellTitle(cell: Cell, max = 48): string {
-  const raw = cell.kind === 'note' ? (cell.markdown.split('\n')[0] ?? '').replace(/^#+\s*/, '') : cell.prompt
+  // A prompt cell shows its short title while the title still matches the prompt
+  const named = cell.kind === 'prompt' && cell.title && cell.titleFrom?.trim() === cell.prompt.trim() ? cell.title : null
+  const raw = cell.kind === 'note' ? (cell.markdown.split('\n')[0] ?? '').replace(/^#+\s*/, '') : (named ?? cell.prompt)
   const text = raw.replace(/\s+/g, ' ').trim()
   if (!text) return cell.kind === 'note' ? 'Empty note' : 'Empty prompt'
   return text.length > max ? `${text.slice(0, max - 1)}…` : text
@@ -75,4 +77,20 @@ const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
 
 export function stripAnsi(text: string): string {
   return text.replace(ANSI, '')
+}
+
+/** Time since a moment, the way a log reads it: now, 4m, 2h, 3d. */
+export function ago(at: number, now = Date.now()): string {
+  const s = Math.max(0, Math.round((now - at) / 1000))
+  if (s < 45) return 'now'
+  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m`
+  if (s < 86400) return `${Math.round(s / 3600)}h`
+  return `${Math.round(s / 86400)}d`
+}
+
+/** "anthropic/claude-haiku-4-5-20251001" reads as "Haiku 4.5". Anything else shows as typed. */
+export function modelLabel(model: string): string {
+  const m = model.match(/claude-(opus|sonnet|haiku)-([\d]+(?:[.-]\d{1,2})?)/i)
+  if (!m) return model.split('/').pop() ?? model
+  return `${m[1].charAt(0).toUpperCase()}${m[1].slice(1)} ${m[2].replace('-', '.')}`
 }

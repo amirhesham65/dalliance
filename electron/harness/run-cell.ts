@@ -16,6 +16,7 @@ export interface HarnessDeps {
   bus: EventBus
   pythonVersion: string | null
   projectInstructions: string | null
+  modelId?: string | null
   emit: (event: RunEvent) => void
   askUser: (question: string, options: string[]) => Promise<string | null>
   requestApproval: (title: string, detail: string) => Promise<boolean>
@@ -47,6 +48,7 @@ async function executeCell(request: RunCellRequest, deps: HarnessDeps): Promise<
     generated: false,
     interpretation: null,
     answer: null,
+    suggestions: [],
     variables: created(result.assigned),
     activity: [],
     error: null,
@@ -91,6 +93,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
         pythonVersion: deps.pythonVersion,
         toolNames: [...TOOL_NAMES],
         projectInstructions: deps.projectInstructions,
+        modelId: deps.modelId,
       }),
       providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
     },
@@ -175,6 +178,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     variables: created(last?.result.assigned ?? []),
     // If the model answered in text instead of calling finish, keep that answer
     answer: state.finished?.answer ?? (succeeded && text.trim() ? clip(text.trim(), 1200) : null),
+    suggestions: state.finished?.suggestions ?? [],
     activity: [...activity.values()],
     error,
   }

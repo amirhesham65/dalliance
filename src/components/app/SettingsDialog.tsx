@@ -156,6 +156,19 @@ function SettingsForm({ settings, api, onClose }: { settings: SettingsView; api:
               </SelectContent>
             </Select>
           </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="titles">Cell names in the overview</Label>
+            <Select value={settings.autoTitles ? 'model' : 'prompt'} onValueChange={(v) => void update({ autoTitles: v === 'model' })}>
+              <SelectTrigger id="titles" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="model">Short titles from {settings.provider === 'gateway' ? 'GPT-6 Luna' : 'Claude Haiku 4.5'}</SelectItem>
+                <SelectItem value="prompt">The prompt itself</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-faint">Long prompts get a few-word name while the code is written. It costs a fraction of a cent per cell.</p>
+          </div>
         </section>
 
         <section className="grid gap-3 border-t pt-4">

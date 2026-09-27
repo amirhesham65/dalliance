@@ -11,9 +11,14 @@ interface Stored {
   effort: Effort
   pythonPath: string | null
   approvalMode: 'interactive' | 'background'
+  autoTitles: boolean
   /** Encrypted with the OS keychain when available. */
   keys: Partial<Record<Provider, string>>
+  /** Notebooks opened or saved lately, newest first. */
+  recent: { path: string; openedAt: number }[]
 }
+
+const MAX_RECENT = 8
 
 const ENV_KEYS: Record<Provider, string> = { gateway: 'AI_GATEWAY_API_KEY', anthropic: 'ANTHROPIC_API_KEY' }
 
@@ -23,7 +28,9 @@ const DEFAULTS: Stored = {
   effort: 'medium',
   pythonPath: null,
   approvalMode: 'interactive',
+  autoTitles: true,
   keys: {},
+  recent: [],
 }
 
 export class SettingsStore {
@@ -77,6 +84,24 @@ export class SettingsStore {
     return this.data.approvalMode
   }
 
+  get autoTitles() {
+    return this.data.autoTitles
+  }
+
+  get recent() {
+    return this.data.recent
+  }
+
+  addRecent(file: string) {
+    this.data.recent = [{ path: file, openedAt: Date.now() }, ...this.data.recent.filter((r) => r.path !== file)].slice(0, MAX_RECENT)
+    this.save()
+  }
+
+  removeRecent(file: string) {
+    this.data.recent = this.data.recent.filter((r) => r.path !== file)
+    this.save()
+  }
+
   view(): SettingsView {
     return {
       provider: this.data.provider,
@@ -84,6 +109,7 @@ export class SettingsStore {
       effort: this.data.effort,
       pythonPath: this.data.pythonPath,
       approvalMode: this.data.approvalMode,
+      autoTitles: this.data.autoTitles,
       keySource: this.apiKey(this.data.provider).source,
       hasKey: { gateway: this.apiKey('gateway').key != null, anthropic: this.apiKey('anthropic').key != null },
     }
@@ -99,6 +125,7 @@ export class SettingsStore {
     if (update.effort) this.data.effort = update.effort
     if (update.pythonPath !== undefined) this.data.pythonPath = update.pythonPath?.trim().replace(/^~(?=$|\/)/, homedir()) || null
     if (update.approvalMode) this.data.approvalMode = update.approvalMode
+    if (update.autoTitles !== undefined) this.data.autoTitles = update.autoTitles
     if (update.apiKey) {
       const { provider, key } = update.apiKey
       const trimmed = key.trim()

@@ -9,7 +9,7 @@ import { listFiles, readFileBounded } from './workspace'
 /** What the tools learn during a run. The harness reads it after the loop ends. */
 export interface RunState {
   lastRun: { code: string; result: ExecuteResult } | null
-  finished: { interpretation: string | null; answer: string | null } | null
+  finished: { interpretation: string | null; answer: string | null; suggestions: string[] } | null
   attempts: number
 }
 
@@ -172,17 +172,23 @@ WHEN NOT TO USE: the prompt asks for a computed result and no run_cell has succe
           .string()
           .describe('How you read the prompt, with changeable assumptions in [[double brackets]]. Empty string if nothing needed interpreting.'),
         answer: z.string().describe('One to three sentences answering the question with numbers from the output. Empty string if the prompt was not a question.'),
+        next: z
+          .array(z.string())
+          .max(3)
+          .optional()
+          .describe('Up to three short prompts the user could run as the next cell, written the way they would type them. Empty if nothing obvious follows.'),
       }),
-      execute: ({ interpretation, answer }) =>
-        guarded('finish', { interpretation, answer }, async () => {
+      execute: ({ interpretation, answer, next }) =>
+        guarded('finish', { interpretation, answer, next }, async () => {
+          const suggestions = (next ?? []).map((n) => n.trim().replace(/^["“]|["”]$/g, '')).filter(Boolean).slice(0, 3)
           // A question answered in words needs no code, but it does need an answer
           if (!state.lastRun) {
             if (!answer.trim()) return 'Nothing has run yet. Call run_cell with the cell code, or give an answer if the prompt is a question.'
-            state.finished = { interpretation: interpretation.trim() || null, answer: answer.trim() }
+            state.finished = { interpretation: interpretation.trim() || null, answer: answer.trim(), suggestions }
             return 'Done.'
           }
           if (!state.lastRun.result.ok) return 'The last run_cell failed. Fix the code and run it again before finishing.'
-          state.finished = { interpretation: interpretation.trim() || null, answer: answer.trim() || null }
+          state.finished = { interpretation: interpretation.trim() || null, answer: answer.trim() || null, suggestions }
           return 'Done.'
         }),
     }),

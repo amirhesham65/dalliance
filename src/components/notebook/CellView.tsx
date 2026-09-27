@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Check, ChevronRight, Loader2, Play, RefreshCw, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowRight, ArrowUp, Check, ChevronRight, Loader2, Pin, PinOff, Play, RefreshCw, Trash2, X } from 'lucide-react'
 import { type KeyboardEvent, type ReactNode, useState } from 'react'
 import { IconButton } from '@/components/app/IconButton'
 import { Button } from '@/components/ui/button'
@@ -53,11 +53,11 @@ export function CellView({ cell, selected, onDelete }: CellViewProps) {
       onFocus={() => actions.select(cell.id)}
       className="group relative flex gap-2 py-3 pr-1"
     >
-      <span className="absolute inset-y-3 -left-2.5 w-0.5 rounded-full group-focus-within:bg-[#4a4a4a] group-data-selected:bg-[#4a4a4a]" />
+      <span className="absolute inset-y-3 -left-2.5 w-0.5 rounded-full group-focus-within:bg-ring group-data-selected:bg-ring" />
       <div className="w-9 shrink-0 pt-[3px]">{cell.kind === 'prompt' && <RunButton cell={cell} run={run} />}</div>
       <div className="min-w-0 flex-1">
         {cell.kind === 'prompt' ? (
-          <PromptCellView cell={cell} run={run} onDelete={onDelete} />
+          <PromptCellView cell={cell} run={run} selected={selected} onDelete={onDelete} />
         ) : (
           <NoteCellView cell={cell} onDelete={onDelete} />
         )}
@@ -102,15 +102,19 @@ function CellActions({ cell, onDelete, children }: { cell: Cell; onDelete: (id: 
 function StatusText({ cell, run }: { cell: PromptCell; run: CellRun | undefined }) {
   if (run?.status === 'queued') return <span className="text-faint">queued</span>
   if (run) return null
-  if (cell.state === 'edited') return <span className="text-muted-foreground">{needsGeneration(cell) ? 'edited' : 'code edited'}</span>
+  if (cell.state === 'edited')
+    return <span className="text-muted-foreground">{needsGeneration(cell) ? 'edited' : cell.codeEdited ? 'code edited' : 'not run'}</span>
   if (cell.state === 'stale') return <span className="text-warn">out of date</span>
   if (cell.state === 'error') return <span className="text-destructive">failed</span>
   return null
 }
 
-function PromptCellView({ cell, run, onDelete }: { cell: PromptCell; run: CellRun | undefined; onDelete: (id: string) => void }) {
+function PromptCellView({ cell, run, selected, onDelete }: { cell: PromptCell; run: CellRun | undefined; selected: boolean; onDelete: (id: string) => void }) {
   const message = useNotebook((s) => s.messages[cell.id])
   const activity = useNotebook((s) => s.activity[cell.id])
+  const pinned = useNotebook((s) => s.pinnedIds.includes(cell.id))
+  // Suggestions follow the result you just got, or the cell you're looking at, not every cell at once
+  const suggest = useNotebook((s) => s.lastFinishedId === cell.id) || selected
   const running = run?.status === 'running'
   const outputs = running ? run.liveOutputs : cell.outputs
   const code = running && run.liveCode != null ? run.liveCode : cell.code
@@ -162,6 +166,7 @@ function PromptCellView({ cell, run, onDelete }: { cell: PromptCell; run: CellRu
             {activity?.length ? <ActivityToggle items={activity} /> : null}
             {cell.durationMs != null && formatDuration(cell.durationMs)}
           </span>
+          {suggest && cell.state === 'done' && <Suggestions cell={cell} />}
         </div>
       )}
 
@@ -180,6 +185,17 @@ function PromptCellView({ cell, run, onDelete }: { cell: PromptCell; run: CellRu
             <span className="ml-auto flex items-center gap-3 font-mono text-[11px] text-faint tabular-nums">
               {!running && activity?.length ? <ActivityToggle items={activity} /> : null}
               {!running && cell.durationMs != null && formatDuration(cell.durationMs)}
+              {!running && (cell.outputs.length > 0 || cell.answer) && (
+                <IconButton
+                  label={pinned ? 'Unpin result' : 'Pin result to the side'}
+                  size="icon-xs"
+                  aria-pressed={pinned}
+                  className={cn('-my-1 -mr-1', !pinned && 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100', pinned && 'text-ink')}
+                  onClick={() => actions.togglePin(cell.id)}
+                >
+                  {pinned ? <PinOff /> : <Pin />}
+                </IconButton>
+              )}
             </span>
           </div>
           <TabsContent value="result" className="flex flex-col gap-3">
@@ -194,6 +210,7 @@ function PromptCellView({ cell, run, onDelete }: { cell: PromptCell; run: CellRu
             />
             {!running && cell.variables.length > 0 && <CreatedVariables cell={cell} />}
             {!running && !cell.answer && !outputs.length && cell.executionCount != null && <p className="text-sm text-faint">No output</p>}
+            {!running && suggest && cell.state === 'done' && <Suggestions cell={cell} />}
           </TabsContent>
           <TabsContent value="code">
             <HighlightedEditor
@@ -205,12 +222,34 @@ function PromptCellView({ cell, run, onDelete }: { cell: PromptCell; run: CellRu
               onKeyDown={editorKeys(cell.id)}
               render={(v) => <PythonTokens code={v} />}
               placeholder="Code appears here after the first run. You can also write it yourself."
+              indent
               className="code rounded-lg bg-raised p-3 font-mono text-[12.5px] leading-[1.7]"
             />
           </TabsContent>
         </Tabs>
       )}
     </>
+  )
+}
+
+/** What the agent thinks you might ask next. Clicking one adds it as the next cell and runs it. */
+function Suggestions({ cell }: { cell: PromptCell }) {
+  if (!cell.suggestions.length) return null
+  return (
+    <ul aria-label="Suggested next prompts" className="-mx-2 flex flex-col">
+      {cell.suggestions.map((s) => (
+        <li key={s}>
+          <button
+            type="button"
+            onClick={() => actions.runSuggestion(cell.id, s)}
+            className="group/sug flex w-full items-baseline gap-2.5 rounded-md px-2 py-1 text-left text-[13.5px] text-muted-foreground hover:bg-hover hover:text-foreground"
+          >
+            <ArrowRight className="size-3.5 shrink-0 translate-y-[2px] text-faint transition-transform group-hover/sug:translate-x-0.5 group-hover/sug:text-ink" />
+            <RefText text={s} />
+          </button>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -238,7 +277,7 @@ function Answer({ text }: { text: string }) {
   const long = text.length > 420
   return (
     <div className="max-w-[62ch]">
-      <div className={cn('flex flex-col gap-2 text-[15px] leading-[1.6]', long && !open && 'max-h-[7.5rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]')}>
+      <div className={cn('flex flex-col gap-2 font-serif text-[16px] leading-[1.6]', long && !open && 'max-h-[7.5rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]')}>
         {answerBlocks(text).map((b, i) =>
           b.type === 'p' ? (
             <p key={i}>
@@ -285,7 +324,7 @@ function CreatedVariables({ cell }: { cell: PromptCell }) {
 const tabTrigger =
   'h-auto flex-none rounded-none border-0 px-0 py-0 text-xs font-normal text-faint after:hidden hover:text-muted-foreground data-active:bg-transparent data-active:text-foreground dark:data-active:border-transparent dark:data-active:bg-transparent'
 
-function PythonTokens({ code }: { code: string }) {
+export function PythonTokens({ code }: { code: string }) {
   return (
     <>
       {highlightPython(code).map((t, i) =>
@@ -511,18 +550,18 @@ function NoteMarkdown({ markdown, onEdit }: { markdown: string; onEdit: () => vo
       {blocks.map((b, i) => {
         if (b.type === 'h1')
           return (
-            <h1 key={i} className="text-[22px] font-semibold tracking-[-0.015em] text-balance">
+            <h1 key={i} className="font-serif text-[27px] leading-[1.2] font-medium tracking-[-0.015em] text-balance">
               <RefText text={b.text} />
             </h1>
           )
         if (b.type === 'h2')
           return (
-            <h2 key={i} className="text-base font-semibold text-balance">
+            <h2 key={i} className="mt-1 font-serif text-[19px] font-medium text-balance">
               <RefText text={b.text} />
             </h2>
           )
         return (
-          <p key={i} className="max-w-[62ch] text-[14.5px] leading-[1.65] text-muted-foreground">
+          <p key={i} className="max-w-[62ch] font-serif text-[16px] leading-[1.6] text-muted-foreground">
             <RefText text={b.text} />
           </p>
         )

@@ -91,7 +91,7 @@ describe('runCell with generation', () => {
       { tool: 'list_variables', input: {} },
       { tool: 'run_cell', input: { code: 'orders.groupby("month").bad.mean()' } },
       { tool: 'run_cell', input: { code: 'orders.groupby("month").total.mean()' } },
-      { tool: 'finish', input: { interpretation: 'Order value is [[total including tax]].', answer: 'August averaged $41.20.' } },
+      { tool: 'finish', input: { interpretation: 'Order value is [[total including tax]].', answer: 'August averaged $41.20.', next: ['"Plot it by month"', ' ', 'Median order value'] } },
     ])
     const { deps, events } = harness(model, kernel)
 
@@ -104,6 +104,7 @@ describe('runCell with generation', () => {
       outputs: [table],
       interpretation: 'Order value is [[total including tax]].',
       answer: 'August averaged $41.20.',
+      suggestions: ['Plot it by month', 'Median order value'],
       error: null,
     })
     expect(kernel.executed.filter((e) => e.store)).toHaveLength(2)

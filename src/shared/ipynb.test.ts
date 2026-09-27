@@ -8,6 +8,8 @@ describe('ipynb', () => {
       ...newPromptCell('Monthly churn by plan', 'churn = subs.groupby("plan").churned.mean()\nchurn'),
       interpretation: 'Churned means [[cancelled within the month]].',
       answer: 'Pro churns most.',
+      suggestions: ['Plot churn by month'],
+      history: [{ at: 1_700_000_000_000, prompt: 'Churn by plan', code: 'subs.churned.mean()', interpretation: null, answer: null, edited: false }],
       showTables: true,
       executionCount: 3,
       state: 'done',
