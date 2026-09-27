@@ -14,6 +14,12 @@ Put `AI_GATEWAY_API_KEY` in `apps/desktop/.env`, or `ANTHROPIC_API_KEY` if you s
 
 `pnpm-workspace.yaml` allows only `electron` to run install scripts. If you add a dependency that needs a postinstall step, add it to `onlyBuiltDependencies`.
 
+## Dependencies
+
+A dependency that more than one package uses gets one version, in the `catalog` in `pnpm-workspace.yaml`. Packages refer to it as `"catalog:"`. React, TypeScript, Tailwind, Vitest and the `@types` packages work this way. To bump one, change the catalog, not the package files.
+
+`oxlint` and `turbo` are installed once, at the root.
+
 ## Commands
 
 The root scripts run through Turborepo, in dependency order, with caching. The task graph is in `turbo.json`.
@@ -34,7 +40,17 @@ pnpm --filter @dalliance/web dev
 pnpm turbo run test --filter @dalliance/shared
 ```
 
-Run `pnpm typecheck && pnpm lint && pnpm test` before you open a pull request. There's no CI yet, so nothing else will.
+## CI
+
+`.github/workflows/ci.yml` runs on every pull request and every push to `main`. On Ubuntu with Node 24 and Python 3.12, it installs pandas, NumPy and matplotlib, then runs `pnpm turbo run lint typecheck test build`. A newer push to the same branch cancels the run in progress.
+
+The real-Python kernel tests run in CI. The paid end-to-end test doesn't. Run the same checks locally before you push:
+
+```bash
+pnpm turbo run lint typecheck test build
+```
+
+The website's `typecheck` runs `next typegen` first, so Next's route types exist before `tsc` reads them.
 
 ## How dev mode works
 
@@ -56,7 +72,7 @@ pnpm --filter @dalliance/desktop exec vite preview
 
 Open `http://localhost:4173/?demo`. `?demo&welcome` shows the start page and `?demo&setup` the first-run setup. `vite preview` serves the last build, so rebuild after changes. See [renderer.md](renderer.md#the-browser-preview).
 
-`.claude/launch.json` defines the same servers for tools that start them by name: `renderer-preview` on 4173, `renderer-preview-2` on 4174, `desktop` for `pnpm dev`, and `web` for the built site on 3100.
+`.claude/launch.json` defines the same servers for tools that start them by name: `renderer-preview` on 4173, `desktop` for `pnpm dev`, and `web` for the built site on 3100.
 
 ## Debugging
 
@@ -73,7 +89,7 @@ Open `http://localhost:4173/?demo`. `?demo&welcome` shows the start page and `?d
 - TypeScript is strict. Shared types go in `packages/shared`, not duplicated per side.
 - Imports use `@/` for `apps/desktop/src` and `@dalliance/shared/<module>` for the shared package.
 - Comments explain why, in plain sentences. Doc comments start with `/**` and say what a thing is for, as in `notebook.ts`. Match the density of the file you're in.
-- Lint is oxlint with the React, TypeScript and oxc plugins. `react/rules-of-hooks` is an error.
+- Lint is oxlint with the React, TypeScript and oxc plugins. `react/rules-of-hooks` is an error. The generated shadcn files in `components/ui/` are exempt from `react/only-export-components`. Keep lint at zero warnings.
 - Keep the harness free of Electron imports so it stays testable.
 - Code the renderer runs in a browser, such as the demo, must not reach for `window.dalliance` directly. Use `getApi()`.
 

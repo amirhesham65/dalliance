@@ -8,23 +8,22 @@
     "dev": "next dev --port 3100",
     "build": "next build",
     "start": "next start --port 3100",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "lint": "oxlint -c ../../.oxlintrc.json"
   },
   "dependencies": {
     "next": "16.3.6",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react": "catalog:",
+    "react-dom": "catalog:"
   },
   "devDependencies": {
     "@fontsource/inter": "^5.3.0",
     "@fontsource/source-serif-4": "^5.3.0",
     "@tailwindcss/postcss": "^4.3.3",
-    "@types/node": "^24.19.0",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "oxlint": "^1.85.0",
-    "tailwindcss": "^4.3.3",
-    "typescript": "~6.0.3"
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:"
   }
 }

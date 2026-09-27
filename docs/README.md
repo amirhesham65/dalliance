@@ -29,7 +29,7 @@ apps/desktop/         the Electron app, @dalliance/desktop
   src/                renderer: React 19, zustand, shadcn, Tailwind v4
 apps/web/             dalliance.io, Next.js 16, @dalliance/web
 packages/shared/      types and pure functions both sides import, @dalliance/shared
-design/prototype.html the first single-file prototype, not built or shipped
+.github/workflows/    CI on every pull request, and the release build on version tags
 docs/                 you are here
 ```
 

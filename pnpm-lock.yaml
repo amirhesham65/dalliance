@@ -4,12 +4,39 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    '@types/node':
+      specifier: ^24.19.0
+      version: 24.19.0
+    '@types/react':
+      specifier: ^19.3.0
+      version: 19.3.0
+    '@types/react-dom':
+      specifier: ^19.3.0
+      version: 19.3.0
+    react:
+      specifier: ^19.3.0
+      version: 19.3.0
+    react-dom:
+      specifier: ^19.3.0
+      version: 19.3.0
+    tailwindcss:
+      specifier: ^4.3.3
+      version: 4.3.3
+    typescript:
+      specifier: ~6.0.3
+      version: 6.0.3
+    vitest:
+      specifier: ^5.0.2
+      version: 5.0.2
+
 importers:
 
   .:
     devDependencies:
       oxlint:
-        specifier: ^1.81.0
+        specifier: ^1.85.0
         version: 1.85.0
       turbo:
         specifier: ^2.11.4
@@ -21,8 +48,8 @@ importers:
         specifier: ^4.0.65
         version: 4.0.65(zod@4.6.5)
       '@ai-sdk/gateway':
-        specifier: ^4.0.94
-        version: 4.0.94(zod@4.6.5)
+        specifier: ^4.0.96
+        version: 4.0.96(zod@4.6.5)
       '@dalliance/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -36,8 +63,8 @@ importers:
         specifier: ^5.3.0
         version: 5.3.0
       ai:
-        specifier: ^7.0.116
-        version: 7.0.116(zod@4.6.5)
+        specifier: ^7.0.118
+        version: 7.0.118(zod@4.6.5)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -54,10 +81,10 @@ importers:
         specifier: ^1.6.7
         version: 1.6.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       react:
-        specifier: ^19.2.8
+        specifier: 'catalog:'
         version: 19.3.0
       react-dom:
-        specifier: ^19.2.8
+        specifier: 'catalog:'
         version: 19.3.0(react@19.3.0)
       react-resizable-panels:
         specifier: ^4.14.1
@@ -82,13 +109,13 @@ importers:
         specifier: ^14.6.7
         version: 14.6.7(@testing-library/dom@10.4.2)
       '@types/node':
-        specifier: ^24.13.3
+        specifier: 'catalog:'
         version: 24.19.0
       '@types/react':
-        specifier: ^19.2.18
+        specifier: 'catalog:'
         version: 19.3.0
       '@types/react-dom':
-        specifier: ^19.2.7
+        specifier: 'catalog:'
         version: 19.3.0(@types/react@19.3.0)
       '@vitejs/plugin-react':
         specifier: ^6.1.1
@@ -102,20 +129,17 @@ importers:
       jsdom:
         specifier: ^30.1.1
         version: 30.1.1(@noble/hashes@2.4.0)
-      oxlint:
-        specifier: ^1.81.0
-        version: 1.85.0
       shadcn:
         specifier: ^4.21.0
         version: 4.21.0(typescript@6.0.3)
       tailwindcss:
-        specifier: ^4.3.3
+        specifier: 'catalog:'
         version: 4.3.3
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
       typescript:
-        specifier: ~6.0.2
+        specifier: 'catalog:'
         version: 6.0.3
       vite:
         specifier: ^8.3.0
@@ -127,7 +151,7 @@ importers:
         specifier: ^1.0.0
         version: 1.0.0
       vitest:
-        specifier: ^5.0.2
+        specifier: 'catalog:'
         version: 5.0.2(@types/node@24.19.0)(jsdom@30.1.1(@noble/hashes@2.4.0))(vite@8.3.1(@types/node@24.19.0)(jiti@2.7.0))
 
   apps/web:
@@ -136,10 +160,10 @@ importers:
         specifier: 16.3.6
         version: 16.3.6(@types/node@24.19.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       react:
-        specifier: ^19.3.0
+        specifier: 'catalog:'
         version: 19.3.0
       react-dom:
-        specifier: ^19.3.0
+        specifier: 'catalog:'
         version: 19.3.0(react@19.3.0)
     devDependencies:
       '@fontsource/inter':
@@ -152,34 +176,28 @@ importers:
         specifier: ^4.3.3
         version: 4.3.3
       '@types/node':
-        specifier: ^24.19.0
+        specifier: 'catalog:'
         version: 24.19.0
       '@types/react':
-        specifier: ^19.3.0
+        specifier: 'catalog:'
         version: 19.3.0
       '@types/react-dom':
-        specifier: ^19.3.0
+        specifier: 'catalog:'
         version: 19.3.0(@types/react@19.3.0)
-      oxlint:
-        specifier: ^1.85.0
-        version: 1.85.0
       tailwindcss:
-        specifier: ^4.3.3
+        specifier: 'catalog:'
         version: 4.3.3
       typescript:
-        specifier: ~6.0.3
+        specifier: 'catalog:'
         version: 6.0.3
 
   packages/shared:
     devDependencies:
-      oxlint:
-        specifier: ^1.81.0
-        version: 1.85.0
       typescript:
-        specifier: ~6.0.2
+        specifier: 'catalog:'
         version: 6.0.3
       vitest:
-        specifier: ^5.0.2
+        specifier: 'catalog:'
         version: 5.0.2(@types/node@24.19.0)(jsdom@30.1.1(@noble/hashes@2.4.0))(vite@8.3.1(@types/node@24.19.0)(jiti@2.7.0))
 
 packages:
@@ -193,8 +211,8 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/gateway@4.0.94':
-    resolution: {integrity: sha512-hcp7GLnMynH6NfMnemgvW9acn7j3WsUe/dHFzX3/fhPit08xhm1aYmDGHMiIT6YwsXVBxkit9TriKb2SGAOg+Q==}
+  '@ai-sdk/gateway@4.0.96':
+    resolution: {integrity: sha512-1aniRTzEf9T7uRHdKnBQ36WgEVQswK6wDgkPVsNMl+sPy7otcmrBa2HEurdFBS51s1q3/UXlh8nNcguwU79Hkg==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -1950,8 +1968,8 @@ packages:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
 
-  ai@7.0.116:
-    resolution: {integrity: sha512-gmkVGPzTNPcJixBiG9zUvP3gmvwko85dHiKrxFKK0zcVJIIu1FP6YDo3jna+ZrC2twMAsUPLr5htCwZjCINH3Q==}
+  ai@7.0.118:
+    resolution: {integrity: sha512-ZjkbbOffH09yQAjeZ5yGXd8ePTQlFIyKH5aW0s0LOMmvaR1TSoeg5wVURwLvFry/IzzaLndmw9glTKwWRoog3Q==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -4413,7 +4431,7 @@ snapshots:
       '@ai-sdk/provider-utils': 5.0.49(zod@4.6.5)
       zod: 4.6.5
 
-  '@ai-sdk/gateway@4.0.94(zod@4.6.5)':
+  '@ai-sdk/gateway@4.0.96(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.18
       '@ai-sdk/provider-utils': 5.0.49(zod@4.6.5)
@@ -6141,9 +6159,9 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  ai@7.0.116(zod@4.6.5):
+  ai@7.0.118(zod@4.6.5):
     dependencies:
-      '@ai-sdk/gateway': 4.0.94(zod@4.6.5)
+      '@ai-sdk/gateway': 4.0.96(zod@4.6.5)
       '@ai-sdk/provider': 4.0.18
       '@ai-sdk/provider-utils': 5.0.49(zod@4.6.5)
       zod: 4.6.5

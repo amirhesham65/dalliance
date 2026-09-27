@@ -17,7 +17,7 @@ pnpm turbo run test --filter @dalliance/shared        # the shared package
 | `packages/shared/src/*.test.ts` | Node | Nothing |
 | `apps/desktop/src/**/*.test.tsx` | jsdom | Nothing |
 | `apps/desktop/electron/**/*.test.ts` | Node, via `// @vitest-environment node` | Nothing, except the two below |
-| `electron/kernel/python-kernel.test.ts` | Node | A system Python 3.9+. Skips without one |
+| `electron/kernel/python-kernel.test.ts` | Node | A system Python 3.9+. Skips without one. CI provides Python 3.12 |
 | `electron/e2e.test.ts` | Node | `DALLIANCE_E2E=1`, `AI_GATEWAY_API_KEY`, the network. Costs a few cents |
 
 `apps/desktop/vitest.config.ts` is separate from `vite.config.ts`, so tests never start Electron. The website has no tests.

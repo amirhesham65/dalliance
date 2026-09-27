@@ -12,6 +12,7 @@ Dalliance writes the Python, runs it on a live kernel and keeps the code that wo
 [![Release](https://img.shields.io/github/v/release/amirhesham65/dalliance?style=flat-square&color=1f1f1d&label=release)](https://github.com/amirhesham65/dalliance/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-universal-1f1f1d?style=flat-square&logo=apple&logoColor=white)](https://github.com/amirhesham65/dalliance/releases/latest/download/Dalliance.dmg)
 [![Status](https://img.shields.io/badge/status-early%20preview-c07a2c?style=flat-square)](#)
+[![CI](https://img.shields.io/github/actions/workflow/status/amirhesham65/dalliance/ci.yml?branch=main&style=flat-square&label=ci)](https://github.com/amirhesham65/dalliance/actions/workflows/ci.yml)
 
 [**Download for Mac**](https://github.com/amirhesham65/dalliance/releases/latest/download/Dalliance.dmg) · [Website](https://dalliance.io) · [Docs](docs/README.md)
 
@@ -112,3 +113,7 @@ packages/shared   notebook model, .ipynb conversion, IPC contract
 ```
 
 The agent is built on the AI SDK and follows Vercel's [agent harness](https://vercel.com/academy/build-ai-agent-harness) course, adapted from coding to notebooks. The [internal docs](docs/README.md) cover the architecture, the agent loop and its tools, the kernel protocol, the file format, testing and releases.
+
+## License
+
+All rights reserved. The source is public to read, but you need written permission to copy, modify, distribute or use it. See [LICENSE](LICENSE).
