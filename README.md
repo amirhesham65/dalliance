@@ -112,7 +112,7 @@ apps/web          dalliance.io, Next.js and Tailwind v4
 packages/shared   notebook model, .ipynb conversion, IPC contract
 ```
 
-The agent is built on the AI SDK and follows Vercel's [agent harness](https://vercel.com/academy/build-ai-agent-harness) course, adapted from coding to notebooks. The [internal docs](docs/README.md) cover the architecture, the agent loop and its tools, the kernel protocol, the file format, testing and releases.
+The [internal docs](docs/README.md) cover the architecture, the agent loop and its tools, the kernel protocol, the file format, testing and releases.
 
 ## License
 
