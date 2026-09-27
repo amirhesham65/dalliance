@@ -1,12 +1,16 @@
-import { Plus } from 'lucide-react'
+import { NotebookText, Play, Plus, RotateCw, Square } from 'lucide-react'
 import { Fragment, useEffect, useRef } from 'react'
+import { IconButton } from '@/components/app/IconButton'
+import { Button } from '@/components/ui/button'
 import { actions, useNotebook } from '@/store/notebook-store'
 import { CellView } from './CellView'
 
 export function NotebookView({ onDelete }: { onDelete: (id: string) => void }) {
   const cells = useNotebook((s) => s.notebook.cells)
   const selectedId = useNotebook((s) => s.selectedId)
-  const scroller = useRef<HTMLElement>(null)
+  const busy = useNotebook((s) => Object.keys(s.runs).length > 0)
+  const scroller = useRef<HTMLDivElement>(null)
+  const prompts = cells.filter((c) => c.kind === 'prompt').length
 
   // Keep the selected cell in view when it changes from the keyboard or the outline
   useEffect(() => {
@@ -16,23 +20,47 @@ export function NotebookView({ onDelete }: { onDelete: (id: string) => void }) {
   }, [selectedId])
 
   return (
-    <main ref={scroller} className="scrollbar-thin min-w-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-[760px] px-4 pt-8 pb-40 sm:px-6">
-        {cells.length === 0 && <p className="ml-11 py-3 text-sm text-faint">This notebook is empty.</p>}
-        {cells.map((cell, i) => (
-          <Fragment key={cell.id}>
-            <CellView cell={cell} selected={cell.id === selectedId} onDelete={onDelete} />
-            <CellInserter index={i + 1} />
-          </Fragment>
-        ))}
-        <button
-          type="button"
-          onClick={() => actions.insertCell(cells.length, 'prompt')}
-          className="mt-2 ml-11 flex items-center gap-1.5 rounded-md px-2 py-1 text-[13px] text-faint hover:bg-hover hover:text-foreground"
-        >
-          <Plus className="size-3" />
-          Add cell
-        </button>
+    <main className="flex min-h-0 min-w-[360px] flex-1 flex-col overflow-hidden rounded-xl border bg-background shadow-pane">
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b px-4 text-[13px]">
+        <NotebookText className="size-3.5 text-muted-foreground" />
+        <h2 className="font-medium">Notebook</h2>
+        <span className="text-faint tabular-nums">
+          {prompts} {prompts === 1 ? 'prompt' : 'prompts'}
+        </span>
+        <div className="ml-auto flex items-center gap-1">
+          {busy && (
+            <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => void actions.interrupt()}>
+              <Square className="size-3 fill-current" />
+              Stop
+            </Button>
+          )}
+          <IconButton label="Restart kernel" size="icon-xs" onClick={() => void actions.restart()}>
+            <RotateCw />
+          </IconButton>
+          <Button variant="outline" size="sm" onClick={() => actions.runAll()}>
+            <Play className="fill-ink text-ink" />
+            Run all
+          </Button>
+        </div>
+      </header>
+      <div ref={scroller} className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-[760px] px-4 pt-7 pb-40 sm:px-6">
+          {cells.length === 0 && <p className="ml-11 py-3 text-sm text-faint">This notebook is empty.</p>}
+          {cells.map((cell, i) => (
+            <Fragment key={cell.id}>
+              <CellView cell={cell} selected={cell.id === selectedId} onDelete={onDelete} />
+              <CellInserter index={i + 1} />
+            </Fragment>
+          ))}
+          <button
+            type="button"
+            onClick={() => actions.insertCell(cells.length, 'prompt')}
+            className="mt-2 ml-11 flex items-center gap-1.5 rounded-md px-2 py-1 text-[13px] text-faint hover:bg-hover hover:text-foreground"
+          >
+            <Plus className="size-3" />
+            Add cell
+          </button>
+        </div>
       </div>
     </main>
   )

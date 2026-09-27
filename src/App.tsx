@@ -3,6 +3,7 @@ import { SettingsDialog } from '@/components/app/SettingsDialog'
 import { Sidebar } from '@/components/app/Sidebar'
 import { TopBar } from '@/components/app/TopBar'
 import { NotebookView } from '@/components/notebook/NotebookView'
+import { SidePane } from '@/components/panes/SidePanes'
 import { Button } from '@/components/ui/button'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import type { MenuAction } from '@/shared/ipc'
@@ -12,7 +13,7 @@ import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-
 type Undo = { cell: Cell; index: number }
 
 export default function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [undo, setUndo] = useState<Undo | null>(null)
   const undoTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -92,6 +93,7 @@ export default function App() {
     void api.getSettings().then((settings) => useNotebook.setState({ settings }))
     void api.pythonState().then((python) => useNotebook.setState({ python }))
     void api.kernelState().then((kernel) => useNotebook.setState({ kernel }))
+    void actions.loadBrief()
     const offs = [
       api.onRunEvent((cellId, event) => actions.applyRunEvent(cellId, event)),
       api.onKernelState((kernel) => useNotebook.setState({ kernel })),
@@ -111,10 +113,10 @@ export default function App() {
 
   return (
     <TooltipProvider delayDuration={400}>
-      <div className="flex h-full flex-col">
+      <div className="flex h-full flex-col bg-canvas">
         <TopBar sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((o) => !o)} onOpenSettings={() => setSettingsOpen(true)} />
         {(needsKey || needsPython || kernel.error) && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b bg-raised px-4 py-2 text-[13px]">
+          <div className="mx-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-background px-4 py-2 text-[13px] shadow-pane">
             <span className="text-muted-foreground">
               {needsKey
                 ? 'Add an API key to turn prompts into code.'
@@ -129,18 +131,19 @@ export default function App() {
             </Button>
           </div>
         )}
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
           {sidebarOpen && <Sidebar />}
           <NotebookView onDelete={deleteCell} />
+          <SidePane />
         </div>
       </div>
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       {undo && (
-        <div className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-[#2a2a2a] px-3.5 py-2 text-[13px] shadow-xl" role="status">
+        <div className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-foreground px-3.5 py-2 text-[13px] text-background shadow-xl" role="status">
           Cell deleted
           <button
             type="button"
-            className="font-medium text-muted-foreground hover:text-foreground"
+            className="font-medium text-background/70 hover:text-background"
             onClick={() => {
               actions.restoreCell(undo.cell, undo.index)
               setUndo(null)

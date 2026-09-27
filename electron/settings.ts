@@ -13,7 +13,11 @@ interface Stored {
   approvalMode: 'interactive' | 'background'
   /** Encrypted with the OS keychain when available. */
   keys: Partial<Record<Provider, string>>
+  /** Notebooks opened or saved lately, newest first. */
+  recent: { path: string; openedAt: number }[]
 }
+
+const MAX_RECENT = 8
 
 const ENV_KEYS: Record<Provider, string> = { gateway: 'AI_GATEWAY_API_KEY', anthropic: 'ANTHROPIC_API_KEY' }
 
@@ -24,6 +28,7 @@ const DEFAULTS: Stored = {
   pythonPath: null,
   approvalMode: 'interactive',
   keys: {},
+  recent: [],
 }
 
 export class SettingsStore {
@@ -75,6 +80,20 @@ export class SettingsStore {
 
   get approvalMode() {
     return this.data.approvalMode
+  }
+
+  get recent() {
+    return this.data.recent
+  }
+
+  addRecent(file: string) {
+    this.data.recent = [{ path: file, openedAt: Date.now() }, ...this.data.recent.filter((r) => r.path !== file)].slice(0, MAX_RECENT)
+    this.save()
+  }
+
+  removeRecent(file: string) {
+    this.data.recent = this.data.recent.filter((r) => r.path !== file)
+    this.save()
   }
 
   view(): SettingsView {

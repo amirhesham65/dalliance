@@ -19,6 +19,12 @@ The first time, open Settings and choose **Set up a Python environment**. It cre
 - **Edited code:** your version runs until you change the prompt.
 - **Corrected assumption:** click an underlined assumption under the prompt, change it, and the next run regenerates with your correction.
 - Rerunning a cell marks later cells as out of date, as in Jupyter.
+- **Next prompts:** `finish` can return up to three follow-up prompts. They show under the cell that just ran; clicking one adds it as the next cell and runs it.
+- **History:** every run with new code keeps that version in the cell. The History pane lists them and restores one without calling the model.
+
+## Panes
+
+The left pane shows the notebook's progress (one segment per prompt cell), a one-line summary and a run log. The tiles under it open one side pane at a time: **Brief** (the folder's `AGENTS.md`, edited in place and read before every cell), **Variables**, **History** for the selected cell, and **Files** in the notebook's folder. A result can also be pinned to the side while you work further down.
 
 Notebooks save as `.ipynb`. The prompt, interpretation and answer live in each cell's `metadata.ilios`, so Jupyter can open the files, and plain Jupyter notebooks open as runnable code cells.
 
@@ -54,6 +60,7 @@ pnpm test         # unit, component and kernel tests
 pnpm typecheck
 pnpm lint
 pnpm build        # renderer to dist/, Electron main and preload to dist-electron/
+pnpm exec vite preview   # then open /?demo to see the UI with sample data in a browser
 ILIOS_E2E=1 pnpm exec vitest run electron/e2e.test.ts   # real Python + real model, costs a few cents
 ```
 
@@ -69,7 +76,9 @@ electron/
 src/
   shared/                        notebook model, .ipynb conversion, IPC contract (used by both sides)
   store/notebook-store.ts        document state, run queue, live run state
-  components/                    top bar, outline, settings, cells and outputs
+  components/                    top bar, overview, settings, cells and outputs
+  components/panes/              the side panes: brief, variables, history, files, pinned
+  dev/demo.ts                    sample data for looking at the UI in a browser (?demo)
   components/ui/                 shadcn components
 design/prototype.html            the original single-file prototype
 ```

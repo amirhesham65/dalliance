@@ -1,4 +1,4 @@
-import { type Cell, type ColumnProfile, type CreatedVariable, type Notebook, type Output, type PromptCell, type TableValue, newNoteCell, newPromptCell } from './notebook'
+import { type Cell, type ColumnProfile, type CreatedVariable, type Notebook, type Output, type PromptCell, type Revision, type TableValue, newNoteCell, newPromptCell } from './notebook'
 
 /** Custom MIME type for tables, so outputs render natively instead of through pandas HTML. */
 export const TABLE_MIME = 'application/vnd.ilios.table+json'
@@ -84,6 +84,8 @@ export function toIpynb(nb: Notebook): Json {
             codeEdited: cell.codeEdited,
             interpretation: cell.interpretation,
             answer: cell.answer,
+            ...(cell.suggestions.length ? { suggestions: cell.suggestions } : {}),
+            ...(cell.history.length ? { history: cell.history } : {}),
             variables: cell.variables,
             showTables: cell.showTables,
             state: cell.state,
@@ -119,6 +121,8 @@ export function fromIpynb(raw: unknown): Notebook {
       codeEdited: Boolean(meta.codeEdited),
       interpretation: (meta.interpretation as string | null) ?? null,
       answer: (meta.answer as string | null) ?? null,
+      suggestions: Array.isArray(meta.suggestions) ? (meta.suggestions as unknown[]).filter((x): x is string => typeof x === 'string') : [],
+      history: Array.isArray(meta.history) ? (meta.history as Revision[]).filter((r) => r && typeof r.code === 'string') : [],
       showTables: typeof meta.showTables === 'boolean' ? meta.showTables : null,
       variables: Array.isArray(meta.variables) ? (meta.variables as CreatedVariable[]) : [],
       outputs: Array.isArray(c.outputs) ? (c.outputs as Json[]).map(outputFromNb).filter((o): o is Output => o != null) : [],

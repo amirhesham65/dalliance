@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
-import { IPC, type MenuAction, type RunCellRequest, type SettingsUpdate } from '../src/shared/ipc'
+import { BrowserWindow, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
+import { IPC, type MenuAction, type OpenedNotebook, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '../src/shared/ipc'
 import { fromIpynb, toIpynb } from '../src/shared/ipynb'
 import type { Notebook } from '../src/shared/notebook'
 import { buildMenu } from './menu'
@@ -37,6 +37,17 @@ const session = new NotebookSession({
 
 const sendMenu = (action: MenuAction) => win?.webContents.send(IPC.menu, action)
 
+// The window canvas behind the panes, in each theme. Matches --canvas in index.css.
+const canvas = () => (nativeTheme.shouldUseDarkColors ? { color: '#111110', symbolColor: '#a1a09a' } : { color: '#efeeeb', symbolColor: '#6f6e69' })
+
+async function openFile(file: string): Promise<OpenedNotebook> {
+  const notebook = fromIpynb(JSON.parse(await readFile(file, 'utf-8')))
+  app.addRecentDocument(file)
+  settings.addRecent(file)
+  await session.openWorkspace(path.dirname(file))
+  return { path: file, notebook }
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1280,
@@ -44,14 +55,14 @@ function createWindow() {
     minWidth: 720,
     minHeight: 480,
     title: 'Ilios',
-    backgroundColor: '#161616',
+    backgroundColor: canvas().color,
     show: false,
     // The renderer draws its own top bar. macOS keeps native traffic lights,
     // Windows and Linux get native window controls drawn over the bar.
     titleBarStyle: 'hidden',
     ...(isMac
       ? { trafficLightPosition: { x: 16, y: 16 } }
-      : { titleBarOverlay: { color: '#161616', symbolColor: '#9e9e9e', height: TITLE_BAR_HEIGHT } }),
+      : { titleBarOverlay: { ...canvas(), height: TITLE_BAR_HEIGHT } }),
     webPreferences: {
       preload: path.join(import.meta.dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -61,6 +72,13 @@ function createWindow() {
   })
 
   win.once('ready-to-show', () => win?.show())
+  const onTheme = () => {
+    if (!win || win.isDestroyed()) return
+    win.setBackgroundColor(canvas().color)
+    if (!isMac) win.setTitleBarOverlay({ ...canvas(), height: TITLE_BAR_HEIGHT })
+  }
+  nativeTheme.on('updated', onTheme)
+  win.on('closed', () => nativeTheme.off('updated', onTheme))
 
   // Links open in the default browser, never in a new Electron window
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -132,12 +150,25 @@ function registerIpc() {
       properties: ['openFile'],
     })
     if (canceled || !filePaths[0]) return null
-    const file = filePaths[0]
-    const notebook = fromIpynb(JSON.parse(await readFile(file, 'utf-8')))
-    app.addRecentDocument(file)
-    await session.openWorkspace(path.dirname(file))
-    return { path: file, notebook }
+    return openFile(filePaths[0])
   })
+
+  ipcMain.handle(IPC.openRecent, async (_e, file: string) => {
+    if (!existsSync(file)) {
+      settings.removeRecent(file)
+      return null
+    }
+    return openFile(file)
+  })
+
+  ipcMain.handle(IPC.recentNotebooks, (): RecentNotebook[] =>
+    settings.recent
+      .filter((r) => existsSync(r.path))
+      .map((r) => ({ path: r.path, name: path.basename(r.path, '.ipynb'), folder: path.basename(path.dirname(r.path)), openedAt: r.openedAt })),
+  )
+  ipcMain.handle(IPC.readBrief, () => session.readBrief())
+  ipcMain.handle(IPC.writeBrief, (_e, text: string) => session.writeBrief(text))
+  ipcMain.handle(IPC.listFiles, () => session.files())
 
   ipcMain.handle(IPC.saveNotebook, async (_e, current: string | null, notebook: Notebook) => {
     if (!win) return null
@@ -156,6 +187,7 @@ function registerIpc() {
     }
     await writeFile(file, `${JSON.stringify(toIpynb(notebook), null, 1)}\n`)
     app.addRecentDocument(file)
+    settings.addRecent(file)
     await session.moveWorkspace(path.dirname(file))
     if (allowCloseAfterSave) {
       allowClose = true

@@ -60,7 +60,8 @@ Search first, ask second, decide third.
   sections.push(`# finish
 - interpretation: only the choices you made that the user might want to change, each wrapped in [[double brackets]], e.g. "Churned means [[cancelled and not reactivated within 14 days]]." Use an empty string when you made no such choice. Never describe what the code did.
 - answer, for a code cell: lead with the direct answer in at most two sentences and about 40 words. Bold the one or two key numbers with **double asterisks**. Don't repeat what the table or chart already shows column by column. Use an empty string when the prompt only asked to load, make or plot something.
-- answer, for a question: up to about 150 words. Ground it in this data (its columns, sizes and quirks you saw), not generic advice. A short list with "- " lines is fine. End with one or two concrete prompts the user could run next, in quotes.`)
+- answer, for a question: up to about 150 words. Ground it in this data (its columns, sizes and quirks you saw), not generic advice. A short list with "- " lines is fine.
+- next: up to three prompts the user could type as the next cell, each under about 10 words and specific to this data, e.g. "Plot monthly revenue by plan" or "Which customers churned after March?". Follow on from this result; don't repeat what the cell already did. Use an empty list when nothing obvious follows, such as after loading a file the user will explore their own way.`)
 
   if (ctx.projectInstructions) {
     sections.push(`# Project instructions (from AGENTS.md in the notebook's folder)

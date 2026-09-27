@@ -42,6 +42,20 @@ export type CellState =
   | 'edited' // prompt or code changed since the last run
   | 'stale' // an earlier cell was rerun, so this output may be out of date
 
+/** One working version of a cell, kept so a later rewrite can be undone. */
+export interface Revision {
+  at: number
+  prompt: string
+  code: string
+  interpretation: string | null
+  answer: string | null
+  /** True when the code was the user's own edit rather than the agent's. */
+  edited: boolean
+}
+
+/** How many past versions a cell keeps. */
+export const MAX_REVISIONS = 12
+
 /** A correction the user made to one of the agent's stated assumptions. */
 export interface Correction {
   from: string
@@ -62,6 +76,10 @@ export interface PromptCell {
   corrections: Correction[]
   /** Short prose answer grounded in the outputs, when the prompt asked a question. */
   answer: string | null
+  /** Prompts the agent suggests running next, shown under the result. */
+  suggestions: string[]
+  /** Earlier working versions of this cell, newest first. */
+  history: Revision[]
   outputs: Output[]
   /** Whether tables show open. Null lets the app decide: folded when there is an answer or a chart. */
   showTables: boolean | null
@@ -101,6 +119,8 @@ export function newPromptCell(prompt = '', code = ''): PromptCell {
     interpretation: null,
     corrections: [],
     answer: null,
+    suggestions: [],
+    history: [],
     outputs: [],
     showTables: null,
     variables: [],

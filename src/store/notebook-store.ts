@@ -1,6 +1,8 @@
 import { create } from 'zustand'
+import { cellTitle } from '@/lib/notebook/text'
 import type {
   ActivityItem,
+  Brief,
   CellRunResult,
   KernelState,
   IliosApi,
@@ -15,6 +17,7 @@ import {
   type Notebook,
   type Output,
   type PromptCell,
+  MAX_REVISIONS,
   needsGeneration,
   newNoteCell,
   tablesOpen,
@@ -33,6 +36,18 @@ export interface CellRun {
   startedAt: number
 }
 
+/** One line in the notebook's run log. Not saved with the notebook. */
+export interface LogEntry {
+  id: number
+  at: number
+  kind: 'wrote' | 'ran' | 'failed' | 'stopped' | 'restarted' | 'restored'
+  text: string
+  cellId?: string
+}
+
+/** The side panes, one open at a time. */
+export type PaneKind = 'brief' | 'variables' | 'history' | 'files' | 'pinned'
+
 export interface NotebookState {
   notebook: Notebook
   path: string | null
@@ -49,6 +64,14 @@ export interface NotebookState {
   python: PythonState | null
   /** A cell whose editor should take keyboard focus on its next render. */
   focusId: string | null
+  /** What happened in this session, newest first. */
+  log: LogEntry[]
+  /** The cell that most recently finished running, which shows its suggested next prompts. */
+  lastFinishedId: string | null
+  pane: PaneKind | null
+  /** The cell whose result is pinned in the side pane. */
+  pinnedId: string | null
+  brief: Brief | null
 }
 
 let api: IliosApi | undefined = typeof window === 'undefined' ? undefined : window.ilios
@@ -85,7 +108,21 @@ export const useNotebook = create<NotebookState>(() => ({
   settings: null,
   python: null,
   focusId: null,
+  log: [],
+  lastFinishedId: null,
+  pane: null,
+  pinnedId: null,
+  brief: null,
 }))
+
+const MAX_LOG = 60
+let logId = 0
+
+function addLog(entry: Omit<LogEntry, 'id' | 'at'>) {
+  set((s) => ({ log: [{ ...entry, id: ++logId, at: Date.now() }, ...s.log].slice(0, MAX_LOG) }))
+}
+
+const quoted = (cell: Cell) => `“${cellTitle(cell, 40)}”`
 
 const set = useNotebook.setState
 const get = useNotebook.getState
@@ -113,12 +150,85 @@ export const actions = {
       activity: {},
       messages: {},
       variables: [],
+      log: [],
+      lastFinishedId: null,
+      pinnedId: null,
+      pane: get().pane === 'pinned' ? null : get().pane,
     })
     queue.length = 0
+    void actions.loadBrief()
   },
 
   markSaved(path: string) {
+    const moved = get().path !== path
     set({ path, dirty: false })
+    // Save As into another folder means another AGENTS.md
+    if (moved) void actions.loadBrief()
+  },
+
+  openPane(pane: PaneKind | null) {
+    set({ pane })
+  },
+
+  togglePane(pane: PaneKind) {
+    set((s) => ({ pane: s.pane === pane ? null : pane }))
+  },
+
+  pin(id: string | null) {
+    set({ pinnedId: id, pane: id ? 'pinned' : get().pane === 'pinned' ? null : get().pane })
+  },
+
+  async loadBrief() {
+    if (!api) return
+    set({ brief: await api.readBrief().catch(() => null) })
+  },
+
+  async saveBrief(text: string) {
+    if (!api) return
+    set({ brief: await api.writeBrief(text) })
+  },
+
+  /** A suggested prompt becomes the next cell and runs. */
+  runSuggestion(afterId: string, prompt: string) {
+    const cells = get().notebook.cells
+    const index = cells.findIndex((c) => c.id === afterId)
+    if (index < 0) return
+    const next = cells[index + 1]
+    // Reuse an empty prompt cell right below instead of stacking another one
+    if (next?.kind === 'prompt' && !next.prompt.trim() && !next.code.trim()) {
+      actions.setPrompt(next.id, prompt)
+      set({ selectedId: next.id })
+      actions.run(next.id)
+      return
+    }
+    const cell = newPromptCell(prompt)
+    updateCells((cs) => [...cs.slice(0, index + 1), cell, ...cs.slice(index + 1)])
+    set({ selectedId: cell.id })
+    actions.run(cell.id)
+  },
+
+  /** Bring back an earlier version of a cell. It runs its saved code on the next run, without the agent. */
+  restoreRevision(id: string, at: number) {
+    const cell = get().notebook.cells.find((c) => c.id === id)
+    if (!cell || cell.kind !== 'prompt') return
+    const rev = cell.history.find((r) => r.at === at)
+    if (!rev) return
+    updateCell(id, (c) =>
+      c.kind !== 'prompt'
+        ? c
+        : {
+            ...c,
+            prompt: rev.prompt,
+            code: rev.code,
+            generatedFrom: rev.prompt,
+            codeEdited: rev.edited,
+            interpretation: rev.interpretation,
+            answer: rev.answer,
+            corrections: [],
+            state: hasRun(c) ? 'edited' : c.state,
+          },
+    )
+    addLog({ kind: 'restored', text: `Restored an earlier version of ${quoted({ ...cell, prompt: rev.prompt })}`, cellId: id })
   },
 
   focus(id: string | null) {
@@ -237,6 +347,7 @@ export const actions = {
   async restart() {
     await actions.interrupt()
     await api?.restartKernel()
+    addLog({ kind: 'restarted', text: 'Restarted Python' })
     // Outputs stay, but the variables they came from are gone
     updateCells((cells) =>
       cells.map((c) => (c.kind === 'prompt' && hasRun(c) ? { ...c, executionCount: null, state: 'stale' as const } : c)),
@@ -375,6 +486,7 @@ function failed(request: RunCellRequest, err: unknown): CellRunResult {
     generated: request.generate,
     interpretation: null,
     answer: null,
+    suggestions: [],
     variables: [],
     activity: [],
     error: err instanceof Error ? err.message : String(err),
@@ -383,6 +495,7 @@ function failed(request: RunCellRequest, err: unknown): CellRunResult {
 
 function finish(id: string, generate: boolean, result: CellRunResult) {
   const stopped = result.error === 'Stopped.'
+  logRun(get().notebook.cells.find((c) => c.id === id), generate, result)
   set((s) => {
     const cells = s.notebook.cells
     const index = cells.findIndex((c) => c.id === id)
@@ -410,9 +523,11 @@ function finish(id: string, generate: boolean, result: CellRunResult) {
                 corrections: result.ok ? [] : cell.corrections,
                 interpretation: result.ok ? result.interpretation : cell.interpretation,
                 answer: result.ok ? result.answer : null,
+                suggestions: result.ok ? result.suggestions : [],
               }
             : {}),
         }
+    if (result.ok && !nothingRan) updated.history = remember(updated)
 
     const nextCells = cells.map((c, i) => {
       if (i === index) return updated
@@ -422,12 +537,33 @@ function finish(id: string, generate: boolean, result: CellRunResult) {
     })
     return {
       notebook: { ...s.notebook, cells: nextCells },
+      lastFinishedId: result.ok ? id : s.lastFinishedId,
       dirty: s.dirty || !nothingRan,
       runs,
       activity: generate && result.activity.length ? { ...s.activity, [id]: result.activity } : s.activity,
       messages: result.error && !(stopped && !nothingRan) ? { ...s.messages, [id]: result.error } : s.messages,
     }
   })
+}
+
+/** Add the cell's current version to its history, unless it is the one already on top. */
+function remember(cell: PromptCell) {
+  const top = cell.history[0]
+  if (top && top.code === cell.code && top.prompt === cell.prompt) return cell.history
+  const rev = { at: Date.now(), prompt: cell.prompt, code: cell.code, interpretation: cell.interpretation, answer: cell.answer, edited: cell.codeEdited }
+  return [rev, ...cell.history].slice(0, MAX_REVISIONS)
+}
+
+function logRun(cell: Cell | undefined, generate: boolean, result: CellRunResult) {
+  if (!cell) return
+  const name = quoted(cell)
+  if (result.error === 'Stopped.') return addLog({ kind: 'stopped', text: `Stopped ${name}`, cellId: cell.id })
+  if (!result.ok) {
+    const err = result.outputs.find((o) => o.type === 'error')
+    const why = err?.type === 'error' ? err.ename : result.error ? 'the agent gave up' : 'error'
+    return addLog({ kind: 'failed', text: `${name} failed: ${why}`, cellId: cell.id })
+  }
+  addLog({ kind: generate ? 'wrote' : 'ran', text: `${generate ? 'Wrote' : 'Ran'} ${name}`, cellId: cell.id })
 }
 
 function omit<T>(record: Record<string, T>, key: string): Record<string, T> {

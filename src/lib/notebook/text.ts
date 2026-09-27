@@ -76,3 +76,19 @@ const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
 export function stripAnsi(text: string): string {
   return text.replace(ANSI, '')
 }
+
+/** Time since a moment, the way a log reads it: now, 4m, 2h, 3d. */
+export function ago(at: number, now = Date.now()): string {
+  const s = Math.max(0, Math.round((now - at) / 1000))
+  if (s < 45) return 'now'
+  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m`
+  if (s < 86400) return `${Math.round(s / 3600)}h`
+  return `${Math.round(s / 86400)}d`
+}
+
+/** "anthropic/claude-haiku-4-5-20251001" reads as "Haiku 4.5". Anything else shows as typed. */
+export function modelLabel(model: string): string {
+  const m = model.match(/claude-(opus|sonnet|haiku)-([\d]+(?:[.-]\d{1,2})?)/i)
+  if (!m) return model.split('/').pop() ?? model
+  return `${m[1].charAt(0).toUpperCase()}${m[1].slice(1)} ${m[2].replace('-', '.')}`
+}

@@ -36,6 +36,8 @@ export interface CellRunResult {
   generated: boolean
   interpretation: string | null
   answer: string | null
+  /** Follow-up prompts the agent suggests. */
+  suggestions: string[]
   /** Variables the final run assigned. */
   variables: CreatedVariable[]
   activity: ActivityItem[]
@@ -91,6 +93,24 @@ export interface PythonState {
   missingPackages: string[]
 }
 
+/** The notebook folder's AGENTS.md, which the agent reads before every cell. */
+export interface Brief {
+  path: string
+  text: string | null
+}
+
+export interface FileEntry {
+  path: string
+  size: string
+}
+
+export interface RecentNotebook {
+  path: string
+  name: string
+  folder: string
+  openedAt: number
+}
+
 export interface OpenedNotebook {
   path: string | null
   notebook: Notebook
@@ -126,6 +146,11 @@ export interface IliosApi {
   setupPython(): Promise<PythonState>
   onPythonLog(listener: (line: string) => void): () => void
   openNotebook(): Promise<OpenedNotebook | null>
+  openRecent(path: string): Promise<OpenedNotebook | null>
+  recentNotebooks(): Promise<RecentNotebook[]>
+  readBrief(): Promise<Brief>
+  writeBrief(text: string): Promise<Brief>
+  listFiles(): Promise<FileEntry[]>
   saveNotebook(path: string | null, notebook: Notebook): Promise<string | null>
   confirmDiscard(): Promise<boolean>
   setDocumentState(state: { path: string | null; dirty: boolean }): void
@@ -147,6 +172,11 @@ export const IPC = {
   setupPython: 'setup-python',
   pythonLog: 'python-log',
   openNotebook: 'open-notebook',
+  openRecent: 'open-recent',
+  recentNotebooks: 'recent-notebooks',
+  readBrief: 'read-brief',
+  writeBrief: 'write-brief',
+  listFiles: 'list-files',
   saveNotebook: 'save-notebook',
   confirmDiscard: 'confirm-discard',
   documentState: 'document-state',

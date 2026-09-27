@@ -1,8 +1,8 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { newNoteCell, newPromptCell } from '@/shared/notebook'
-import { actions, setApi } from '@/store/notebook-store'
+import { actions, setApi, useNotebook } from '@/store/notebook-store'
 import { fakeApi, result } from '@/test/fake-api'
 import App from './App'
 
@@ -169,5 +169,85 @@ describe('question cells', () => {
     expect(await screen.findByText('Predict returns.')).toBeInTheDocument()
     expect(screen.getByText('target: returned').closest('li')).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Code' })).not.toBeInTheDocument()
+  })
+
+  it('runs a suggested next prompt as a new cell', async () => {
+    const user = userEvent.setup()
+    const { api, requests } = fakeApi((req) =>
+      req.prompt === 'Revenue by month'
+        ? result({ answer: 'August led.', suggestions: ['Plot revenue by month', 'Break August down by region'] })
+        : result({ answer: 'Here is the chart.' }),
+    )
+    setApi(api)
+    render(<App />)
+
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Revenue by month')
+    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    const list = await screen.findByRole('list', { name: 'Suggested next prompts' })
+    await user.click(within(list).getByRole('button', { name: 'Plot revenue by month' }))
+
+    expect(await screen.findByText('Here is the chart.')).toBeInTheDocument()
+    expect(requests.map((r) => r.prompt)).toEqual(['Revenue by month', 'Plot revenue by month'])
+    // The empty cell below the first one is reused rather than stacking a new one
+    expect(screen.getAllByRole('article', { name: 'Prompt cell' })).toHaveLength(2)
+    expect(screen.getByRole('list', { name: 'Run log' })).toHaveTextContent('Wrote “Plot revenue by month”')
+  })
+
+  it('keeps earlier versions of a cell and restores one', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi((req) => result({ code: req.prompt === 'Total sales' ? 'orders.total.sum()' : 'orders.total.mean()' }))
+    setApi(api)
+    render(<App />)
+
+    const prompt = screen.getByRole('textbox', { name: 'Prompt' })
+    await user.type(prompt, 'Total sales')
+    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    await screen.findByRole('tab', { name: 'Code' })
+    await user.clear(prompt)
+    await user.type(prompt, 'Average sale')
+    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    await waitFor(() => expect(useNotebook.getState().runs).toEqual({}))
+
+    await user.click(screen.getByRole('button', { name: /History/ }))
+    const pane = screen.getByRole('region', { name: 'History' })
+    expect(within(pane).getByText('Earlier')).toBeInTheDocument()
+    await user.click(within(pane).getByRole('button', { name: 'Restore' }))
+
+    expect(prompt).toHaveValue('Total sales')
+    const cell = useNotebook.getState().notebook.cells[1]
+    expect(cell).toMatchObject({ code: 'orders.total.sum()', state: 'edited' })
+  })
+
+  it('writes the brief to AGENTS.md from its pane', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    const writes: string[] = []
+    api.writeBrief = async (text) => {
+      writes.push(text)
+      return { path: '/tmp/AGENTS.md', text }
+    }
+    setApi(api)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Brief/ }))
+    await user.click(await screen.findByRole('button', { name: 'Start a brief' }))
+    await user.click(screen.getByRole('button', { name: 'Done editing' }))
+
+    expect(writes[0]).toContain('## Done when')
+    expect(await screen.findByRole('heading', { name: 'What this notebook is for' })).toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: 'A check the results should pass' }))
+    expect(writes[1]).toContain('- [x] A check the results should pass')
+  })
+
+  it('sums up where the notebook stands', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    setApi(api)
+    render(<App />)
+
+    expect(screen.getByText('Nothing has run yet. Press Run all, or Shift+Enter in a cell.')).toBeInTheDocument()
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Total sales')
+    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    expect(await screen.findByText('The cell is up to date.')).toBeInTheDocument()
   })
 })

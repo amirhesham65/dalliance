@@ -47,6 +47,7 @@ async function executeCell(request: RunCellRequest, deps: HarnessDeps): Promise<
     generated: false,
     interpretation: null,
     answer: null,
+    suggestions: [],
     variables: created(result.assigned),
     activity: [],
     error: null,
@@ -175,6 +176,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     variables: created(last?.result.assigned ?? []),
     // If the model answered in text instead of calling finish, keep that answer
     answer: state.finished?.answer ?? (succeeded && text.trim() ? clip(text.trim(), 1200) : null),
+    suggestions: state.finished?.suggestions ?? [],
     activity: [...activity.values()],
     error,
   }
