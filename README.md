@@ -76,6 +76,8 @@ DALLIANCE_E2E=1 pnpm --filter @dalliance/desktop exec vitest run electron/e2e.te
 
 To run a task in one package, filter it: `pnpm turbo run test --filter @dalliance/shared`.
 
+CI runs lint, typecheck, test and build on every pull request and every push to main (`.github/workflows/ci.yml`). To ship a release, bump `version` in `apps/desktop/package.json`, merge, then tag that commit to match (`git tag v0.1.0 && git push origin v0.1.0`). The release workflow builds `Dalliance.dmg` on macOS and publishes it as a GitHub Release, which is where the website's Download button points.
+
 ## Layout
 
 ```

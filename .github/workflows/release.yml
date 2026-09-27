@@ -1,0 +1,35 @@
+name: Release
+
+# Push a tag that matches apps/desktop's version, e.g. v0.1.0, to build Dalliance.dmg
+# and publish it as a GitHub Release. The website's Download button points at the latest one.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    name: Build and publish Dalliance.dmg
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the tag matches the app version
+        run: |
+          version=$(node -p "require('./apps/desktop/package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match apps/desktop version $version" >&2
+            exit 1
+          fi
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @dalliance/desktop dist:mac --publish never
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" apps/desktop/release/Dalliance.dmg --title "Dalliance $GITHUB_REF_NAME" --generate-notes
