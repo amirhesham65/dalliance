@@ -16,8 +16,7 @@
     "lint": "oxlint -c ../../.oxlintrc.json"
   },
   "devDependencies": {
-    "oxlint": "^1.81.0",
-    "typescript": "~6.0.2",
-    "vitest": "^5.0.2"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }
