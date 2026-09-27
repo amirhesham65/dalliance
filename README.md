@@ -67,6 +67,7 @@ pnpm test         # unit, component and kernel tests
 pnpm typecheck
 pnpm lint
 pnpm build        # renderer to apps/desktop/dist/, Electron main and preload to apps/desktop/dist-electron/, the website to apps/web/.next/
+pnpm --filter @dalliance/desktop dist:mac            # a universal (Apple Silicon and Intel) Dalliance.dmg in apps/desktop/release/
 pnpm --filter @dalliance/web dev                     # just the website, on http://localhost:3100
 pnpm --filter @dalliance/desktop exec vite preview   # then open /?demo to see the UI with sample data in a browser
                                                  # /?demo&welcome for the start page, /?demo&setup for the first-run setup

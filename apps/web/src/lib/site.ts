@@ -24,7 +24,7 @@ export const site = {
   ],
   author: 'Amir Hesham',
   status: 'Early preview',
-  downloadUrl: process.env.DALLIANCE_DOWNLOAD_URL?.trim() || 'https://github.com/amirhesham65/dalliance/releases/latest',
+  downloadUrl: process.env.DALLIANCE_DOWNLOAD_URL?.trim() || 'https://github.com/amirhesham65/dalliance/releases/latest/download/Dalliance.dmg',
   // Light and dark page colours, for the browser chrome and the manifest
   paper: { light: '#f7f6f3', dark: '#141413' },
 } as const
