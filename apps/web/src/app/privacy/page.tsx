@@ -20,6 +20,7 @@ const sections = [
     label: 'This website',
     rows: [
       { k: 'Page views.', v: 'Counted with Vercel Web Analytics: the page, the site that sent you, your country, browser, operating system and device type.' },
+      { k: 'Downloads.', v: 'Each click on a download button is logged with the time, the button, the page it was on, your country, region and city, browser, operating system and device type. Not your IP address.' },
       { k: 'No cookies.', v: 'Nothing is stored on your device, and visits are not linked across days or other sites.' },
     ],
   },
@@ -56,7 +57,7 @@ export default function Privacy() {
       <SiteHeader />
       <div className={sheet}>
         <div className={mastheadRuled}>
-          <p className={`${labelMono} mb-4`}>Updated 27 September 2026</p>
+          <p className={`${labelMono} mb-4`}>Updated 28 September 2026</p>
           <h1 className={headline}>Privacy</h1>
           <p className={support}>This site counts visits without cookies. The app keeps your work on your Mac and sends nothing about how you use it.</p>
         </div>
