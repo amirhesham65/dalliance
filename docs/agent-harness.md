@@ -120,6 +120,8 @@ Two constraints shape the loop.
 
 `listModels()` feeds the model picker. On the gateway it calls `getAvailableModels()`, keeps language models, and turns per-token prices into per-million strings. On the Anthropic API it calls `/v1/models`. Results are cached for 10 minutes per provider and key. `MAKERS` maps gateway prefixes to display names. Logos come from `src/assets/makers/`, see [renderer.md](renderer.md#model-maker-logos).
 
+`checkKey()` tries a key before Settings saves it. On the gateway it asks for the credit balance, which also proves the key, and returns it as the detail. On the Anthropic API it lists one model. A 401 or 403 is `rejected`. Anything else that fails, like no network, is `unchecked`, and the renderer saves the key anyway with a note.
+
 `friendlyError()` in `run-cell.ts` rewrites auth, rate limit and unknown model errors into messages that point at Settings.
 
 ## Titles

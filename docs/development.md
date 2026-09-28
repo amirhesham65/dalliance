@@ -10,7 +10,7 @@ cp apps/desktop/.env.example apps/desktop/.env
 pnpm dev
 ```
 
-Put `AI_GATEWAY_API_KEY` in `apps/desktop/.env`, or `ANTHROPIC_API_KEY` if you switch the provider in Settings. You can also skip the file and paste a key into Settings, where it's stored encrypted. The `.env` file is only read in development.
+Put `AI_GATEWAY_API_KEY` in `apps/desktop/.env`, or `ANTHROPIC_API_KEY` if you switch the provider in Settings. You can also skip the file and paste a key into Settings, where it's stored encrypted. The `.env` file is only read in development. Packaged builds also find either variable when your shell profile exports it.
 
 `pnpm-workspace.yaml` allows only `electron` to run install scripts. If you add a dependency that needs a postinstall step, add it to `onlyBuiltDependencies`.
 

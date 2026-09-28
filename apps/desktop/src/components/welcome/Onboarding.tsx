@@ -1,8 +1,9 @@
-import { ArrowRight, Check, FilePlus, FolderOpen, Loader2, NotebookText } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Check, FilePlus, FolderOpen, Loader2, NotebookText } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PROVIDERS, keySourceText, providerForKey, saveKey } from '@/lib/keys'
 import { sampleNotebook } from '@/lib/notebook/samples'
 import { cn } from '@/lib/utils'
 import type { DallianceApi, Provider, PythonState, SettingsView } from '@dalliance/shared/ipc'
@@ -12,23 +13,6 @@ import { finishOnboarding, fresh, modKey, pythonReady, startWith } from './start
 import { usePythonSetup } from './use-python-setup'
 
 const STEPS = ['Welcome', 'Model', 'Python', 'Start']
-
-const PROVIDERS: Record<Provider, { label: string; blurb: string; keyLabel: string; placeholder: string; env: string }> = {
-  gateway: {
-    label: 'Vercel AI Gateway',
-    blurb: 'One key for Claude, GPT, Gemini and others. Switch models any time.',
-    keyLabel: 'AI Gateway key',
-    placeholder: 'vck_…',
-    env: 'AI_GATEWAY_API_KEY',
-  },
-  anthropic: {
-    label: 'Anthropic API',
-    blurb: 'Claude models only, billed by Anthropic.',
-    keyLabel: 'Anthropic API key',
-    placeholder: 'sk-ant-…',
-    env: 'ANTHROPIC_API_KEY',
-  },
-}
 
 /**
  * The first run: what a cell is, a model key, a Python to run on, and a first notebook.
@@ -183,16 +167,28 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
   const [key, setKey] = useState('')
   const [saving, setSaving] = useState(false)
   const [replacing, setReplacing] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const provider = PROVIDERS[settings.provider]
 
   const update = async (u: Parameters<DallianceApi['updateSettings']>[0]) => {
     useNotebook.setState({ settings: await api.updateSettings(u) })
   }
+  const change = (value: string) => {
+    setKey(value)
+    setError(null)
+    // A pasted key says whose it is, so the provider follows it
+    const detected = providerForKey(value)
+    if (detected && detected !== settings.provider) void update({ provider: detected })
+  }
   const save = async () => {
     if (!key.trim()) return
     setSaving(true)
-    await update({ apiKey: { provider: settings.provider, key } })
+    const saved = await saveKey(api, settings.provider, key)
     setSaving(false)
+    if (!saved.view) return setError(saved.error)
+    useNotebook.setState({ settings: saved.view })
+    setNote(saved.note)
     setKey('')
     setReplacing(false)
   }
@@ -214,6 +210,8 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
               aria-checked={checked}
               onClick={() => {
                 setReplacing(false)
+                setError(null)
+                setNote(null)
                 void update({ provider: p })
               }}
               className={cn(
@@ -241,16 +239,11 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
               <Check className="size-2.5" strokeWidth={3.5} />
             </span>
             <span className="flex-1">
-              {settings.keySource === 'environment' ? (
-                <>
-                  Using <span className="font-mono text-xs">{provider.env}</span> from the environment.
-                </>
-              ) : (
-                'Key saved in your system keychain.'
-              )}
+              {keySourceText(settings)}
+              {note && <span className="text-muted-foreground"> {note}</span>}
             </span>
             <button type="button" className="text-xs text-faint hover:text-foreground" onClick={() => setReplacing(true)}>
-              {settings.keySource === 'environment' ? 'Use a different key' : 'Replace'}
+              {settings.keySource === 'settings' ? 'Replace' : 'Use a different key'}
             </button>
           </div>
         ) : (
@@ -261,7 +254,13 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
               void save()
             }}
           >
-            <Label htmlFor="onboarding-key">{provider.keyLabel}</Label>
+            <div className="flex items-baseline justify-between">
+              <Label htmlFor="onboarding-key">{provider.keyLabel}</Label>
+              <a href={provider.keysUrl} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground">
+                Get a key from {provider.keysSite}
+                <ArrowUpRight className="size-3" />
+              </a>
+            </div>
             <div className="flex gap-2">
               <Input
                 id="onboarding-key"
@@ -269,17 +268,23 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
                 autoComplete="off"
                 autoFocus
                 value={key}
-                onChange={(e) => setKey(e.target.value)}
+                onChange={(e) => change(e.target.value)}
                 placeholder={provider.placeholder}
+                aria-invalid={error != null}
+                aria-describedby="onboarding-key-help"
                 className="font-mono text-xs"
               />
               <Button type="submit" variant="secondary" disabled={!key.trim() || saving}>
                 {saving && <Loader2 className="animate-spin" />}
-                Save key
+                {saving ? 'Checking…' : 'Save key'}
               </Button>
             </div>
-            <p className="text-xs text-faint">
-              Or set <span className="font-mono">{provider.env}</span> in a <span className="font-mono">.env</span> file.
+            <p id="onboarding-key-help" className={cn('text-xs', error ? 'text-destructive' : 'text-faint')} role={error ? 'alert' : undefined}>
+              {error ?? (
+                <>
+                  Paste either kind of key, and the provider follows it. Or export <span className="font-mono">{provider.env}</span> in your shell profile.
+                </>
+              )}
             </p>
           </form>
         )}

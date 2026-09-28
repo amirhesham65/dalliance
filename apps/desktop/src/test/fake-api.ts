@@ -34,6 +34,7 @@ export function fakeApi(onRun: RunHandler) {
       ],
       error: null,
     }),
+    checkKey: async () => ({ status: 'ok', detail: '$5.00 in credits' }),
     updateSettings: async () => {
       throw new Error('not used')
     },

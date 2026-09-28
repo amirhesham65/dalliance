@@ -4,12 +4,18 @@ import { Button } from '@/components/ui/button'
 import { ago } from '@/lib/notebook/text'
 import { STARTERS, sampleNotebook } from '@/lib/notebook/samples'
 import { cn } from '@/lib/utils'
-import type { RecentNotebook } from '@dalliance/shared/ipc'
+import type { RecentNotebook, SettingsView } from '@dalliance/shared/ipc'
 import { newPromptCell } from '@dalliance/shared/notebook'
 import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
 import { Onboarding } from './Onboarding'
 import { Kbd, Wordmark } from './parts'
 import { fresh, modKey, pythonReady, startWith } from './start'
+
+const KEY_SOURCES: Record<NonNullable<SettingsView['keySource']>, string> = {
+  settings: 'Saved in your keychain',
+  environment: 'From the environment',
+  shell: 'From your shell profile',
+}
 
 /** What the window shows with no notebook open: the first-run setup the first time, the start page after that. */
 export function WelcomeScreen({ onOpenSettings }: { onOpenSettings: () => void }) {
@@ -34,7 +40,8 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
     void api?.recentNotebooks().then(setRecent)
   }, [api])
 
-  const hasKey = settings?.keySource != null
+  const keySource = settings?.keySource ?? null
+  const hasKey = keySource != null
   const hasPython = pythonReady(python)
   const name = path ? (path.split(/[\\/]/).pop() ?? path).replace(/\.ipynb$/, '') : 'Untitled'
 
@@ -126,7 +133,7 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
                 <SetupItem
                   done={hasKey}
                   title="A model key"
-                  detail={hasKey ? (settings?.keySource === 'environment' ? 'From the environment' : 'Saved in your keychain') : 'Writes the code for each cell'}
+                  detail={keySource ? KEY_SOURCES[keySource] : 'Writes the code for each cell'}
                   onClick={() => onSetup(1)}
                 />
                 <SetupItem

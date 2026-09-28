@@ -174,8 +174,17 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
   let settings = fakeSettings()
   if (mode === 'setup') settings = { ...settings, onboarded: false, keySource: null, hasKey: { gateway: false, anthropic: false } }
   api.getSettings = async () => settings
+  // Any key works in the demo, except one with "bad" in it
+  api.checkKey = async (provider, key) => {
+    await wait(500)
+    if (key.includes('bad')) return { status: 'rejected', detail: 'The provider turned this key down. Check that you copied all of it.' }
+    return { status: 'ok', detail: provider === 'gateway' ? '$5.00 in credits' : null }
+  }
+  // Like the real store, switching provider swaps a default model name for the other provider's
+  const defaults = { gateway: 'anthropic/claude-opus-5', anthropic: 'claude-opus-5' }
   api.updateSettings = async ({ apiKey, ...rest }) => {
-    settings = { ...settings, ...rest }
+    const model = rest.provider && rest.provider !== settings.provider && settings.model === defaults[settings.provider] ? defaults[rest.provider] : settings.model
+    settings = { ...settings, model, ...rest }
     if (apiKey) settings.hasKey = { ...settings.hasKey, [apiKey.provider]: apiKey.key.trim() !== '' }
     settings.keySource = settings.hasKey[settings.provider] ? 'settings' : null
     return settings
