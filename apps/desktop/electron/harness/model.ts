@@ -1,7 +1,7 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
-import { createGateway } from '@ai-sdk/gateway'
+import { GatewayError, createGateway } from '@ai-sdk/gateway'
 import type { LanguageModel, ToolLoopAgentSettings } from 'ai'
-import type { Effort, ModelList, ModelOption, Provider } from '@dalliance/shared/ipc'
+import type { Effort, KeyCheck, ModelList, ModelOption, Provider } from '@dalliance/shared/ipc'
 
 export const DEFAULT_MODELS: Record<Provider, string> = {
   gateway: 'anthropic/claude-opus-5',
@@ -49,6 +49,44 @@ function effortOptions(config: ModelConfig): ToolLoopAgentSettings['providerOpti
     return { openai: { reasoningEffort: config.effort === 'low' || config.effort === 'medium' ? config.effort : 'high' } }
   }
   return undefined
+}
+
+const REJECTED = 'The provider turned this key down. Check that you copied all of it.'
+const CHECK_MS = 10_000
+
+/** The gateway's balance call takes no abort signal, so the deadline races it instead. */
+function within<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`No answer in ${ms / 1000} seconds`)), ms)
+  })
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer))
+}
+
+/**
+ * Whether a key works, before it is saved. The gateway reports its credit balance, which also proves the key.
+ * Anthropic has no balance endpoint, so listing one model does. A network failure is `unchecked`, not a rejection.
+ */
+export async function checkKey(provider: Provider, apiKey: string): Promise<KeyCheck> {
+  const key = apiKey.trim()
+  if (!key) return { status: 'rejected', detail: 'Paste a key first.' }
+  try {
+    if (provider === 'gateway') {
+      const { balance } = await within(createGateway({ apiKey: key }).getCredits(), CHECK_MS)
+      const amount = Number(balance)
+      return { status: 'ok', detail: Number.isFinite(amount) ? `$${amount.toFixed(2)} in credits` : null }
+    }
+    const res = await fetch('https://api.anthropic.com/v1/models?limit=1', {
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+      signal: AbortSignal.timeout(CHECK_MS),
+    })
+    if (res.status === 401 || res.status === 403) return { status: 'rejected', detail: REJECTED }
+    if (!res.ok) return { status: 'unchecked', detail: `Anthropic answered ${res.status}` }
+    return { status: 'ok', detail: null }
+  } catch (err) {
+    if (GatewayError.isInstance(err) && (err.statusCode === 401 || err.statusCode === 403)) return { status: 'rejected', detail: REJECTED }
+    return { status: 'unchecked', detail: err instanceof Error ? err.message.split('\n')[0] : String(err) }
+  }
 }
 
 const MAKERS: Record<string, string> = {

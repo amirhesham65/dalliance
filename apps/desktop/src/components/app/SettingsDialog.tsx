@@ -1,4 +1,4 @@
-import { Loader2 } from 'lucide-react'
+import { ArrowUpRight, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -6,13 +6,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { usePythonSetup } from '@/components/welcome/use-python-setup'
+import { PROVIDERS, keySourceText, providerForKey, saveKey } from '@/lib/keys'
+import { cn } from '@/lib/utils'
 import type { Effort, DallianceApi, Provider, SettingsView } from '@dalliance/shared/ipc'
 import { getApi, useNotebook } from '@/store/notebook-store'
-
-const PROVIDERS: Record<Provider, { label: string; keyLabel: string; placeholder: string }> = {
-  gateway: { label: 'Vercel AI Gateway', keyLabel: 'AI Gateway key', placeholder: 'vck_…' },
-  anthropic: { label: 'Anthropic API', keyLabel: 'Anthropic API key', placeholder: 'sk-ant-…' },
-}
 
 const EFFORTS: { value: Effort; label: string }[] = [
   { value: 'low', label: 'Low: fastest' },
@@ -36,6 +33,8 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 function SettingsForm({ settings, api, onClose }: { settings: SettingsView; api: DallianceApi; onClose: () => void }) {
   const python = useNotebook((s) => s.python)
   const [key, setKey] = useState('')
+  const [keyError, setKeyError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const [model, setModel] = useState(settings.model)
   const [pythonPath, setPythonPath] = useState(settings.pythonPath ?? '')
   const { log, installing, error, setup } = usePythonSetup(api)
@@ -43,17 +42,38 @@ function SettingsForm({ settings, api, onClose }: { settings: SettingsView; api:
   const provider = PROVIDERS[settings.provider]
 
   const update = async (u: Parameters<typeof api.updateSettings>[0]) => {
-    useNotebook.setState({ settings: await api.updateSettings(u) })
+    const view = await api.updateSettings(u)
+    // Switching provider can reset the model to the new provider's default, so the field follows it
+    if (view.provider !== useNotebook.getState().settings?.provider) setModel(view.model)
+    useNotebook.setState({ settings: view })
+  }
+
+  const changeKey = (value: string) => {
+    setKey(value)
+    setKeyError(null)
+    // A pasted key says whose it is, so the provider follows it
+    const detected = providerForKey(value)
+    if (detected && detected !== settings.provider) void update({ provider: detected })
   }
 
   const save = async () => {
-    await update({
-      model,
-      pythonPath: pythonPath || null,
-      ...(key.trim() ? { apiKey: { provider: settings.provider, key } } : {}),
-    })
-    useNotebook.setState({ python: await api.pythonState() })
-    onClose()
+    setSaving(true)
+    try {
+      let nextModel = model
+      if (key.trim()) {
+        // A key the provider turns down keeps the dialog open, so it can be fixed
+        const saved = await saveKey(api, settings.provider, key)
+        if (!saved.view) return setKeyError(saved.error)
+        if (saved.view.provider !== settings.provider) nextModel = saved.view.model
+      }
+      await update({ model: nextModel, pythonPath: pythonPath || null })
+      useNotebook.setState({ python: await api.pythonState() })
+      onClose()
+    } catch (err) {
+      setKeyError(`Couldn't save: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -81,21 +101,30 @@ function SettingsForm({ settings, api, onClose }: { settings: SettingsView; api:
             </Select>
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="api-key">{provider.keyLabel}</Label>
+            <div className="flex items-baseline justify-between">
+              <Label htmlFor="api-key">{provider.keyLabel}</Label>
+              <a href={provider.keysUrl} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground">
+                Get a key from {provider.keysSite}
+                <ArrowUpRight className="size-3" />
+              </a>
+            </div>
             <Input
               id="api-key"
               type="password"
               autoComplete="off"
               value={key}
-              onChange={(e) => setKey(e.target.value)}
+              onChange={(e) => changeKey(e.target.value)}
               placeholder={settings.keySource ? 'Saved. Type a new key to replace it.' : provider.placeholder}
+              aria-invalid={keyError != null}
+              aria-describedby="api-key-help"
             />
-            <p className="text-xs text-faint">
-              {settings.keySource === 'environment'
-                ? 'Using the key from the environment (.env). A key typed here takes priority.'
-                : settings.keySource === 'settings'
+            <p id="api-key-help" className={cn('text-xs', keyError ? 'text-destructive' : 'text-faint')} role={keyError ? 'alert' : undefined}>
+              {keyError ??
+                (settings.keySource === 'settings'
                   ? 'Stored encrypted with your system keychain.'
-                  : 'Required to run prompts. Stored encrypted with your system keychain.'}
+                  : settings.keySource
+                    ? `${keySourceText(settings)} A key typed here takes priority.`
+                    : 'Required to run prompts. Checked with the provider, then stored encrypted with your system keychain.')}
             </p>
             {settings.keySource === 'settings' && (
               <button
@@ -193,7 +222,10 @@ function SettingsForm({ settings, api, onClose }: { settings: SettingsView; api:
         <Button variant="ghost" onClick={onClose}>
           Cancel
         </Button>
-        <Button onClick={() => void save()}>Save</Button>
+        <Button disabled={saving} onClick={() => void save()}>
+          {saving && <Loader2 className="animate-spin" />}
+          {saving && key.trim() ? 'Checking…' : 'Save'}
+        </Button>
       </DialogFooter>
     </DialogContent>
   )

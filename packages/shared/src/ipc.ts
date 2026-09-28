@@ -78,8 +78,8 @@ export interface SettingsView {
   autoTitles: boolean
   /** True once the first-run setup was finished or skipped. */
   onboarded: boolean
-  /** Where the key for the chosen provider comes from, or null if there is none. */
-  keySource: 'settings' | 'environment' | null
+  /** Where the key for the chosen provider comes from: Settings, the app's environment, the user's shell profile, or nowhere. */
+  keySource: 'settings' | 'environment' | 'shell' | null
   hasKey: Record<Provider, boolean>
 }
 
@@ -104,6 +104,14 @@ export interface ModelOption {
   description?: string
   /** Price per million input and output tokens, when the provider says. */
   price?: string
+}
+
+/** What the provider said about a key before it was saved. */
+export interface KeyCheck {
+  /** `unchecked` when the provider couldn't be reached, so the key may still be fine. */
+  status: 'ok' | 'rejected' | 'unchecked'
+  /** The credit balance when the key works and the provider has one, otherwise why it failed. */
+  detail: string | null
 }
 
 export interface ModelList {
@@ -187,6 +195,8 @@ export interface DallianceApi {
   onKernelState(listener: (state: KernelState) => void): () => void
   getSettings(): Promise<SettingsView>
   listModels(): Promise<ModelList>
+  /** Ask the provider whether a key works, without saving it. */
+  checkKey(provider: Provider, key: string): Promise<KeyCheck>
   updateSettings(update: SettingsUpdate): Promise<SettingsView>
   pythonState(): Promise<PythonState>
   setupPython(): Promise<PythonState>
@@ -216,6 +226,7 @@ export const IPC = {
   kernelStateChanged: 'kernel-state-changed',
   getSettings: 'get-settings',
   listModels: 'list-models',
+  checkKey: 'check-key',
   updateSettings: 'update-settings',
   pythonState: 'python-state',
   setupPython: 'setup-python',

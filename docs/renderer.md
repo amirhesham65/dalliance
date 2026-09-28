@@ -121,7 +121,7 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 
 ## First run and the start page
 
-`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. Skipping any step still sets `onboarded`. The start page offers new, open, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set.
+`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. The key step links to each provider's keys page, switches provider to match a pasted key, and checks the key before saving it, see [storage.md](storage.md#settings-and-keys). Skipping any step still sets `onboarded`. The start page offers new, open, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set.
 
 ## Theming
 
@@ -159,7 +159,7 @@ Without Electron there's no `window.dalliance`. `main.tsx` then checks the URL:
 | --- | --- |
 | `/?demo` | A clinical trial notebook with results. The last cell asks a question when run |
 | `/?demo&welcome` | The start page |
-| `/?demo&setup` | The first-run setup with no key and no Python |
+| `/?demo&setup` | The first-run setup with no key and no Python. Any key saves, except one containing `bad` |
 | anything else | The app with no bridge. Runs fail with "Running cells needs the desktop app." |
 
 `dev/demo.ts` builds the fake bridge from `test/fake-api.ts` and scripts the runs. It's how the website screenshots are made. See [website.md](website.md#screenshots).

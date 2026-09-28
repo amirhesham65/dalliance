@@ -2,14 +2,15 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { BrowserWindow, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
-import { type DraftState, IPC, type MenuAction, type OpenedNotebook, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '@dalliance/shared/ipc'
+import { type DraftState, IPC, type MenuAction, type OpenedNotebook, type Provider, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '@dalliance/shared/ipc'
 import { fromIpynb, toIpynb } from '@dalliance/shared/ipynb'
 import type { Notebook } from '@dalliance/shared/notebook'
-import { listModels } from './harness/model'
+import { checkKey, listModels } from './harness/model'
 import { DraftStore } from './draft'
 import { buildMenu } from './menu'
 import { NotebookSession } from './session'
-import { SettingsStore } from './settings'
+import { ENV_KEYS, SettingsStore } from './settings'
+import { readShellEnv } from './shell-env'
 
 const isMac = process.platform === 'darwin'
 const TITLE_BAR_HEIGHT = 48
@@ -25,6 +26,8 @@ let allowClose = false
 let allowCloseAfterSave = false
 
 const settings = new SettingsStore(app.getPath('userData'))
+// Keys exported in the user's shell profile. Settings wait for this, so the first view already counts them.
+const shellKeys = readShellEnv(Object.values(ENV_KEYS)).then((env) => settings.useShellKeys(env))
 const drafts = new DraftStore(app.getPath('userData'))
 // Unsaved notebooks run in their own folder, never in all of Documents
 const defaultWorkspace = path.join(app.getPath('documents'), 'Dalliance Notebooks')
@@ -138,8 +141,15 @@ function registerIpc() {
   ipcMain.handle(IPC.restartKernel, () => session.restart())
   ipcMain.handle(IPC.kernelState, () => session.kernelState())
   ipcMain.handle(IPC.listVariables, () => session.variables())
-  ipcMain.handle(IPC.getSettings, () => settings.view())
-  ipcMain.handle(IPC.listModels, () => listModels(settings.modelConfig()))
+  ipcMain.handle(IPC.getSettings, async () => {
+    await shellKeys
+    return settings.view()
+  })
+  ipcMain.handle(IPC.listModels, async () => {
+    await shellKeys
+    return listModels(settings.modelConfig())
+  })
+  ipcMain.handle(IPC.checkKey, (_e, provider: Provider, key: string) => checkKey(provider, key))
   ipcMain.handle(IPC.updateSettings, async (_e, update: SettingsUpdate) => {
     const pythonChanged = update.pythonPath !== undefined && update.pythonPath !== settings.pythonPath
     const view = settings.update(update)

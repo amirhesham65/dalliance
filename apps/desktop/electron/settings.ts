@@ -21,7 +21,7 @@ interface Stored {
 
 const MAX_RECENT = 8
 
-const ENV_KEYS: Record<Provider, string> = { gateway: 'AI_GATEWAY_API_KEY', anthropic: 'ANTHROPIC_API_KEY' }
+export const ENV_KEYS: Record<Provider, string> = { gateway: 'AI_GATEWAY_API_KEY', anthropic: 'ANTHROPIC_API_KEY' }
 
 const DEFAULTS: Stored = {
   provider: 'gateway',
@@ -38,6 +38,8 @@ const DEFAULTS: Stored = {
 export class SettingsStore {
   private data: Stored
   private readonly file: string
+  /** Keys found in the user's login shell. Kept here, not in process.env, so the kernel never inherits them. */
+  private shellKeys: Partial<Record<Provider, string>> = {}
 
   constructor(dir: string) {
     mkdirSync(dir, { recursive: true })
@@ -73,7 +75,23 @@ export class SettingsStore {
     const stored = this.storedKey(provider)
     if (stored) return { key: stored, source: 'settings' }
     const env = process.env[ENV_KEYS[provider]]
-    return env ? { key: env, source: 'environment' } : { key: null, source: null }
+    if (env) return { key: env, source: 'environment' }
+    const shell = this.shellKeys[provider]
+    return shell ? { key: shell, source: 'shell' } : { key: null, source: null }
+  }
+
+  /**
+   * Take the keys the login shell exports. Before the first-run setup is done, switch to a provider that has a key
+   * when the chosen one has none, so someone with ANTHROPIC_API_KEY in their profile starts ready.
+   */
+  useShellKeys(env: Record<string, string>) {
+    for (const provider of Object.keys(ENV_KEYS) as Provider[]) {
+      const key = env[ENV_KEYS[provider]]
+      if (key) this.shellKeys[provider] = key
+    }
+    if (this.data.onboarded || this.apiKey(this.data.provider).key) return
+    const other = (Object.keys(ENV_KEYS) as Provider[]).find((p) => this.apiKey(p).key)
+    if (other) this.update({ provider: other })
   }
 
   modelConfig(): ModelConfig {
