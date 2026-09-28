@@ -20,7 +20,7 @@ export function SiteHeader() {
             <GitHubLogo />
             <span className="max-sm:sr-only">GitHub</span>
           </a>
-          <a className={button} href="/download">
+          <a className={button} href="/download?from=bar">
             <AppleLogo />
             Download for macOS
           </a>
@@ -49,10 +49,11 @@ export function Band({ title, labelId, id, children }: { title: string; labelId:
   )
 }
 
-export function Act() {
+/** `from` tells the download log which button was pressed */
+export function Act({ from }: { from: string }) {
   return (
     <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-3">
-      <a className={buttonLarge} href="/download">
+      <a className={buttonLarge} href={`/download?from=${from}`}>
         <AppleLogo />
         Download for macOS
       </a>

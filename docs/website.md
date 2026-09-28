@@ -1,6 +1,6 @@
 # The website
 
-`apps/web` is dalliance.io: a landing page, a privacy page, a 404, and a redirect to the latest installer. It uses Next.js 16 with the App Router and Tailwind v4, and has no client data fetching.
+`apps/web` is dalliance.io: a landing page, a privacy page, a 404, and a route that logs each download and redirects to the latest installer. It uses Next.js 16 with the App Router and Tailwind v4, and has no client data fetching.
 
 ```bash
 pnpm --filter @dalliance/web dev     # http://localhost:3100
@@ -14,6 +14,7 @@ pnpm --filter @dalliance/web start   # serve the build on 3100
 src/app/
   page.tsx               the home page: masthead, live cell, reel, bands
   privacy/page.tsx       the privacy page
+  download/route.ts      logs the download, then redirects to the installer
   not-found.tsx          404
   layout.tsx             fonts, metadata, viewport colours
   globals.css            palette, @theme, hatching and the hero's animations
@@ -35,20 +36,37 @@ src/assets/shots/        light and dark captures of the app
 
 ## Configuration
 
-Both variables are read at build time. `turbo.json` lists them in the build task's `env`, so changing one busts the cache.
-
 | Variable | Default | Used for |
 | --- | --- | --- |
 | `NEXT_PUBLIC_SITE_URL` | `https://dalliance.io` | Canonical links, sitemap, robots, social cards |
 | `DALLIANCE_DOWNLOAD_URL` | The `Dalliance.dmg` on the latest GitHub release | Where `/download` redirects |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Unset | The Redis store for the download log. `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` work too |
 
-`site.ts` reads them with `||` rather than `??`, because Vercel lets a variable be set but empty.
+The first two are read at build time. `turbo.json` lists them in the build task's `env`, so changing one busts the cache. The Redis pair is only read when `/download` runs, so it stays out of `turbo.json`. `site.ts` and the route read them with `||` rather than `??`, because Vercel lets a variable be set but empty.
 
-Every download button links to `/download`. The redirect lives in `next.config.ts` and is temporary, not permanent, so moving the installer only means changing the variable. `robots.ts` disallows `/download`. The config also sets `nosniff`, `DENY` framing, a strict referrer policy and a permissions policy on every route.
+Every download button links to `/download`, with `?from=` naming the button: `bar` for the top bar, `hero` and `end` for the two on the home page. `download/route.ts` answers it with a temporary redirect, not a permanent one, so moving the installer only means changing the variable. `robots.ts` disallows `/download`. The config also sets `nosniff`, `DENY` framing, a strict referrer policy and a permissions policy on every route.
 
 ## Analytics
 
 `layout.tsx` renders `<Analytics />` from `@vercel/analytics/next`, which counts page views without cookies. It only sends data from a Vercel deployment with Web Analytics turned on in the project's dashboard, never from `next dev` or a local `next start`. There are no custom events.
+
+### Download log
+
+This is a stopgap until downloads are counted somewhere better. `download/route.ts` pushes one JSON entry per download onto the `downloads` list in an Upstash Redis store, added from the Vercel Marketplace. It writes in `after()`, once the redirect has gone out, so a slow or failed write never delays the download. Bots are skipped, and so is everything when the Redis variables are unset, which covers `next dev`.
+
+Each entry holds `t` (ISO time), `from`, `country`, `region`, `city`, `referrer`, `browser`, `os` and `device`. `referrer` is the page path when the click came from the site, otherwise only the other site's host. No IP is stored.
+
+The store is `dalliance-downloads`, on Upstash's free plan. To read the log, use the Data Browser in the Upstash console, or pull the variables with the Vercel CLI and call the REST API with the read-only token:
+
+```bash
+vercel link --yes --project dalliance
+vercel env pull .env.local --yes
+(set -a; . ./.env.local; set +a; curl -s -H "Authorization: Bearer $KV_REST_API_READ_ONLY_TOKEN" "$KV_REST_API_URL/lrange/downloads/0/-1")
+```
+
+`.env.local` holds the store's tokens, so it must stay out of git.
+
+The log only sees clicks that go through the site. The download count on the GitHub release also includes direct links, so it will always be higher.
 
 ## Design
 
@@ -81,4 +99,4 @@ The demo notebook lives in `apps/desktop/src/dev/demo.ts`. Change it there if a 
 
 ## Privacy page
 
-The privacy page lists what the site counts through Vercel Web Analytics, and says the app sends no telemetry and keeps work on the user's Mac. Update it in the same change if any of that stops being true, for example if you add custom analytics events or telemetry in the app.
+The privacy page lists what the site counts through Vercel Web Analytics and what the download log records, and says the app sends no telemetry and keeps work on the user's Mac. Update it in the same change if any of that stops being true, for example if you add a field to the download log, custom analytics events, or telemetry in the app.

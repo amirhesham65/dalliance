@@ -113,7 +113,7 @@ export default function Home() {
           <div>
             <h1 className={headline}>{site.headline}</h1>
             <p className={support}>{site.tagline}</p>
-            <Act />
+            <Act from="hero" />
           </div>
           <LiveCell />
         </div>
@@ -176,7 +176,7 @@ export default function Home() {
 
           <div className={`${gutter} border-b py-14 lg:py-22`}>
             <p className="max-w-[30ch] font-serif text-[30px] leading-[1.3] font-medium tracking-[-0.02em] text-ink lg:text-[40px]">Write the question. Keep the code.</p>
-            <Act />
+            <Act from="end" />
           </div>
         </div>
       </main>

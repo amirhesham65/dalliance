@@ -39,3 +39,6 @@ release
 
 # Turborepo
 .turbo
+
+# Vercel CLI link
+.vercel
