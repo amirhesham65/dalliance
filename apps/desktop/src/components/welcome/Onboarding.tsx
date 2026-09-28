@@ -184,13 +184,18 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
   const save = async () => {
     if (!key.trim()) return
     setSaving(true)
-    const saved = await saveKey(api, settings.provider, key)
-    setSaving(false)
-    if (!saved.view) return setError(saved.error)
-    useNotebook.setState({ settings: saved.view })
-    setNote(saved.note)
-    setKey('')
-    setReplacing(false)
+    try {
+      const saved = await saveKey(api, settings.provider, key)
+      if (!saved.view) return setError(saved.error)
+      useNotebook.setState({ settings: saved.view })
+      setNote(saved.note)
+      setKey('')
+      setReplacing(false)
+    } catch (err) {
+      setError(`Couldn't save the key: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (

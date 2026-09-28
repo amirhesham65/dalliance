@@ -58,20 +58,22 @@ function SettingsForm({ settings, api, onClose }: { settings: SettingsView; api:
 
   const save = async () => {
     setSaving(true)
-    let nextModel = model
-    if (key.trim()) {
-      // A key the provider turns down keeps the dialog open, so it can be fixed
-      const saved = await saveKey(api, settings.provider, key)
-      if (!saved.view) {
-        setSaving(false)
-        return setKeyError(saved.error)
+    try {
+      let nextModel = model
+      if (key.trim()) {
+        // A key the provider turns down keeps the dialog open, so it can be fixed
+        const saved = await saveKey(api, settings.provider, key)
+        if (!saved.view) return setKeyError(saved.error)
+        if (saved.view.provider !== settings.provider) nextModel = saved.view.model
       }
-      if (saved.view.provider !== settings.provider) nextModel = saved.view.model
+      await update({ model: nextModel, pythonPath: pythonPath || null })
+      useNotebook.setState({ python: await api.pythonState() })
+      onClose()
+    } catch (err) {
+      setKeyError(`Couldn't save: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setSaving(false)
     }
-    await update({ model: nextModel, pythonPath: pythonPath || null })
-    useNotebook.setState({ python: await api.pythonState() })
-    setSaving(false)
-    onClose()
   }
 
   return (
