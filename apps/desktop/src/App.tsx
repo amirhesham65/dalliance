@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { SettingsDialog } from '@/components/app/SettingsDialog'
 import { Sidebar } from '@/components/app/Sidebar'
 import { TopBar } from '@/components/app/TopBar'
 import { NotebookView } from '@/components/notebook/NotebookView'
 import { SidePane } from '@/components/panes/SidePanes'
+import { SettingsScreen } from '@/components/settings/SettingsScreen'
 import { WelcomeScreen } from '@/components/welcome/Welcome'
 import { Button } from '@/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
@@ -18,7 +18,6 @@ type Undo = { cell: Cell; index: number }
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => readStored('dalliance-sidebar') !== 'closed')
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [undo, setUndo] = useState<Undo | null>(null)
   const undoTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const settings = useNotebook((s) => s.settings)
@@ -27,6 +26,7 @@ export default function App() {
   const path = useNotebook((s) => s.path)
   const dirty = useNotebook((s) => s.dirty)
   const screen = useNotebook((s) => s.screen)
+  const settingsPage = useNotebook((s) => s.settingsPage)
   const api = getApi()
 
   const deleteCell = useCallback((id: string) => {
@@ -79,7 +79,7 @@ export default function App() {
         case 'restart':
           return actions.restart()
         case 'settings':
-          setSettingsOpen(true)
+          actions.openSettings()
           break
         case 'add-prompt':
           actions.insertAfterSelected('prompt')
@@ -107,12 +107,14 @@ export default function App() {
   useEffect(() => {
     if (!api) return
     void api.getSettings().then((settings) => useNotebook.setState({ settings }))
+    void api.getAccount().then((account) => useNotebook.setState({ account }))
     void api.pythonState().then((python) => useNotebook.setState({ python }))
     void api.kernelState().then((kernel) => useNotebook.setState({ kernel }))
     void actions.loadBrief()
     const offs = [
       api.onRunEvent((cellId, event) => actions.applyRunEvent(cellId, event)),
       api.onKernelState((kernel) => useNotebook.setState({ kernel })),
+      api.onAccount((account) => useNotebook.setState({ account })),
       api.onMenu((action) => void handleMenu(action)),
     ]
     return () => offs.forEach((off) => off())
@@ -131,7 +133,7 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return
-      if (useNotebook.getState().screen !== 'notebook') return
+      if (useNotebook.getState().screen !== 'notebook' || useNotebook.getState().settingsPage) return
       const pane = PANE_ORDER[Number(e.key) - 1]
       if (!pane) return
       e.preventDefault()
@@ -150,32 +152,37 @@ export default function App() {
   return (
     <TooltipProvider delayDuration={400}>
       <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen} className="h-full min-h-0 flex-col bg-canvas">
-        <TopBar minimal={screen === 'welcome'} onOpenSettings={() => setSettingsOpen(true)} />
-        {screen === 'welcome' ? (
-          <WelcomeScreen onOpenSettings={() => setSettingsOpen(true)} />
-        ) : (
-          <>
-            {(needsKey || needsPython || kernel.error) && (
-              <div className="mx-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-background px-4 py-2 text-[13px] shadow-pane">
-                <span className="text-muted-foreground">
-                  {needsKey
-                    ? 'Add an API key to turn prompts into code.'
-                    : !python?.python
-                      ? 'Python is not set up yet.'
-                      : needsPython
-                        ? `Python is missing ${python!.missingPackages.join(', ')}. Cells that need them will fail.`
-                        : kernel.error}
-                </span>
-                <Button size="xs" variant="secondary" onClick={() => setSettingsOpen(true)}>
-                  Open Settings
-                </Button>
-              </div>
+        <TopBar minimal={screen === 'welcome'} />
+        {/* Settings covers this area without unmounting it, so the notebook or the setup keeps its state */}
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div inert={settingsPage != null} className="flex min-h-0 flex-1 flex-col">
+            {screen === 'welcome' ? (
+              <WelcomeScreen />
+            ) : (
+              <>
+                {(needsKey || needsPython || kernel.error) && (
+                  <div className="mx-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-background px-4 py-2 text-[13px] shadow-pane">
+                    <span className="text-muted-foreground">
+                      {needsKey
+                        ? 'Add an API key to turn prompts into code.'
+                        : !python?.python
+                          ? 'Python is not set up yet.'
+                          : needsPython
+                            ? `Python is missing ${python!.missingPackages.join(', ')}. Cells that need them will fail.`
+                            : kernel.error}
+                    </span>
+                    <Button size="xs" variant="secondary" onClick={() => actions.openSettings(needsKey ? 'models' : 'python')}>
+                      Open Settings
+                    </Button>
+                  </div>
+                )}
+                <Workspace onDelete={deleteCell} />
+              </>
             )}
-            <Workspace onDelete={deleteCell} />
-          </>
-        )}
+          </div>
+          {settingsPage && <SettingsScreen />}
+        </div>
       </SidebarProvider>
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       {undo && (
         <div className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-foreground px-3.5 py-2 text-[13px] text-background shadow-xl" role="status">
           Cell deleted
@@ -289,7 +296,7 @@ function useCommandMode(deleteCell: (id: string) => void) {
     let lastD = 0
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
-      if (useNotebook.getState().screen !== 'notebook') return
+      if (useNotebook.getState().screen !== 'notebook' || useNotebook.getState().settingsPage) return
       if (target.closest('textarea, input, [contenteditable="true"], [role="dialog"], [role="alertdialog"], [role="listbox"]')) return
       if (target.closest('button, a, summary, [role="tab"]') && (e.key === 'Enter' || e.key === ' ')) return
       const { selectedId, notebook } = useNotebook.getState()

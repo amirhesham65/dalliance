@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "The Dalliance website: the landing page, privacy and the download redirect.",
+  "description": "The Dalliance website: the landing page, privacy, the download redirect, and sign-in for the app.",
   "scripts": {
     "dev": "next dev --port 3100",
     "build": "next build",
@@ -12,8 +12,12 @@
     "lint": "oxlint -c ../../.oxlintrc.json"
   },
   "dependencies": {
+    "@better-auth/electron": "catalog:",
+    "@better-auth/utils": "catalog:",
+    "@better-fetch/fetch": "catalog:",
     "@upstash/redis": "^1.39.0",
     "@vercel/analytics": "^2.0.1",
+    "better-auth": "catalog:",
     "next": "16.3.6",
     "react": "catalog:",
     "react-dom": "catalog:"

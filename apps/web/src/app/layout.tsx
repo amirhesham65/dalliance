@@ -46,7 +46,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${sans.variable} ${serif.variable} ${mono.variable}`}>
+    // The motion script below sets data-motion on <html> before hydration. This only quiets that element's attributes
+    <html lang="en" className={`${sans.variable} ${serif.variable} ${mono.variable}`} suppressHydrationWarning>
       <body>
         {/* Marks the page as animating before first paint, so the hero cell does not flash its finished state */}
         <Script id="motion" strategy="beforeInteractive">

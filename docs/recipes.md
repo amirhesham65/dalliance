@@ -41,7 +41,7 @@ Checklists for the changes that touch several files. Each one ends with the test
 2. In `electron/settings.ts`, add it to `Stored` and `DEFAULTS`, return it from `view()`, and apply it in `update()`. Old settings files don't have it, and the merge over `DEFAULTS` covers that.
 3. Read it where it matters, usually through a getter on `SettingsStore` used by `NotebookSession`.
 4. If changing it needs a side effect, like a kernel restart for `pythonPath`, do that in the `updateSettings` handler in `main.ts`.
-5. Add a control to `SettingsDialog.tsx`. Most controls call `update()` straight away. Text fields are saved by the dialog's Save button.
+5. Add a `Row` to the right section in `src/components/settings/`, or a new section: add it to `SETTINGS_SECTIONS` in the store and to `SECTIONS` and the tab contents in `SettingsScreen.tsx`. Controls save through `saveSettings()` as they change. Text fields save on Enter or blur.
 6. Add it to `fakeSettings()` in `src/test/fake-api.ts`.
 
 ## Add a cell field

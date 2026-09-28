@@ -7,8 +7,9 @@ import { PROVIDERS, keySourceText, providerForKey, saveKey } from '@/lib/keys'
 import { sampleNotebook } from '@/lib/notebook/samples'
 import { cn } from '@/lib/utils'
 import type { DallianceApi, Provider, PythonState, SettingsView } from '@dalliance/shared/ipc'
-import { getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
-import { Kbd, StepBar, Wordmark } from './parts'
+import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
+import { Kbd } from '@/components/ui/kbd'
+import { StepBar, Wordmark } from './parts'
 import { finishOnboarding, fresh, modKey, pythonReady, startWith } from './start'
 import { usePythonSetup } from './use-python-setup'
 
@@ -18,7 +19,7 @@ const STEPS = ['Welcome', 'Model', 'Python', 'Start']
  * The first run: what a cell is, a model key, a Python to run on, and a first notebook.
  * Every step can be skipped; Settings has the same controls later.
  */
-export function Onboarding({ initialStep = 0, onClose, onOpenSettings }: { initialStep?: number; onClose: () => void; onOpenSettings: () => void }) {
+export function Onboarding({ initialStep = 0, onClose }: { initialStep?: number; onClose: () => void }) {
   const settings = useNotebook((s) => s.settings)
   const python = useNotebook((s) => s.python)
   const [step, setStep] = useState(initialStep)
@@ -55,7 +56,7 @@ export function Onboarding({ initialStep = 0, onClose, onOpenSettings }: { initi
           <div key={step} className="col-start-1 row-start-1 duration-300 animate-in fade-in slide-in-from-bottom-1 motion-reduce:animate-none">
             {step === 0 && <IntroStep />}
             {step === 1 && <ModelStep settings={settings} api={api} />}
-            {step === 2 && <PythonStep python={python} api={api} onOpenSettings={onOpenSettings} />}
+            {step === 2 && <PythonStep python={python} api={api} />}
             {step === 3 && <StartStep missing={[!ready[1] && 'a model key', !ready[2] && 'Python'].filter((m): m is string => !!m)} />}
           </div>
         </div>
@@ -298,7 +299,7 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
   )
 }
 
-function PythonStep({ python, api, onOpenSettings }: { python: PythonState | null; api: DallianceApi; onOpenSettings: () => void }) {
+function PythonStep({ python, api }: { python: PythonState | null; api: DallianceApi }) {
   const { log, installing, error, setup } = usePythonSetup(api)
   const version = python?.version?.split('.').slice(0, 2).join('.')
   const ready = pythonReady(python)
@@ -348,7 +349,7 @@ function PythonStep({ python, api, onOpenSettings }: { python: PythonState | nul
             <p className="text-[13.5px] font-medium">Your own interpreter</p>
             <p className="text-[12.5px] leading-[1.5] text-muted-foreground">Point at a Python or virtual environment you already use.</p>
           </div>
-          <Button variant="outline" size="sm" onClick={onOpenSettings}>
+          <Button variant="outline" size="sm" onClick={() => actions.openSettings('python')}>
             Choose in Settings
           </Button>
         </div>

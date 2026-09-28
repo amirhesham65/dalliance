@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { cellTitle } from '@/lib/notebook/text'
 import type {
+  AccountView,
   ActivityItem,
   Brief,
   CellRunResult,
@@ -69,6 +70,10 @@ export interface NotebookState {
   kernel: KernelState
   variables: VariableView[]
   settings: SettingsView | null
+  /** The Dalliance account. Null until the main process answers. */
+  account: AccountView | null
+  /** The Settings section on screen, or null when Settings is closed. It covers whatever screen is under it. */
+  settingsPage: SettingsSection | null
   python: PythonState | null
   /** A cell whose editor should take keyboard focus on its next render. */
   focusId: string | null
@@ -105,6 +110,13 @@ export function welcomeNotebook(): Notebook {
 
 const initial = welcomeNotebook()
 
+/** The sections of Settings, in the order the side list shows them. */
+export const SETTINGS_SECTIONS = ['account', 'models', 'agent', 'python'] as const
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
+
+// Settings reopens where it was left
+let lastSettingsPage: SettingsSection = 'account'
+
 export const useNotebook = create<NotebookState>(() => ({
   screen: 'notebook',
   canReturn: false,
@@ -118,6 +130,8 @@ export const useNotebook = create<NotebookState>(() => ({
   kernel: { status: 'dead', python: null, cwd: '', error: null },
   variables: [],
   settings: null,
+  account: null,
+  settingsPage: null,
   python: null,
   focusId: null,
   log: [],
@@ -181,6 +195,16 @@ export const actions = {
 
   closeWelcome() {
     set({ screen: 'notebook', canReturn: false })
+  },
+
+  /** Settings, on the given section or the one it was last left on. */
+  openSettings(section?: SettingsSection) {
+    lastSettingsPage = section ?? lastSettingsPage
+    set({ settingsPage: lastSettingsPage })
+  },
+
+  closeSettings() {
+    set({ settingsPage: null })
   },
 
   markSaved(path: string) {

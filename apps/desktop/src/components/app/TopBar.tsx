@@ -10,11 +10,13 @@ import type { Effort, RecentNotebook } from '@dalliance/shared/ipc'
 import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
 import { IconButton } from './IconButton'
 import { MakerLogo } from './MakerLogo'
+import { ProfileMenu } from './ProfileMenu'
 
-/** `minimal` is for the start page and the first-run setup: nothing but Settings, over a draggable bar. */
-export function TopBar({ minimal, onOpenSettings }: { minimal?: boolean; onOpenSettings: () => void }) {
+/** `minimal` is for the start page and the first-run setup: nothing but Settings, over a draggable bar. The full bar adds the account. */
+export function TopBar({ minimal }: { minimal?: boolean }) {
   const platform = getApi()?.platform
   const { open, toggleSidebar } = useSidebar()
+  const settingsOpen = useNotebook((s) => s.settingsPage != null)
   const mod = platform === 'darwin' || navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+'
   return (
     <header
@@ -27,17 +29,18 @@ export function TopBar({ minimal, onOpenSettings }: { minimal?: boolean; onOpenS
     >
       {!minimal && (
         <>
-          <IconButton label={`${open ? 'Hide' : 'Show'} overview (${mod}B)`} aria-expanded={open} onClick={toggleSidebar} className="app-no-drag">
+          <IconButton label={`${open ? 'Hide' : 'Show'} overview`} shortcut={`${mod}B`} aria-expanded={open} onClick={toggleSidebar} className="app-no-drag">
             <PanelLeft />
           </IconButton>
           <NotebookTab />
         </>
       )}
       <div className="app-no-drag ml-auto flex items-center gap-1">
-        {!minimal && <ModelChip onOpenSettings={onOpenSettings} />}
-        <IconButton label="Settings" onClick={onOpenSettings}>
+        {!minimal && <ModelChip />}
+        <IconButton label="Settings" shortcut={`${mod},`} aria-pressed={settingsOpen} onClick={() => (settingsOpen ? actions.closeSettings() : actions.openSettings())}>
           <Settings />
         </IconButton>
+        {!minimal && <ProfileMenu mod={mod} />}
       </div>
     </header>
   )
@@ -138,7 +141,7 @@ const EFFORTS: { value: Effort; label: string }[] = [
 ]
 
 /** Which model writes the cells, and how hard it thinks. Searches every model the provider offers. */
-function ModelChip({ onOpenSettings }: { onOpenSettings: () => void }) {
+function ModelChip() {
   const settings = useNotebook((s) => s.settings)
   const list = useNotebook((s) => s.models)
   const [open, setOpen] = useState(false)
@@ -245,7 +248,7 @@ function ModelChip({ onOpenSettings }: { onOpenSettings: () => void }) {
               label={`Provider: ${settings.provider === 'gateway' ? 'Vercel AI Gateway' : 'Anthropic API'}…`}
               onClick={() => {
                 setOpen(false)
-                onOpenSettings()
+                actions.openSettings('models')
               }}
             />
           </div>

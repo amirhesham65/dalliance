@@ -14,6 +14,7 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from '@/components/ui/sidebar'
+import { Kbd } from '@/components/ui/kbd'
 import { cellTitle } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
 import type { Cell, PromptCell } from '@dalliance/shared/notebook'
@@ -231,7 +232,20 @@ function PaneMenu() {
             isActive={pane === p.kind}
             aria-pressed={pane === p.kind}
             onClick={() => actions.togglePane(p.kind)}
-            title={`${p.label} (${mod}${p.key})`}
+            // The sidebar only shows its tooltips when collapsed; this one carries the shortcut, so it always shows
+            tooltip={{
+              side: 'right',
+              hidden: false,
+              children: (
+                <>
+                  {p.label}
+                  <Kbd className="ml-1.5">
+                    {mod}
+                    {p.key}
+                  </Kbd>
+                </>
+              ),
+            }}
             className="text-[13px] [&_svg]:size-3.5 [&_svg]:text-muted-foreground"
           >
             {p.icon}

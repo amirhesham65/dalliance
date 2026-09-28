@@ -8,7 +8,8 @@ src/
   App.tsx                     menu handling, keyboard modes, the three-column layout
   store/notebook-store.ts     all document and run state, and every action
   components/
-    app/                      TopBar, Sidebar (the overview), SettingsDialog, IconButton, MakerLogo
+    app/                      TopBar, ProfileMenu, Sidebar (the overview), IconButton, MakerLogo
+    settings/                 the Settings screen and one component per section
     notebook/                 NotebookView, CellView, editors, text renderers
     notebook/outputs/         OutputView: tables, images, text, errors, printed output
     panes/                    Brief, Variables, History, Files, Pinned, Activity
@@ -23,13 +24,14 @@ src/
 
 ## The store
 
-`src/store/notebook-store.ts` exports `useNotebook`, a zustand store, and `actions`, plain functions that change it. Components read with selectors, `useNotebook((s) => s.pane)`, and call `actions.*`. Nothing else writes to the store except `App.tsx` and `main.tsx`, which put bridge results into `settings`, `python` and `kernel`.
+`src/store/notebook-store.ts` exports `useNotebook`, a zustand store, and `actions`, plain functions that change it. Components read with selectors, `useNotebook((s) => s.pane)`, and call `actions.*`. Besides the actions, `App.tsx`, `main.tsx` and the Settings sections write bridge results straight into `settings`, `account`, `python` and `kernel`.
 
 Saved with the notebook: `notebook`. Everything else is session state:
 
 | Key | Holds |
 | --- | --- |
 | `screen` | `'welcome'` or `'notebook'`. The notebook stays loaded behind the start page |
+| `settingsPage` | The open Settings section, or null. Settings covers whichever screen is up. See [Settings](#settings) |
 | `path`, `dirty` | The file and whether it has unsaved changes |
 | `selectedId`, `focusId` | Selection, and a cell whose editor should take focus next render |
 | `runs` | `CellRun` per queued or running cell: status text, activity, live outputs, live code, a pending question or approval |
@@ -119,6 +121,27 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 | Pinned | Result cards for pinned cells, in pin order |
 | Activity | The session log. Click an entry to jump to its cell |
 
+## The profile menu
+
+`ProfileMenu` sits at the right end of the full top bar, after the gear. The avatar shows the account's initials, or a person icon when signed out. Its menu shows the name and email, then Sign in or Sign out, Account, and Settings with its shortcut. It reads `account` from the store and calls the same bridge methods as the Account section of Settings. Avatars are initials only: the account's picture would need the auth plugin's image protocol, which `Account` in `electron/account.ts` turns off with `userImageProxy`.
+
+## Settings
+
+Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` opens it on a section, or on the one it was last left on, and `closeSettings()` goes back. The menu's Cmd+,, the gear in the top bar, the profile menu, the banner over the workspace, the model picker's provider item and the setup's Python step all call it. The banner and the setup open the section that fixes their problem.
+
+`SettingsScreen` in `components/settings/` draws the sections down the left as Radix vertical tabs, so the arrow keys move between them, and the open section on the right. The order is `SETTINGS_SECTIONS` in the store:
+
+| Section | Component | Holds |
+| --- | --- | --- |
+| Account | `AccountSettings` | Sign in and out, and the code field. See [accounts.md](accounts.md) |
+| Models | `ModelSettings` | Provider, key, model id, effort |
+| Agent | `AgentSettings` | Package installs, cell names |
+| Python | `PythonSettings` | The managed environment and a Python path |
+
+It sits over the area under the top bar with the screen below still mounted and `inert`, so the setup's step, the notebook's scroll and the resizable columns come back as they were. Command mode and the Cmd+number keys stay off while it's up. Esc goes back, unless a select or menu is open, or a text field has focus, which it leaves instead.
+
+Changes save as they're made. Selects save on change. The model id and the Python path save on Enter or when the field loses focus. The API key has its own button, because it's checked with the provider first. `saveSettings()` in `settings/save.ts` sends an update and puts the new view in the store. `Group` and `Row` in `settings/parts.tsx` lay out a section: a bordered group of rows, each with its name and a line on the left and the control on the right, or under the text with `wide`.
+
 ## First run and the start page
 
 `WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. The key step links to each provider's keys page, switches provider to match a pasted key, and checks the key before saving it, see [storage.md](storage.md#settings-and-keys). Skipping any step still sets `onboarded`. The start page offers new, open, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set.
@@ -146,6 +169,8 @@ Fonts are bundled through Fontsource: Inter for UI, JetBrains Mono for code, Sou
 ## shadcn components
 
 `components/ui/` came from the shadcn CLI with the `radix-nova` style, configured in `apps/desktop/components.json`. Add new ones with `pnpm --filter @dalliance/desktop exec shadcn add <name>`. Keep app behaviour in `components/app/` and friends rather than editing these files.
+
+Shortcut hints use `Kbd` from `ui/kbd.tsx`, in tooltips, menus and text alike. `IconButton` takes a `shortcut` and shows it in its tooltip, so the accessible name stays the plain label.
 
 ## Model maker logos
 
