@@ -1,4 +1,4 @@
-import { ArrowLeft, Bot, type LucideIcon, SquareTerminal, Sparkles, UserRound } from 'lucide-react'
+import { Bot, type LucideIcon, SquareTerminal, Sparkles, UserRound, X } from 'lucide-react'
 import { Tabs } from 'radix-ui'
 import { Kbd } from '@/components/ui/kbd'
 import { useEffect } from 'react'
@@ -16,8 +16,9 @@ const SECTIONS: Record<SettingsSection, { label: string; icon: LucideIcon }> = {
 }
 
 /**
- * Settings as its own screen: the sections down the left, the open one on the right. It covers the notebook or
- * the start page under the top bar without unmounting them, so their state is still there on the way back.
+ * Settings as a dialog over the window: the sections down the left, the open one on the right. The window behind
+ * is blurred but stays mounted, so the notebook or the start page is as it was on the way back. The dialog is
+ * always 3.3 parts in 4 of the window, and it doesn't move.
  */
 export function SettingsScreen() {
   const page = useNotebook((s) => s.settingsPage)
@@ -31,7 +32,7 @@ export function SettingsScreen() {
       if (e.key !== 'Escape' || e.defaultPrevented) return
       const target = e.target as HTMLElement
       // Menus and selects close themselves first
-      if (target.closest('[role="listbox"], [role="menu"], [role="dialog"]')) return
+      if (target.closest('[role="listbox"], [role="menu"], [role="dialog"]:not([data-settings-dialog])')) return
       if (target.closest('input, textarea')) return target.blur()
       actions.closeSettings()
     }
@@ -41,12 +42,22 @@ export function SettingsScreen() {
 
   if (!page || !settings || !api) return null
   return (
-    <div className="absolute inset-0 z-10 flex bg-canvas px-2 pb-2">
+    // Over the whole window, top bar included, which is why it opts out of the bar's drag region
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Settings"
+      data-settings-dialog
+      className="app-no-drag fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-[6px] animate-in duration-150 fade-in-0"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) actions.closeSettings()
+      }}
+    >
       <Tabs.Root
         orientation="vertical"
         value={page}
         onValueChange={(v) => actions.openSettings(v as SettingsSection)}
-        className="flex min-h-0 flex-1 overflow-hidden rounded-xl border bg-background shadow-pane"
+        className="flex h-[82.5%] w-[82.5%] overflow-hidden rounded-xl border bg-background shadow-2xl"
       >
         <nav aria-label="Settings" className="flex w-56 shrink-0 flex-col gap-4 border-r p-3">
           <button
@@ -54,8 +65,8 @@ export function SettingsScreen() {
             onClick={() => actions.closeSettings()}
             className="flex h-8 items-center gap-2 rounded-lg px-2 text-[13px] text-muted-foreground hover:bg-hover hover:text-foreground [&_svg]:size-3.5"
           >
-            <ArrowLeft />
-            Back
+            <X />
+            Close
             <Kbd className="ml-auto">Esc</Kbd>
           </button>
           <div className="flex flex-col gap-1">

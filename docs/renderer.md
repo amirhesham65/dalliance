@@ -127,9 +127,9 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 
 ## Settings
 
-Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` opens it on a section, or on the one it was last left on, and `closeSettings()` goes back. The menu's Cmd+,, the gear in the top bar, the profile menu, the banner over the workspace, the model picker's provider item and the setup's Python step all call it. The banner and the setup open the section that fixes their problem.
+Settings is a dialog over the whole window. `actions.openSettings(section?)` opens it on a section, or on the one it was last left on, and `closeSettings()` goes back. The menu's Cmd+,, the gear in the top bar, the profile menu, the banner over the workspace, the model picker's provider item and the setup's Python step all call it. The banner and the setup open the section that fixes their problem.
 
-`SettingsScreen` in `components/settings/` draws the sections down the left as Radix vertical tabs, so the arrow keys move between them, and the open section on the right. The order is `SETTINGS_SECTIONS` in the store:
+`SettingsScreen` in `components/settings/` is 3.3 parts in 4 of the window in both directions, centred, and it doesn't move. Behind it the window is dimmed and blurred by 6px, which is 75% of Tailwind's `backdrop-blur-sm`. It draws the sections down the left as Radix vertical tabs, so the arrow keys move between them, and the open section on the right. The order is `SETTINGS_SECTIONS` in the store:
 
 | Section | Component | Holds |
 | --- | --- | --- |
@@ -138,7 +138,7 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 | Agent | `AgentSettings` | Package installs, cell names |
 | Python | `PythonSettings` | The managed environment and a Python path |
 
-It sits over the area under the top bar with the screen below still mounted and `inert`, so the setup's step, the notebook's scroll and the resizable columns come back as they were. Command mode and the Cmd+number keys stay off while it's up. Esc goes back, unless a select or menu is open, or a text field has focus, which it leaves instead.
+The top bar and the screen below stay mounted and `inert`, so the setup's step, the notebook's scroll and the resizable columns come back as they were. The dialog opts out of the top bar's drag region, since it covers it. Command mode and the Cmd+number keys stay off while it's up. Esc or a click on the blurred area closes it, unless a select or menu is open, or a text field has focus, which Esc leaves instead.
 
 Changes save as they're made. Selects save on change. The model id and the Python path save on Enter or when the field loses focus. The API key has its own button, because it's checked with the provider first. `saveSettings()` in `settings/save.ts` sends an update and puts the new view in the store. `Group` and `Row` in `settings/parts.tsx` lay out a section: a bordered group of rows, each with its name and a line on the left and the control on the right, or under the text with `wide`.
 

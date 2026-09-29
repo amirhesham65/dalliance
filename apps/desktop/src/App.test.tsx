@@ -288,7 +288,7 @@ describe('question cells', () => {
     expect(updates).toContainEqual({ model: 'google/gemini-3-pro' })
   })
 
-  it('opens Settings as its own screen, with a tab per section', async () => {
+  it('opens Settings as a dialog, with a tab per section', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result())
     api.getSettings = async () => ({ ...fakeSettings(), keySource: null, hasKey: { gateway: false, anthropic: false } })
@@ -315,6 +315,20 @@ describe('question cells', () => {
     // It reopens where it was left
     await user.click(screen.getByRole('button', { name: 'Settings' }))
     expect(screen.getByRole('tab', { name: 'Python' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('closes Settings from the blurred area around it, but not from a click inside', async () => {
+    const user = userEvent.setup()
+    setApi(fakeApi(() => result()).api)
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: 'Settings' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Settings' })
+
+    await user.click(screen.getByRole('tab', { name: 'Python' }))
+    expect(dialog).toBeInTheDocument()
+
+    await user.pointer({ keys: '[MouseLeft]', target: dialog })
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument()
   })
 
   it('shows the pane shortcuts in the overview tooltips', async () => {

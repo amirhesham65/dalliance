@@ -152,8 +152,10 @@ export default function App() {
   return (
     <TooltipProvider delayDuration={400}>
       <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen} className="h-full min-h-0 flex-col bg-canvas">
-        <TopBar minimal={screen === 'welcome'} />
-        {/* Settings covers this area without unmounting it, so the notebook or the setup keeps its state */}
+        {/* Settings opens over the whole window without unmounting anything, so the notebook or the setup keeps its state */}
+        <div inert={settingsPage != null} className="contents">
+          <TopBar minimal={screen === 'welcome'} />
+        </div>
         <div className="relative flex min-h-0 flex-1 flex-col">
           <div inert={settingsPage != null} className="flex min-h-0 flex-1 flex-col">
             {screen === 'welcome' ? (
