@@ -16,6 +16,7 @@ const KEY_SOURCES: Record<NonNullable<SettingsView['keySource']>, string> = {
   settings: 'Saved in your keychain',
   environment: 'From the environment',
   shell: 'From your shell profile',
+  'none needed': 'Ollama on this Mac, no key',
 }
 
 /** What the window shows with no notebook open: the first-run setup the first time, the start page after that. */

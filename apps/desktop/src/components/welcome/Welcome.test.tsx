@@ -53,7 +53,7 @@ describe('Welcome', () => {
 
   it('checks a pasted key and files it under the provider it belongs to', async () => {
     const user = userEvent.setup()
-    const { api, updates } = setup({ onboarded: false, keySource: null, hasKey: { gateway: false, anthropic: false } })
+    const { api, updates } = setup({ onboarded: false, keySource: null, hasKey: { gateway: false, anthropic: false, 'ollama-cloud': false, 'ollama-local': true } })
     api.checkKey = async (_provider, key) => (key.includes('wrong') ? { status: 'rejected', detail: 'Turned down.' } : { status: 'ok', detail: null })
     actions.showWelcome(false)
     render(<App />)

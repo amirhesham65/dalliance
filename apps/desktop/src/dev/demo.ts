@@ -2,8 +2,9 @@
  * A pretend desktop bridge for looking at the UI in a plain browser: open the renderer with ?demo.
  * Nothing here runs inside Electron, where window.dalliance is the real bridge.
  */
+import { PROVIDERS } from '@/lib/keys'
 import { fakeApi, fakeSettings, result } from '@/test/fake-api'
-import type { PythonState, RunEvent } from '@dalliance/shared/ipc'
+import type { ModelOption, Provider, PythonState, RunEvent } from '@dalliance/shared/ipc'
 import { type Notebook, type Output, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
 
@@ -172,7 +173,7 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
     { name: 'summary', type: 'DataFrame', shape: '2 × 5', detail: 'arm, patients, deaths, median_months, survival_24m' },
   ]
   let settings = fakeSettings()
-  if (mode === 'setup') settings = { ...settings, onboarded: false, keySource: null, hasKey: { gateway: false, anthropic: false } }
+  if (mode === 'setup') settings = { ...settings, onboarded: false, keySource: null, hasKey: { gateway: false, anthropic: false, 'ollama-cloud': false, 'ollama-local': true } }
   api.getSettings = async () => settings
   // Any key works in the demo, except one with "bad" in it
   api.checkKey = async (provider, key) => {
@@ -182,11 +183,18 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
   }
   // Like the real store, switching provider swaps a default model name for the other provider's
   const defaults = { gateway: 'anthropic/claude-opus-5', anthropic: 'claude-opus-5' }
+  const ollamaDefaults = { 'ollama-cloud': 'gpt-oss:120b', 'ollama-local': 'llama3.2:3b' }
+  const defaultFor = (p: Provider) => ({ ...defaults, ...ollamaDefaults })[p]
+  const lastModel: Partial<Record<Provider, string>> = {}
   api.updateSettings = async ({ apiKey, ...rest }) => {
-    const model = rest.provider && rest.provider !== settings.provider && settings.model === defaults[settings.provider] ? defaults[rest.provider] : settings.model
-    settings = { ...settings, model, ...rest }
+    let model = settings.model
+    if (rest.provider && rest.provider !== settings.provider) {
+      lastModel[settings.provider] = settings.model
+      model = lastModel[rest.provider] ?? defaultFor(rest.provider)
+    }
+    settings = { ...settings, ...rest, model: rest.model ?? model }
     if (apiKey) settings.hasKey = { ...settings.hasKey, [apiKey.provider]: apiKey.key.trim() !== '' }
-    settings.keySource = settings.hasKey[settings.provider] ? 'settings' : null
+    settings.keySource = !PROVIDERS[settings.provider].needsKey ? 'none needed' : settings.hasKey[settings.provider] ? 'settings' : null
     return settings
   }
   // A first launch finds no Python; setting one up streams a few lines and succeeds
@@ -207,10 +215,7 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
   }
   if (mode === 'setup') api.recentNotebooks = async () => []
   // A spread of makers like the gateway's, one of them without a logo
-  api.listModels = async () => ({
-    provider: 'gateway',
-    error: null,
-    models: [
+  const gatewayModels: ModelOption[] = [
       { id: 'anthropic/claude-opus-5', name: 'Claude Opus 5', maker: 'Anthropic', price: '$5 / $25' },
       { id: 'anthropic/claude-sonnet-5', name: 'Claude Sonnet 5', maker: 'Anthropic', price: '$3 / $15' },
       { id: 'openai/gpt-6', name: 'GPT-6', maker: 'OpenAI', price: '$2.50 / $15' },
@@ -222,8 +227,31 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
       { id: 'moonshotai/kimi-k3', name: 'Kimi K3', maker: 'Moonshot AI', price: '$0.60 / $2.50' },
       { id: 'zai/glm-5', name: 'GLM 5', maker: 'Z.ai', price: '$0.60 / $2.20' },
       { id: 'thinkingmachines/inkling', name: 'Inkling', maker: 'Thinking Machines', price: '$1 / $4' },
-    ],
-  })
+  ]
+  // Ollama's lists have no prices. The cloud one has models a free plan can't run, which only show once probed
+  const ollamaCloud: ModelOption[] = [
+    { id: 'gpt-oss:20b', name: 'gpt-oss:20b', maker: 'OpenAI' },
+    { id: 'gpt-oss:120b', name: 'gpt-oss:120b', maker: 'OpenAI' },
+    { id: 'gemma4:31b', name: 'gemma4:31b', maker: 'Google' },
+    { id: 'glm-5.3', name: 'glm-5.3', maker: 'Z.ai' },
+    { id: 'kimi-k3', name: 'kimi-k3', maker: 'Moonshot AI' },
+    { id: 'minimax-m3', name: 'minimax-m3', maker: 'MiniMax' },
+  ]
+  const ollamaLocal: ModelOption[] = [
+    { id: 'llama3.2:3b', name: 'llama3.2:3b', maker: 'Meta' },
+    { id: 'qwen3:8b', name: 'qwen3:8b', maker: 'Alibaba' },
+  ]
+  api.listModels = async () => {
+    const { provider } = settings
+    await wait(400)
+    const models = provider === 'ollama-cloud' ? ollamaCloud : provider === 'ollama-local' ? ollamaLocal : gatewayModels
+    return { provider, models, error: null }
+  }
+  api.probeModels = async () => {
+    await wait(1800)
+    const list = await api.listModels()
+    return list.provider === 'ollama-cloud' ? { ...list, models: list.models.map((m) => (['glm-5.3', 'kimi-k3', 'minimax-m3'].includes(m.id) ? { ...m, locked: true } : m)) } : list
+  }
   setApi(api)
   actions.load(sampleNotebook(), '/Users/demo/REGIMEN-2/readout.ipynb')
   useNotebook.setState({ kernel: { status: 'idle', python: '3.12.4', cwd: '/Users/demo/REGIMEN-2', error: null } })

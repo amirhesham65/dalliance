@@ -34,6 +34,7 @@ export function fakeApi(onRun: RunHandler) {
       ],
       error: null,
     }),
+    probeModels: async () => ({ provider: 'gateway', models: [], error: null }),
     checkKey: async () => ({ status: 'ok', detail: '$5.00 in credits' }),
     updateSettings: async () => {
       throw new Error('not used')
@@ -74,7 +75,7 @@ export function fakeSettings(): SettingsView {
     autoTitles: true,
     onboarded: true,
     keySource: 'environment',
-    hasKey: { gateway: true, anthropic: false },
+    hasKey: { gateway: true, anthropic: false, 'ollama-cloud': false, 'ollama-local': true },
   }
 }
 

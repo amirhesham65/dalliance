@@ -2,6 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createGateway } from '@ai-sdk/gateway'
 import { type LanguageModel, generateText } from 'ai'
 import type { ModelConfig } from './model'
+import { isOllama } from '@dalliance/shared/ipc'
 
 /**
  * The small, cheap model that names cells, whatever model writes the code: GPT-6 Luna through the gateway.
@@ -22,8 +23,12 @@ export interface TitleModel {
   providerOptions?: ProviderOptions
 }
 
+/**
+ * Ollama has no small model to fall back on, and a title asked for beside the run would queue behind it on this
+ * machine and hit the one-request limit of a free cloud plan. Cells on Ollama keep their prompt as the name.
+ */
 export function titleModel(config: ModelConfig): TitleModel | null {
-  if (!config.apiKey) return null
+  if (!config.apiKey || isOllama(config.provider)) return null
   if (config.provider === 'anthropic') return { model: createAnthropic({ apiKey: config.apiKey })(TITLE_MODELS.anthropic) }
   // Luna reasons before it answers; low effort keeps a title to a second or so
   return { model: createGateway({ apiKey: config.apiKey })(TITLE_MODELS.gateway), providerOptions: { openai: { reasoningEffort: 'low' } } }

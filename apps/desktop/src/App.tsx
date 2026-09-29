@@ -146,6 +146,13 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [sidebarOpen])
 
+  // The model list is ready before anyone opens a picker: once at launch, and again when the provider or its key changes
+  const provider = settings?.provider
+  const keySource = settings?.keySource
+  useEffect(() => {
+    if (provider) void actions.loadModels()
+  }, [provider, keySource])
+
   const needsKey = settings != null && settings.keySource == null
   const needsPython = python != null && (!python.python || python.missingPackages.length > 0)
 

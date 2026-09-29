@@ -171,6 +171,9 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const provider = PROVIDERS[settings.provider]
+  const models = useNotebook((s) => s.models)
+  // Ollama on this Mac needs no key, but it has to be running
+  const notRunning = !provider.needsKey && models?.provider === settings.provider ? models.error : null
 
   const update = async (u: Parameters<DallianceApi['updateSettings']>[0]) => {
     useNotebook.setState({ settings: await api.updateSettings(u) })
@@ -189,6 +192,7 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
       const saved = await saveKey(api, settings.provider, key)
       if (!saved.view) return setError(saved.error)
       useNotebook.setState({ settings: saved.view })
+      void actions.loadModels(true)
       setNote(saved.note)
       setKey('')
       setReplacing(false)
@@ -230,7 +234,7 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
                   {checked && <span className="size-1.5 rounded-full bg-ink" />}
                 </span>
                 {PROVIDERS[p].label}
-                {settings.hasKey[p] && <span className="ml-auto text-xs font-normal text-faint">key saved</span>}
+                {PROVIDERS[p].needsKey && settings.hasKey[p] && <span className="ml-auto text-xs font-normal text-faint">key saved</span>}
               </span>
               <span className="pl-5.5 text-[12.5px] leading-[1.5] text-muted-foreground">{PROVIDERS[p].blurb}</span>
             </button>
@@ -248,9 +252,11 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
               {keySourceText(settings)}
               {note && <span className="text-muted-foreground"> {note}</span>}
             </span>
-            <button type="button" className="text-xs text-faint hover:text-foreground" onClick={() => setReplacing(true)}>
-              {settings.keySource === 'settings' ? 'Replace' : 'Use a different key'}
-            </button>
+            {provider.needsKey && (
+              <button type="button" className="text-xs text-faint hover:text-foreground" onClick={() => setReplacing(true)}>
+                {settings.keySource === 'settings' ? 'Replace' : 'Use a different key'}
+              </button>
+            )}
           </div>
         ) : (
           <form
@@ -293,6 +299,11 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
               )}
             </p>
           </form>
+        )}
+        {notRunning && (
+          <p className="mt-2 text-xs text-destructive" role="alert">
+            {notRunning}
+          </p>
         )}
       </div>
     </>

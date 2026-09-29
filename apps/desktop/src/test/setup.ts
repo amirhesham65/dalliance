@@ -5,6 +5,12 @@ import { afterEach, vi } from 'vitest'
 
 // jsdom doesn't implement layout, so scrolling is a no-op in tests
 if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {}
+// Radix's Select asks for pointer capture, which jsdom doesn't have
+if (typeof Element !== 'undefined') {
+  Element.prototype.hasPointerCapture ??= () => false
+  Element.prototype.setPointerCapture ??= () => {}
+  Element.prototype.releasePointerCapture ??= () => {}
+}
 
 afterEach(() => cleanup())
 

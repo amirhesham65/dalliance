@@ -291,14 +291,15 @@ describe('question cells', () => {
   it('opens Settings as its own screen, with a tab per section', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result())
-    api.getSettings = async () => ({ ...fakeSettings(), keySource: null, hasKey: { gateway: false, anthropic: false } })
+    api.getSettings = async () => ({ ...fakeSettings(), keySource: null, hasKey: { gateway: false, anthropic: false, 'ollama-cloud': false, 'ollama-local': true } })
     setApi(api)
     render(<App />)
 
     // The banner for a missing key goes straight to Models
     await user.click(await screen.findByRole('button', { name: 'Open Settings' }))
     expect(screen.getByRole('tab', { name: 'Models' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('textbox', { name: 'Model' })).toHaveValue('anthropic/claude-opus-5')
+    // The list loads on its own, so the model is a dropdown by the time anyone looks
+    expect(await screen.findByRole('combobox', { name: 'Model' })).toHaveTextContent(/Opus 5/)
 
     await user.click(screen.getByRole('tab', { name: 'Python' }))
     expect(screen.getByRole('button', { name: 'Set up' })).toBeInTheDocument()
@@ -315,6 +316,46 @@ describe('question cells', () => {
     // It reopens where it was left
     await user.click(screen.getByRole('button', { name: 'Settings' }))
     expect(screen.getByRole('tab', { name: 'Python' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('offers only the models a key can run, and saves the one picked', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    const updates: unknown[] = []
+    const settings = { ...fakeSettings(), provider: 'ollama-cloud' as const, model: 'gpt-oss:20b', keySource: 'settings' as const }
+    const models = [
+      { id: 'gpt-oss:20b', name: 'gpt-oss:20b', maker: 'OpenAI' },
+      { id: 'gemma4:31b', name: 'gemma4:31b', maker: 'Google' },
+      { id: 'kimi-k3', name: 'kimi-k3', maker: 'Moonshot AI', locked: true },
+    ]
+    api.getSettings = async () => settings
+    api.listModels = async () => ({ provider: 'ollama-cloud', models, error: null })
+    api.probeModels = async () => ({ provider: 'ollama-cloud', models, error: null })
+    api.updateSettings = async (u) => {
+      updates.push(u)
+      return { ...settings, ...u } as typeof settings
+    }
+    setApi(api)
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    await user.click(await screen.findByRole('tab', { name: 'Models' }))
+    await user.click(await screen.findByRole('combobox', { name: 'Model' }))
+    expect(await screen.findByRole('option', { name: 'gemma4:31b' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'kimi-k3' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('option', { name: 'gemma4:31b' }))
+    expect(updates).toContainEqual({ model: 'gemma4:31b' })
+  })
+
+  it('keeps a text field for the model when the provider cannot list any', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    api.listModels = async () => ({ provider: 'gateway', models: [], error: "Couldn't load the model list: offline" })
+    setApi(api)
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    await user.click(await screen.findByRole('tab', { name: 'Models' }))
+    expect(await screen.findByRole('textbox', { name: 'Model' })).toHaveValue(fakeSettings().model)
   })
 
   it('shows the pane shortcuts in the overview tooltips', async () => {

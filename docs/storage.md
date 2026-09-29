@@ -26,15 +26,15 @@ Keys are stored per provider:
 - With `safeStorage.isEncryptionAvailable()`, the key is encrypted with the OS keychain and stored as base64.
 - Otherwise it's stored as `plain:<key>`. That only happens on systems without a keychain.
 
-`apiKey(provider)` looks in three places, in order: a stored key, the app's environment, then the user's login shell. The environment variables are `AI_GATEWAY_API_KEY` and `ANTHROPIC_API_KEY`. In development, `electron/main.ts` loads `apps/desktop/.env` into the environment, and packaged builds never do. `SettingsView` tells the renderer whether a key exists and where it came from (`settings`, `environment` or `shell`), never the key.
+`apiKey(provider)` looks in three places, in order: a stored key, the app's environment, then the user's login shell. The environment variables are `AI_GATEWAY_API_KEY`, `ANTHROPIC_API_KEY` and `OLLAMA_API_KEY`. Ollama - Local has no key, and its `keySource` is `none needed`. In development, `electron/main.ts` loads `apps/desktop/.env` into the environment, and packaged builds never do. `SettingsView` tells the renderer whether a key exists and where it came from (`settings`, `environment` or `shell`), never the key.
 
-An app opened from Finder or the Dock doesn't inherit what `~/.zshrc` exports. So at startup `readShellEnv()` in `electron/shell-env.ts` runs the user's `$SHELL` as a login shell once, with a 5 second timeout, and reads those two variables from its `env`. `useShellKeys()` keeps them in `SettingsStore`, not in `process.env`, because the kernel inherits `process.env` and a cell could print the key. The `getSettings` and `listModels` handlers wait for the read, so the first view already counts them. Windows skips it.
+An app opened from Finder or the Dock doesn't inherit what `~/.zshrc` exports. So at startup `readShellEnv()` in `electron/shell-env.ts` runs the user's `$SHELL` as a login shell once, with a 5 second timeout, and reads those variables from its `env`. `useShellKeys()` keeps them in `SettingsStore`, not in `process.env`, because the kernel inherits `process.env` and a cell could print the key. The `getSettings` and `listModels` handlers wait for the read, so the first view already counts them. Windows skips it.
 
 Before the first-run setup is done, `useShellKeys()` also switches to the other provider when only that one has a key, so someone with `ANTHROPIC_API_KEY` in their profile starts on Anthropic.
 
 The renderer saves a key with `saveKey()` in `src/lib/keys.ts`, from both the setup and Settings. It picks the provider from the prefix (`vck_` for the gateway, `sk-ant-` for Anthropic), checks the key with `checkKey()`, and only saves it when the provider doesn't reject it. Typing or pasting a key with a known prefix switches the provider straight away.
 
-Switching provider resets the model to the new provider's default, but only if the old one was still the default.
+Each provider has its own model ids, so `settings.json` also keeps the model last used with each one. Switching provider brings back that model, or the provider's default the first time.
 
 ## Session and drafts
 

@@ -3,10 +3,11 @@ import { useState } from 'react'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useSidebar } from '@/components/ui/sidebar'
+import { PROVIDERS } from '@/lib/keys'
 import { makerOfModel } from '@/lib/makers'
 import { ago, modelLabel } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
-import type { Effort, RecentNotebook } from '@dalliance/shared/ipc'
+import { type Effort, type RecentNotebook, isOllama } from '@dalliance/shared/ipc'
 import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
 import { IconButton } from './IconButton'
 import { MakerLogo } from './MakerLogo'
@@ -144,6 +145,7 @@ const EFFORTS: { value: Effort; label: string }[] = [
 function ModelChip() {
   const settings = useNotebook((s) => s.settings)
   const list = useNotebook((s) => s.models)
+  const probing = useNotebook((s) => s.probingModels)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const api = getApi()
@@ -156,7 +158,8 @@ function ModelChip() {
     setOpen(false)
     setQuery('')
   }
-  const models = list?.provider === settings.provider ? list.models : []
+  // A model the key's plan doesn't run has no place in the picker
+  const models = (list?.provider === settings.provider ? list.models : []).filter((m) => !m.locked)
   const current = models.find((m) => m.id === settings.model)
   // Anthropic first, then the other makers alphabetically
   const makers = [...new Set(models.map((m) => m.maker))].sort((a, b) => (a === 'Anthropic' ? -1 : b === 'Anthropic' ? 1 : a.localeCompare(b)))
@@ -182,6 +185,7 @@ function ModelChip() {
           <CommandList className="scrollbar-thin max-h-[340px]">
             {!list && <p className="px-3 py-6 text-center text-[13px] text-faint">Loading models…</p>}
             {list?.error && <p className="px-3 py-3 text-[13px] text-destructive">{list.error}</p>}
+            {probing && <p className="px-3 py-2 text-[12px] text-faint">Checking which models your plan includes…</p>}
             <CommandEmpty>
               {query.trim() ? (
                 <button type="button" className="text-[13px] hover:underline" onClick={() => choose(query.trim())}>
@@ -240,12 +244,16 @@ function ModelChip() {
             ))}
           </div>
           <p className="px-2 pt-1.5 text-[11.5px] text-faint">
-            {effortApplies ? 'Prices are per million input / output tokens.' : 'Effort applies to Anthropic and OpenAI models. This one uses its default.'}
+            {effortApplies
+              ? 'Prices are per million input / output tokens.'
+              : isOllama(settings.provider)
+                ? 'Ollama models use their own thinking settings.'
+                : 'Effort applies to Anthropic and OpenAI models. This one uses its default.'}
           </p>
           <div className="mt-1 border-t pt-1">
             <MenuButton
               icon={<Settings />}
-              label={`Provider: ${settings.provider === 'gateway' ? 'Vercel AI Gateway' : 'Anthropic API'}…`}
+              label={`Provider: ${PROVIDERS[settings.provider].label}…`}
               onClick={() => {
                 setOpen(false)
                 actions.openSettings('models')

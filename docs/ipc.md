@@ -23,6 +23,7 @@ Channel names are in the `IPC` constant. Never type a channel string by hand.
 | `getSettings()` | invoke | `settings.view` | `SettingsView`, never the keys themselves |
 | `updateSettings(update)` | invoke | `settings.update` | Returns the new view. Restarts the kernel if `pythonPath` changed |
 | `listModels()` | invoke | `listModels` | Models for the picker |
+| `probeModels()` | invoke | `probeModels` | The same list with `locked` set on the models an Ollama Cloud plan doesn't run. Other providers get their list back unchanged |
 | `checkKey(provider, key)` | invoke | `checkKey` | Asks the provider whether a key works, without saving it. A `KeyCheck` with the balance or the reason |
 | `pythonState()` | invoke | `session.pythonState` | Which Python, which version, missing packages |
 | `setupPython()` | invoke | `session.setupPython` | Creates the managed venv, then restarts the kernel |

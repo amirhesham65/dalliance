@@ -10,7 +10,7 @@ flowchart LR
     M["Main process<br/>apps/desktop/electron"]
   end
   K["Python kernel<br/>dalliance_kernel.py"]
-  AI["Model provider<br/>Vercel AI Gateway or Anthropic API"]
+  AI["Model provider<br/>Vercel AI Gateway, Anthropic API<br/>or Ollama, cloud or local"]
   W["dalliance.io<br/>/api/auth proxy"]
   C["Convex<br/>Better Auth"]
 

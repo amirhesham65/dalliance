@@ -134,13 +134,13 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 | Section | Component | Holds |
 | --- | --- | --- |
 | Account | `AccountSettings` | Sign in and out, and the code field. See [accounts.md](accounts.md) |
-| Models | `ModelSettings` | Provider, key, model id, effort |
+| Models | `ModelSettings` | Provider, key, model, effort |
 | Agent | `AgentSettings` | Package installs, cell names |
 | Python | `PythonSettings` | The managed environment and a Python path |
 
 It sits over the area under the top bar with the screen below still mounted and `inert`, so the setup's step, the notebook's scroll and the resizable columns come back as they were. Command mode and the Cmd+number keys stay off while it's up. Esc goes back, unless a select or menu is open, or a text field has focus, which it leaves instead.
 
-Changes save as they're made. Selects save on change. The model id and the Python path save on Enter or when the field loses focus. The API key has its own button, because it's checked with the provider first. `saveSettings()` in `settings/save.ts` sends an update and puts the new view in the store. `Group` and `Row` in `settings/parts.tsx` lay out a section: a bordered group of rows, each with its name and a line on the left and the control on the right, or under the text with `wide`.
+Changes save as they're made. Selects save on change. The Python path saves on Enter or when the field loses focus. So does the model id, which is a text field only when the provider can't list its models. The API key has its own button, because it's checked with the provider first. `saveSettings()` in `settings/save.ts` sends an update and puts the new view in the store. `Group` and `Row` in `settings/parts.tsx` lay out a section: a bordered group of rows, each with its name and a line on the left and the control on the right, or under the text with `wide`.
 
 ## First run and the start page
 
@@ -171,6 +171,14 @@ Fonts are bundled through Fontsource: Inter for UI, JetBrains Mono for code, Sou
 `components/ui/` came from the shadcn CLI with the `radix-nova` style, configured in `apps/desktop/components.json`. Add new ones with `pnpm --filter @dalliance/desktop exec shadcn add <name>`. Keep app behaviour in `components/app/` and friends rather than editing these files.
 
 Shortcut hints use `Kbd` from `ui/kbd.tsx`, in tooltips, menus and text alike. `IconButton` takes a `shortcut` and shows it in its tooltip, so the accessible name stays the plain label.
+
+## The model list
+
+`actions.loadModels()` fills `models` without anyone opening a picker. `App.tsx` calls it at launch and whenever the provider or where its key comes from changes, and the setup and Settings call it with `force` right after a key is saved, so a replaced key is read too. Settings' Model row and the top bar's picker both read the list, and both leave out models marked `locked`.
+
+Ollama - Cloud lists in two steps, because trying every model against the plan takes a while. `listModels()` fills the list first. Then `probeModels()` runs with `probingModels` true, the picker says it is checking, and the locked models drop out when it returns. For either Ollama provider, a chosen model that isn't on offer gives way to the first one that is, since Ollama has no default that suits everyone. A run of `loadModels()` that finds the provider changed meanwhile drops its answer.
+
+Settings shows the model as a dropdown grouped by maker once there is a list, and as the text field it always was when there isn't one. Ollama - Local has no key, so its provider row is a "Check again" button and the state of the server instead of a key field.
 
 ## Model maker logos
 

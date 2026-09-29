@@ -3,11 +3,13 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { safeStorage } from 'electron'
 import type { Effort, Provider, SettingsUpdate, SettingsView } from '@dalliance/shared/ipc'
-import { DEFAULT_MODELS, type ModelConfig } from './harness/model'
+import { DEFAULT_MODELS, type ModelConfig, needsKey } from './harness/model'
 
 interface Stored {
   provider: Provider
   model: string
+  /** The model last used with each provider, so switching back finds it again. */
+  models: Partial<Record<Provider, string>>
   effort: Effort
   pythonPath: string | null
   approvalMode: 'interactive' | 'background'
@@ -21,11 +23,13 @@ interface Stored {
 
 const MAX_RECENT = 8
 
-export const ENV_KEYS: Record<Provider, string> = { gateway: 'AI_GATEWAY_API_KEY', anthropic: 'ANTHROPIC_API_KEY' }
+/** The variable each keyed provider's key can come from. Ollama on this machine has none. */
+export const ENV_KEYS: Partial<Record<Provider, string>> = { gateway: 'AI_GATEWAY_API_KEY', anthropic: 'ANTHROPIC_API_KEY', 'ollama-cloud': 'OLLAMA_API_KEY' }
 
 const DEFAULTS: Stored = {
   provider: 'gateway',
   model: DEFAULT_MODELS.gateway,
+  models: {},
   effort: 'medium',
   pythonPath: null,
   approvalMode: 'interactive',
@@ -74,7 +78,8 @@ export class SettingsStore {
   apiKey(provider: Provider): { key: string | null; source: SettingsView['keySource'] } {
     const stored = this.storedKey(provider)
     if (stored) return { key: stored, source: 'settings' }
-    const env = process.env[ENV_KEYS[provider]]
+    const variable = ENV_KEYS[provider]
+    const env = variable ? process.env[variable] : undefined
     if (env) return { key: env, source: 'environment' }
     const shell = this.shellKeys[provider]
     return shell ? { key: shell, source: 'shell' } : { key: null, source: null }
@@ -86,7 +91,7 @@ export class SettingsStore {
    */
   useShellKeys(env: Record<string, string>) {
     for (const provider of Object.keys(ENV_KEYS) as Provider[]) {
-      const key = env[ENV_KEYS[provider]]
+      const key = env[ENV_KEYS[provider]!]
       if (key) this.shellKeys[provider] = key
     }
     if (this.data.onboarded || this.apiKey(this.data.provider).key) return
@@ -133,15 +138,21 @@ export class SettingsStore {
       approvalMode: this.data.approvalMode,
       autoTitles: this.data.autoTitles,
       onboarded: this.data.onboarded,
-      keySource: this.apiKey(this.data.provider).source,
-      hasKey: { gateway: this.apiKey('gateway').key != null, anthropic: this.apiKey('anthropic').key != null },
+      keySource: needsKey(this.data.provider) ? this.apiKey(this.data.provider).source : 'none needed',
+      hasKey: {
+        gateway: this.apiKey('gateway').key != null,
+        anthropic: this.apiKey('anthropic').key != null,
+        'ollama-cloud': this.apiKey('ollama-cloud').key != null,
+        'ollama-local': true,
+      },
     }
   }
 
   update(update: SettingsUpdate): SettingsView {
     if (update.provider && update.provider !== this.data.provider) {
-      // Switching provider resets a default model name to the other provider's format
-      if (this.data.model === DEFAULT_MODELS[this.data.provider]) this.data.model = DEFAULT_MODELS[update.provider]
+      // Each provider has its own model ids, so a switch brings back the one last used there, or its default
+      this.data.models[this.data.provider] = this.data.model
+      this.data.model = this.data.models[update.provider] ?? DEFAULT_MODELS[update.provider]
       this.data.provider = update.provider
     }
     if (update.model !== undefined) this.data.model = update.model.trim() || DEFAULT_MODELS[this.data.provider]

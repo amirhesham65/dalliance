@@ -8,7 +8,7 @@ import type { RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
 import { FakeKernel } from '../kernel/fake-kernel'
 import { createApproval } from './approval'
 import { EventBus } from './events'
-import { type HarnessDeps, runCell } from './run-cell'
+import { type HarnessDeps, friendlyError, runCell } from './run-cell'
 
 type Step = { tool: string; input: Record<string, unknown>; thinking?: string } | { text: string }
 
@@ -275,5 +275,22 @@ describe('questions answered in words', () => {
     const result = await runCell(request(), deps)
     expect(result.ok).toBe(false)
     expect(JSON.stringify(prompts[1])).toContain('Nothing has run yet')
+  })
+})
+
+describe('friendlyError', () => {
+  it('says a plan lacks a model instead of blaming the key', () => {
+    expect(friendlyError(new Error('403 this model requires a subscription'))).toContain("Your Ollama plan doesn't include this model")
+  })
+
+  it('points at Ollama when nothing is listening, when a model is not pulled and when it cannot call tools', () => {
+    expect(friendlyError(new Error('Cannot connect to API: connect ECONNREFUSED 127.0.0.1:11434'))).toContain("Ollama isn't running")
+    expect(friendlyError(new Error('model "qwen3:8b" not found, try pulling it first'))).toContain('ollama pull')
+    expect(friendlyError(new Error('registry.ollama.ai/library/gemma3:4b does not support tools'))).toContain("can't call tools")
+  })
+
+  it('still reports a rejected key and a rate limit as before', () => {
+    expect(friendlyError(new Error('401 Unauthorized'))).toContain('rejected the API key')
+    expect(friendlyError(new Error('429 too many requests, rate limit'))).toContain('rate limiting')
   })
 })

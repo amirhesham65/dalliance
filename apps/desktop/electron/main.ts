@@ -6,7 +6,7 @@ import { type DraftState, IPC, type MenuAction, type OpenedNotebook, type Provid
 import { fromIpynb, toIpynb } from '@dalliance/shared/ipynb'
 import type { Notebook } from '@dalliance/shared/notebook'
 import { Account, siteUrl } from './account'
-import { checkKey, listModels } from './harness/model'
+import { checkKey, listModels, probeModels } from './harness/model'
 import { DraftStore } from './draft'
 import { buildMenu } from './menu'
 import { NotebookSession } from './session'
@@ -156,6 +156,10 @@ function registerIpc() {
   ipcMain.handle(IPC.listModels, async () => {
     await shellKeys
     return listModels(settings.modelConfig())
+  })
+  ipcMain.handle(IPC.probeModels, async () => {
+    await shellKeys
+    return probeModels(settings.modelConfig())
   })
   ipcMain.handle(IPC.checkKey, (_e, provider: Provider, key: string) => checkKey(provider, key))
   ipcMain.handle(IPC.updateSettings, async (_e, update: SettingsUpdate) => {

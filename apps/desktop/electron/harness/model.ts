@@ -1,12 +1,19 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { GatewayError, createGateway } from '@ai-sdk/gateway'
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { LanguageModel, ToolLoopAgentSettings } from 'ai'
-import type { Effort, KeyCheck, ModelList, ModelOption, Provider } from '@dalliance/shared/ipc'
+import { type Effort, type KeyCheck, type ModelList, type ModelOption, type Provider, isOllama } from '@dalliance/shared/ipc'
+import { checkOllama, listOllamaModels, ollamaBaseURL, probeOllamaModels } from './ollama'
 
 export const DEFAULT_MODELS: Record<Provider, string> = {
   gateway: 'anthropic/claude-opus-5',
   anthropic: 'claude-opus-5',
+  'ollama-cloud': 'gpt-oss:120b',
+  'ollama-local': 'llama3.2:3b',
 }
+
+/** Ollama on this machine is the one provider that takes no key. */
+export const needsKey = (provider: Provider) => provider !== 'ollama-local'
 
 export interface ModelConfig {
   provider: Provider
@@ -20,7 +27,9 @@ export class MissingKeyError extends Error {
     super(
       provider === 'gateway'
         ? 'Add an AI Gateway key in Settings to run prompts.'
-        : 'Add an Anthropic API key in Settings to run prompts.',
+        : provider === 'anthropic'
+          ? 'Add an Anthropic API key in Settings to run prompts.'
+          : 'Add an Ollama API key in Settings to run prompts.',
     )
   }
 }
@@ -29,12 +38,17 @@ export function resolveModel(config: ModelConfig): {
   model: LanguageModel
   providerOptions: ToolLoopAgentSettings['providerOptions']
 } {
-  if (!config.apiKey) throw new MissingKeyError(config.provider)
-  const model =
-    config.provider === 'gateway'
-      ? createGateway({ apiKey: config.apiKey })(config.model)
-      : createAnthropic({ apiKey: config.apiKey })(config.model)
-  return { model, providerOptions: effortOptions(config) }
+  if (!config.apiKey && needsKey(config.provider)) throw new MissingKeyError(config.provider)
+  return { model: createModel(config), providerOptions: effortOptions(config) }
+}
+
+function createModel(config: ModelConfig): LanguageModel {
+  if (isOllama(config.provider)) {
+    // Ollama serves the OpenAI chat API next to its own, which carries tool calls the same way
+    return createOpenAICompatible({ name: 'ollama', baseURL: ollamaBaseURL(config.provider), apiKey: config.apiKey ?? undefined })(config.model)
+  }
+  if (config.provider === 'gateway') return createGateway({ apiKey: config.apiKey! })(config.model)
+  return createAnthropic({ apiKey: config.apiKey! })(config.model)
 }
 
 /**
@@ -69,7 +83,9 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
  */
 export async function checkKey(provider: Provider, apiKey: string): Promise<KeyCheck> {
   const key = apiKey.trim()
+  if (provider === 'ollama-local') return checkOllama(provider, key)
   if (!key) return { status: 'rejected', detail: 'Paste a key first.' }
+  if (provider === 'ollama-cloud') return checkOllama(provider, key)
   try {
     if (provider === 'gateway') {
       const { balance } = await within(createGateway({ apiKey: key }).getCredits(), CHECK_MS)
@@ -144,14 +160,17 @@ const CACHE_MS = 10 * 60_000
 
 /** The language models the chosen provider offers, for the model picker. Cached for ten minutes. */
 export async function listModels(config: ModelConfig): Promise<ModelList> {
-  if (!config.apiKey) return { provider: config.provider, models: [], error: new MissingKeyError(config.provider).message }
-  const key = `${config.provider}:${config.apiKey.slice(-6)}`
+  if (!config.apiKey && needsKey(config.provider)) return { provider: config.provider, models: [], error: new MissingKeyError(config.provider).message }
+  const key = `${config.provider}:${config.apiKey?.slice(-6) ?? ''}`
   const hit = cache.get(key)
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.list
+  // What's pulled onto this machine changes whenever the user runs `ollama pull`, so that list is never cached
+  if (hit && config.provider !== 'ollama-local' && Date.now() - hit.at < CACHE_MS) return hit.list
   let models: ModelOption[]
   try {
-    if (config.provider === 'gateway') {
-      const { models: entries } = await createGateway({ apiKey: config.apiKey }).getAvailableModels()
+    if (isOllama(config.provider)) {
+      models = await listOllamaModels(config.provider, config.apiKey)
+    } else if (config.provider === 'gateway') {
+      const { models: entries } = await createGateway({ apiKey: config.apiKey! }).getAvailableModels()
       models = entries
         .filter((m) => m.modelType == null || m.modelType === 'language')
         .map((m) => {
@@ -167,7 +186,7 @@ export async function listModels(config: ModelConfig): Promise<ModelList> {
         })
     } else {
       const res = await fetch('https://api.anthropic.com/v1/models?limit=100', {
-        headers: { 'x-api-key': config.apiKey, 'anthropic-version': '2023-06-01' },
+        headers: { 'x-api-key': config.apiKey!, 'anthropic-version': '2023-06-01' },
       })
       if (!res.ok) throw new Error(`Anthropic answered ${res.status}`)
       const body = (await res.json()) as { data: { id: string; display_name?: string }[] }
@@ -179,4 +198,21 @@ export async function listModels(config: ModelConfig): Promise<ModelList> {
   const list = { provider: config.provider, models, error: null }
   cache.set(key, { at: Date.now(), list })
   return list
+}
+
+const probed = new Map<string, { at: number; list: ModelList }>()
+
+/**
+ * The model list with the models the key's plan doesn't run marked `locked`. Only Ollama Cloud plans differ this way,
+ * so every other provider gets its list back as it is. Trying every model takes a while, so the answer is cached.
+ */
+export async function probeModels(config: ModelConfig): Promise<ModelList> {
+  const list = await listModels(config)
+  if (config.provider !== 'ollama-cloud' || !config.apiKey || list.error) return list
+  const key = config.apiKey.slice(-6)
+  const hit = probed.get(key)
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.list
+  const result = { ...list, models: await probeOllamaModels(config.apiKey, list.models) }
+  probed.set(key, { at: Date.now(), list: result })
+  return result
 }

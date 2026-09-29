@@ -65,7 +65,9 @@ export interface KernelState {
   error: string | null
 }
 
-export type Provider = 'gateway' | 'anthropic'
+export type Provider = 'gateway' | 'anthropic' | 'ollama-cloud' | 'ollama-local'
+export type OllamaProvider = 'ollama-cloud' | 'ollama-local'
+export const isOllama = (provider: string): provider is OllamaProvider => provider === 'ollama-cloud' || provider === 'ollama-local'
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export interface SettingsView {
@@ -78,8 +80,11 @@ export interface SettingsView {
   autoTitles: boolean
   /** True once the first-run setup was finished or skipped. */
   onboarded: boolean
-  /** Where the key for the chosen provider comes from: Settings, the app's environment, the user's shell profile, or nowhere. */
-  keySource: 'settings' | 'environment' | 'shell' | null
+  /**
+   * Where the key for the chosen provider comes from: Settings, the app's environment, the user's shell profile, or nowhere.
+   * `none needed` is a provider that takes no key, like Ollama on this machine.
+   */
+  keySource: 'settings' | 'environment' | 'shell' | 'none needed' | null
   hasKey: Record<Provider, boolean>
 }
 
@@ -116,6 +121,8 @@ export interface ModelOption {
   description?: string
   /** Price per million input and output tokens, when the provider says. */
   price?: string
+  /** True when the key's plan doesn't include the model. Only Ollama Cloud can tell, and only after probeModels. */
+  locked?: boolean
 }
 
 /** What the provider said about a key before it was saved. */
@@ -207,6 +214,8 @@ export interface DallianceApi {
   onKernelState(listener: (state: KernelState) => void): () => void
   getSettings(): Promise<SettingsView>
   listModels(): Promise<ModelList>
+  /** Ollama Cloud plans differ in which models they run, and nothing lists that, so this tries each one. The list comes back with `locked` set. */
+  probeModels(): Promise<ModelList>
   /** Ask the provider whether a key works, without saving it. */
   checkKey(provider: Provider, key: string): Promise<KeyCheck>
   updateSettings(update: SettingsUpdate): Promise<SettingsView>
@@ -245,6 +254,7 @@ export const IPC = {
   kernelStateChanged: 'kernel-state-changed',
   getSettings: 'get-settings',
   listModels: 'list-models',
+  probeModels: 'probe-models',
   checkKey: 'check-key',
   updateSettings: 'update-settings',
   pythonState: 'python-state',

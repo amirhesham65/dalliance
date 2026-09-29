@@ -48,4 +48,9 @@ describe('cell titles', () => {
     expect(anthropic?.providerOptions).toBeUndefined()
     expect(titleModel({ provider: 'gateway', model: 'x', effort: 'low', apiKey: null })).toBeNull()
   })
+
+  it('leaves cells on Ollama named by their prompt', () => {
+    expect(titleModel({ provider: 'ollama-local', model: 'llama3.2:3b', effort: 'low', apiKey: null })).toBeNull()
+    expect(titleModel({ provider: 'ollama-cloud', model: 'gpt-oss:120b', effort: 'low', apiKey: 'k' })).toBeNull()
+  })
 })

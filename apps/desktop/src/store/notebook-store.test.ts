@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type PromptCell, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
-import { fakeApi, result } from '@/test/fake-api'
+import { fakeApi, fakeSettings, result } from '@/test/fake-api'
 import { actions, setApi, useNotebook } from './notebook-store'
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
@@ -153,5 +153,57 @@ describe('editing the notebook', () => {
     load({ ...newPromptCell('a', 'a = 1'), state: 'done', executionCount: 4 })
     await actions.restart()
     expect(cell(0)).toMatchObject({ state: 'stale', executionCount: null })
+  })
+})
+
+describe('the model list', () => {
+  const settingsFor = (provider: 'gateway' | 'ollama-cloud' | 'ollama-local', model: string) => ({ ...fakeSettings(), provider, model })
+
+  it('drops the models a plan does not run once they are probed, and moves off one that was chosen', async () => {
+    const { api } = fakeApi(() => result())
+    const all = ['gpt-oss:120b', 'gpt-oss:20b'].map((id) => ({ id, name: id, maker: 'OpenAI' }))
+    const updates: unknown[] = []
+    api.listModels = async () => ({ provider: 'ollama-cloud', models: all, error: null })
+    api.probeModels = async () => ({ provider: 'ollama-cloud', models: [{ ...all[0], locked: true }, all[1]], error: null })
+    api.updateSettings = async (u) => {
+      updates.push(u)
+      return settingsFor('ollama-cloud', u.model ?? '')
+    }
+    setApi(api)
+    useNotebook.setState({ settings: settingsFor('ollama-cloud', 'gpt-oss:120b'), models: null })
+    await actions.loadModels()
+
+    expect(useNotebook.getState().models?.models.map((m) => m.locked ?? false)).toEqual([true, false])
+    expect(useNotebook.getState().probingModels).toBe(false)
+    expect(updates).toEqual([{ model: 'gpt-oss:20b' }])
+  })
+
+  it('does not probe the local models, and keeps a model that is on offer', async () => {
+    const { api } = fakeApi(() => result())
+    let probed = false
+    api.listModels = async () => ({ provider: 'ollama-local', models: [{ id: 'llama3.2:3b', name: 'llama3.2:3b', maker: 'Meta' }], error: null })
+    api.probeModels = async () => {
+      probed = true
+      return { provider: 'ollama-local', models: [], error: null }
+    }
+    api.updateSettings = async () => {
+      throw new Error('the model was already on offer')
+    }
+    setApi(api)
+    useNotebook.setState({ settings: settingsFor('ollama-local', 'llama3.2:3b'), models: null })
+    await actions.loadModels()
+    expect(probed).toBe(false)
+    expect(useNotebook.getState().models?.models).toHaveLength(1)
+  })
+
+  it('leaves the chosen model alone for the gateway, whatever the list says', async () => {
+    const { api } = fakeApi(() => result())
+    api.updateSettings = async () => {
+      throw new Error('the gateway model is not swapped')
+    }
+    setApi(api)
+    useNotebook.setState({ settings: settingsFor('gateway', 'some/model-not-listed'), models: null })
+    await actions.loadModels()
+    expect(useNotebook.getState().settings?.model).toBe('some/model-not-listed')
   })
 })

@@ -1,11 +1,11 @@
 import { ArrowUpRight, Loader2 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PROVIDERS, keySourceText, providerForKey, saveKey } from '@/lib/keys'
-import type { DallianceApi, Effort, Provider, SettingsView } from '@dalliance/shared/ipc'
-import { useNotebook } from '@/store/notebook-store'
+import { type DallianceApi, type Effort, type Provider, type SettingsView, isOllama } from '@dalliance/shared/ipc'
+import { actions, useNotebook } from '@/store/notebook-store'
 import { Group, Note, Row, SectionHeading } from './parts'
 import { saveSettings } from './save'
 
@@ -27,6 +27,16 @@ export function ModelSettings({ api, settings }: { api: DallianceApi; settings: 
   // A model name being typed. Null shows the saved one, so a change from the model picker shows up here too
   const [model, setModel] = useState<string | null>(null)
   const update = (u: Parameters<typeof api.updateSettings>[0]) => void saveSettings(api, u)
+  const list = useNotebook((s) => s.models)
+  const probing = useNotebook((s) => s.probingModels)
+  // The store loads the list as soon as a key is saved, but ask again in case Settings opened before it finished
+  useEffect(() => {
+    void actions.loadModels()
+  }, [settings.provider, settings.keySource])
+  const ready = list?.provider === settings.provider ? list : null
+  const options = (ready?.models ?? []).filter((m) => !m.locked)
+  const makers = [...new Set(options.map((m) => m.maker))].sort((a, b) => (a === 'Anthropic' ? -1 : b === 'Anthropic' ? 1 : a.localeCompare(b)))
+  const loading = list == null || (list.provider !== settings.provider && !list.error)
 
   const changeKey = (value: string) => {
     setKey(value)
@@ -45,6 +55,8 @@ export function ModelSettings({ api, settings }: { api: DallianceApi; settings: 
       const saved = await saveKey(api, settings.provider, key)
       if (!saved.view) return setKeyError(saved.error)
       useNotebook.setState({ settings: saved.view })
+      // The models a key can run are worked out now, so the picker is ready by the time anyone opens it
+      void actions.loadModels(true)
       setKey('')
       setKeyNote(saved.note)
     } catch (err) {
@@ -60,6 +72,7 @@ export function ModelSettings({ api, settings }: { api: DallianceApi; settings: 
   }
 
   const effortApplies = settings.provider === 'anthropic' || /^(anthropic|openai)\//.test(settings.model)
+  const effortNote = isOllama(settings.provider) ? 'Ollama models use their own thinking settings.' : 'Applies to Anthropic and OpenAI models. This one uses its default.'
 
   return (
     <>
@@ -79,6 +92,7 @@ export function ModelSettings({ api, settings }: { api: DallianceApi; settings: 
             </SelectContent>
           </Select>
         </Row>
+        {provider.needsKey ? (
         <Row
           label={provider.keyLabel}
           htmlFor="api-key"
@@ -136,24 +150,84 @@ export function ModelSettings({ api, settings }: { api: DallianceApi; settings: 
             )}
           </div>
         </Row>
+        ) : (
+          <Row
+            label="Ollama on this Mac"
+            description={
+              ready?.error ? (
+                <span className="text-destructive">{ready.error}</span>
+              ) : ready ? (
+                `${options.length} ${options.length === 1 ? 'model is' : 'models are'} ready. Pull more with "ollama pull <name>" and check again.`
+              ) : (
+                'Looking for Ollama…'
+              )
+            }
+          >
+            <Button type="button" size="sm" variant="secondary" className="h-9" onClick={() => void actions.loadModels(true)}>
+              Check again
+            </Button>
+          </Row>
+        )}
       </Group>
       <Group label="Model">
-        <Row label="Model" htmlFor="model" description="The id the provider uses. Saved when you press Enter or leave the field." wide>
-          <Input
-            id="model"
-            value={model ?? settings.model}
-            onChange={(e) => setModel(e.target.value)}
-            onBlur={commitModel}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitModel()
-            }}
-            className="font-mono text-xs"
-          />
+        <Row
+          label="Model"
+          htmlFor="model"
+          wide={options.length === 0}
+          description={
+            options.length > 0
+              ? probing
+                ? 'Checking which models your plan includes…'
+                : settings.provider === 'ollama-local'
+                  ? 'The models pulled onto this Mac.'
+                  : 'The models your key can run.'
+              : loading
+                ? 'Loading models…'
+                : 'The id the provider uses. Saved when you press Enter or leave the field.'
+          }
+        >
+          {options.length > 0 ? (
+            <Select value={settings.model} onValueChange={(v) => update({ model: v })}>
+              <SelectTrigger id="model" className="w-72 font-mono text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {/* A model set by hand, or one the list no longer has, still shows as the current one */}
+                {!options.some((m) => m.id === settings.model) && <SelectItem value={settings.model}>{settings.model}</SelectItem>}
+                {makers.map((maker) => (
+                  <SelectGroup key={maker}>
+                    <SelectLabel>{maker}</SelectLabel>
+                    {options
+                      .filter((m) => m.maker === maker)
+                      .map((m) => (
+                        <SelectItem key={m.id} value={m.id} className="font-mono text-xs">
+                          {m.name}
+                        </SelectItem>
+                      ))}
+                  </SelectGroup>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <>
+              <Input
+                id="model"
+                value={model ?? settings.model}
+                onChange={(e) => setModel(e.target.value)}
+                onBlur={commitModel}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitModel()
+                }}
+                className="font-mono text-xs"
+              />
+              {ready?.error && provider.needsKey && <Note error>{ready.error}</Note>}
+            </>
+          )}
         </Row>
         <Row
           label="Effort"
           htmlFor="effort"
-          description={effortApplies ? 'How hard the model thinks before it writes. Higher is slower and costs more.' : 'Applies to Anthropic and OpenAI models. This one uses its default.'}
+          description={effortApplies ? 'How hard the model thinks before it writes. Higher is slower and costs more.' : effortNote}
         >
           <Select value={settings.effort} onValueChange={(v) => update({ effort: v as Effort })} disabled={!effortApplies}>
             <SelectTrigger id="effort" className="w-52">

@@ -1,4 +1,4 @@
-import type { Provider } from '@dalliance/shared/ipc'
+import { type Provider, isOllama } from '@dalliance/shared/ipc'
 
 // One logo per maker, named after the maker's label: "Moonshot AI" is moonshotai.svg, "Z.ai" is zai.svg
 const files = import.meta.glob<string>('/src/assets/makers/*.svg', { eager: true, query: '?url', import: 'default' })
@@ -16,4 +16,4 @@ const slug = (maker: string) => {
 export const makerLogo = (maker: string): string | null => LOGOS[slug(maker)] ?? null
 
 /** Who makes a model, from its id: the gateway prefixes ids with the maker; the Anthropic API only has Claude. */
-export const makerOfModel = (provider: Provider, model: string) => (provider === 'anthropic' ? 'anthropic' : model.split('/')[0])
+export const makerOfModel = (provider: Provider, model: string) => (provider === 'anthropic' ? 'anthropic' : isOllama(provider) ? 'ollama' : model.split('/')[0])

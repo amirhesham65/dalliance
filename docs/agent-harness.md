@@ -8,6 +8,7 @@ The agent lives in `apps/desktop/electron/harness/`. It follows Vercel's [Build 
 | `tools.ts` | The eight tools and the `guarded()` wrapper |
 | `prompt.ts` | `buildSystemPrompt()` and `buildCellPrompt()` |
 | `model.ts` | Provider setup, effort options, the model list for the picker |
+| `ollama.ts` | Ollama's key check, model list and plan probe |
 | `title.ts` | The small model that names cells |
 | `approval.ts` | Whether a package install needs a person |
 | `events.ts` | The event bus extensions hook into |
@@ -105,24 +106,32 @@ Two constraints shape the loop.
 
 ## Models and providers
 
-`model.ts` supports two providers.
+`model.ts` supports four providers.
 
 | Provider | Setting | Default model | Key |
 | --- | --- | --- | --- |
 | Vercel AI Gateway | `gateway` | `anthropic/claude-opus-5` | `AI_GATEWAY_API_KEY` |
 | Anthropic API | `anthropic` | `claude-opus-5` | `ANTHROPIC_API_KEY` |
+| Ollama - Cloud | `ollama-cloud` | `gpt-oss:120b` | `OLLAMA_API_KEY` |
+| Ollama - Local | `ollama-local` | `llama3.2:3b` | none |
 
-`resolveModel()` throws `MissingKeyError` without a key. Effort maps per maker:
+`resolveModel()` throws `MissingKeyError` without a key, except for Ollama - Local, which takes none (`needsKey()`). Ollama goes through `@ai-sdk/openai-compatible` at `/v1` on `https://ollama.com` or `http://127.0.0.1:11434`, since Ollama serves the OpenAI chat API next to its own. Effort maps per maker:
 
 - Anthropic models, direct or `anthropic/*` on the gateway, get `thinking: { type: 'adaptive' }` and `effort`.
 - `openai/*` models get `reasoningEffort`. `high`, `xhigh` and `max` all map to `high`.
-- Every other maker runs with its defaults.
+- Every other maker, Ollama models included, runs with its defaults.
 
 `listModels()` feeds the model picker. On the gateway it calls `getAvailableModels()`, keeps language models, and turns per-token prices into per-million strings. On the Anthropic API it calls `/v1/models`. Results are cached for 10 minutes per provider and key. `MAKERS` maps gateway prefixes to display names. Logos come from `src/assets/makers/`, see [renderer.md](renderer.md#model-maker-logos).
 
-`checkKey()` tries a key before Settings saves it. On the gateway it asks for the credit balance, which also proves the key, and returns it as the detail. On the Anthropic API it lists one model. A 401 or 403 is `rejected`. Anything else that fails, like no network, is `unchecked`, and the renderer saves the key anyway with a note.
+`checkKey()` tries a key before Settings saves it. On the gateway it asks for the credit balance, which also proves the key, and returns it as the detail. On the Anthropic API it lists one model. On Ollama - Cloud it posts to `/api/me`, the one route that reads the key, since the catalog is public. Ollama - Local has no key, so the check is whether the server answers, and a failure says Ollama isn't running. A 401 or 403 is `rejected`. Anything else that fails, like no network, is `unchecked`, and the renderer saves the key anyway with a note.
 
-`friendlyError()` in `run-cell.ts` rewrites auth, rate limit and unknown model errors into messages that point at Settings.
+`friendlyError()` in `run-cell.ts` rewrites auth, rate limit and unknown model errors into messages that point at Settings. Ollama's own failures are told apart first: a plan that lacks a model answers 403, which would otherwise read as a bad key, and Ollama not running, a model not pulled and a model that can't call tools each get their own line.
+
+### Ollama
+
+`listOllamaModels()` in `ollama.ts` reads `/api/tags`. The harness works through tool calls, so models without the `tools` and `completion` capabilities, like embedding models, are left out. The local listing reports capabilities itself. The cloud catalog doesn't, so each model is asked through `/api/show`, eight at a time. A model that can't be asked stays in. Ollama ids name the model, not the maker, so `FAMILIES` maps a name's start to a maker for the picker's groups. The local list is never cached, since `ollama pull` changes it.
+
+Ollama - Cloud plans differ in which models they run, and nothing lists that. `probeOllamaModels()` asks each model for one token, two at a time, and marks it `locked` on a 402, 403 or 404. Any other answer, a timeout or a 429 that stays included, leaves it available, since the run itself will say if it isn't. `probeModels()` in `model.ts` caches the result for 10 minutes per key. The renderer shows the full list first and drops the locked models when the probe returns. See [renderer.md](renderer.md#the-model-list).
 
 ## Titles
 
@@ -132,6 +141,7 @@ Two constraints shape the loop.
 | --- | --- |
 | Gateway | `openai/gpt-6-luna` with low reasoning effort |
 | Anthropic | `claude-haiku-4-5` |
+| Ollama | none. Cells keep their prompt as the name |
 
 The call has a 10 second timeout, one retry and 1,024 output tokens, since reasoning counts toward output. `cleanTitle()` keeps the first line, strips quotes, prefixes like `Title:`, trailing punctuation and `@`, and caps it at 6 words. Any failure returns `null`, and the cell keeps showing its prompt. The session starts the title request alongside the run and never waits on it. Settings can turn titles off with `autoTitles`.
 

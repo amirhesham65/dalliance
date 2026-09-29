@@ -1,6 +1,9 @@
 import type { DallianceApi, Provider, SettingsView } from '@dalliance/shared/ipc'
 
-export const PROVIDERS: Record<Provider, { label: string; blurb: string; keyLabel: string; placeholder: string; env: string; keysUrl: string; keysSite: string }> = {
+export const PROVIDERS: Record<
+  Provider,
+  { label: string; blurb: string; keyLabel: string; placeholder: string; env: string; keysUrl: string; keysSite: string; needsKey: boolean }
+> = {
   gateway: {
     label: 'Vercel AI Gateway',
     blurb: 'One key for Claude, GPT, Gemini and others. Switch models any time.',
@@ -10,6 +13,7 @@ export const PROVIDERS: Record<Provider, { label: string; blurb: string; keyLabe
     // Vercel's link to the AI Gateway keys page of whichever team the user picks
     keysUrl: 'https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai%2Fapi-keys&title=Get+an+AI+Gateway+key',
     keysSite: 'Vercel',
+    needsKey: true,
   },
   anthropic: {
     label: 'Anthropic API',
@@ -19,6 +23,27 @@ export const PROVIDERS: Record<Provider, { label: string; blurb: string; keyLabe
     env: 'ANTHROPIC_API_KEY',
     keysUrl: 'https://platform.claude.com/settings/keys',
     keysSite: 'the Claude Console',
+    needsKey: true,
+  },
+  'ollama-cloud': {
+    label: 'Ollama - Cloud',
+    blurb: 'Open models that Ollama hosts. Your plan decides which ones run.',
+    keyLabel: 'Ollama API key',
+    placeholder: 'Paste your Ollama key',
+    env: 'OLLAMA_API_KEY',
+    keysUrl: 'https://ollama.com/settings/keys',
+    keysSite: 'Ollama',
+    needsKey: true,
+  },
+  'ollama-local': {
+    label: 'Ollama - Local',
+    blurb: 'Models on this Mac, run by the Ollama app. No key, and nothing leaves the machine.',
+    keyLabel: 'Ollama',
+    placeholder: '',
+    env: '',
+    keysUrl: 'https://ollama.com/download',
+    keysSite: 'Ollama',
+    needsKey: false,
   },
 }
 
@@ -33,6 +58,7 @@ export function providerForKey(key: string): Provider | null {
 /** How a key got there, for the line under a saved key. */
 export function keySourceText(settings: SettingsView): string {
   const env = PROVIDERS[settings.provider].env
+  if (settings.keySource === 'none needed') return 'Ollama runs on this Mac and needs no key.'
   if (settings.keySource === 'environment') return `Using ${env} from the environment.`
   if (settings.keySource === 'shell') return `Using ${env} from your shell profile.`
   return 'Key saved in your system keychain.'

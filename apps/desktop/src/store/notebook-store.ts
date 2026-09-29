@@ -15,6 +15,7 @@ import type {
   SettingsView,
   VariableView,
 } from '@dalliance/shared/ipc'
+import { isOllama } from '@dalliance/shared/ipc'
 import {
   type Cell,
   type Notebook,
@@ -85,8 +86,10 @@ export interface NotebookState {
   /** Cells whose results are pinned in the side pane, in the order they were pinned. */
   pinnedIds: string[]
   brief: Brief | null
-  /** What the model picker offers. Loaded when the picker first opens. */
+  /** What the model picker offers. Loaded once the provider has a key, and again when the provider or key changes. */
   models: ModelList | null
+  /** True while Ollama Cloud's models are being tried against the key's plan. */
+  probingModels: boolean
 }
 
 let api: DallianceApi | undefined = typeof window === 'undefined' ? undefined : window.dalliance
@@ -140,6 +143,7 @@ export const useNotebook = create<NotebookState>(() => ({
   pinnedIds: [],
   brief: null,
   models: null,
+  probingModels: false,
 }))
 
 const MAX_LOG = 60
@@ -234,8 +238,33 @@ export const actions = {
 
   async loadModels(force = false) {
     const { models, settings } = get()
-    if (!api || (!force && models && models.provider === settings?.provider && !models.error)) return
-    set({ models: await api.listModels().catch((err: unknown) => ({ provider: settings?.provider ?? 'gateway', models: [], error: String(err) })) })
+    if (!api || !settings || (!force && models && models.provider === settings.provider && !models.error)) return
+    const provider = settings.provider
+    // The provider can change while a list is on its way
+    const stale = () => get().settings?.provider !== provider
+    let list = await api.listModels().catch((err: unknown): ModelList => ({ provider, models: [], error: String(err) }))
+    if (stale()) return
+    set({ models: list })
+    if (provider === 'ollama-cloud' && !list.error && list.models.length > 0) {
+      // Plans differ in which models they run. The full list shows meanwhile, and locked ones drop out when the answer lands
+      set({ probingModels: true })
+      try {
+        list = await api.probeModels().catch(() => list)
+      } finally {
+        set({ probingModels: false })
+      }
+      if (stale()) return
+      set({ models: list })
+    }
+    // Ollama has no default that suits everyone, so a model that isn't on offer gives way to the first one that is
+    const open = list.models.filter((m) => !m.locked)
+    if (isOllama(provider) && open.length > 0 && !open.some((m) => m.id === get().settings?.model)) {
+      try {
+        set({ settings: await api.updateSettings({ model: open[0].id }) })
+      } catch {
+        // The picker still works and the chosen model stays as it was
+      }
+    }
   },
 
   async loadBrief() {

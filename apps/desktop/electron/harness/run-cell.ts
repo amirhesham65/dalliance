@@ -241,6 +241,11 @@ const errorMessage = (err: unknown) => (err instanceof Error ? err.message : Str
 
 export function friendlyError(err: unknown): string {
   const message = errorMessage(err)
+  // Ollama's own messages come first: a plan that lacks a model answers 403, which would read as a bad key
+  if (/subscription|upgrade|requires? (a )?(paid )?plan/i.test(message)) return "Your Ollama plan doesn't include this model. Pick another in the model picker, or upgrade at ollama.com."
+  if (/11434|ECONNREFUSED/i.test(message)) return "Ollama isn't running on this Mac. Open the Ollama app, then run the cell again."
+  if (/try pulling it first/i.test(message)) return `Ollama doesn't have that model yet. Run "ollama pull" for it, or pick one that is pulled. (${clip(message, 160)})`
+  if (/does not support tools/i.test(message)) return "This model can't call tools, which the agent needs. Pick another model."
   if (/api key|unauthorized|authentication|401|403/i.test(message)) return `The model provider rejected the API key. Check it in Settings. (${clip(message, 200)})`
   if (/rate limit|429/i.test(message)) return 'The model provider is rate limiting requests. Try again in a minute.'
   if (/not found|404/i.test(message) && /model/i.test(message)) return `The model wasn't found. Check the model name in Settings. (${clip(message, 200)})`

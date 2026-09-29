@@ -1,11 +1,12 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import type { DallianceApi, SettingsView } from '@dalliance/shared/ipc'
+import { type DallianceApi, type SettingsView, isOllama } from '@dalliance/shared/ipc'
 import { Group, Row, SectionHeading } from './parts'
 import { saveSettings } from './save'
 
 /** What the agent may do without asking, and how cells get their names. */
 export function AgentSettings({ api, settings }: { api: DallianceApi; settings: SettingsView }) {
   const update = (u: Parameters<typeof api.updateSettings>[0]) => void saveSettings(api, u)
+  const ollama = isOllama(settings.provider)
   return (
     <>
       <SectionHeading title="Agent">What the agent does on its own while it writes a cell.</SectionHeading>
@@ -24,9 +25,13 @@ export function AgentSettings({ api, settings }: { api: DallianceApi; settings: 
         <Row
           label="Cell names in the overview"
           htmlFor="titles"
-          description="Long prompts get a few-word name while the code is written. It costs a fraction of a cent per cell."
+          description={
+            ollama
+              ? "Cells on Ollama keep their prompt as the name. A second request would wait behind the run, or hit a free plan's one-at-a-time limit."
+              : 'Long prompts get a few-word name while the code is written. It costs a fraction of a cent per cell.'
+          }
         >
-          <Select value={settings.autoTitles ? 'model' : 'prompt'} onValueChange={(v) => update({ autoTitles: v === 'model' })}>
+          <Select value={settings.autoTitles && !ollama ? 'model' : 'prompt'} onValueChange={(v) => update({ autoTitles: v === 'model' })} disabled={ollama}>
             <SelectTrigger id="titles" className="w-52">
               <SelectValue />
             </SelectTrigger>
