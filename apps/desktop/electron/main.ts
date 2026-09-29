@@ -149,6 +149,7 @@ function registerIpc() {
   ipcMain.handle(IPC.restartKernel, () => session.restart())
   ipcMain.handle(IPC.kernelState, () => session.kernelState())
   ipcMain.handle(IPC.listVariables, () => session.variables())
+  ipcMain.handle(IPC.listPackages, () => session.environment())
   ipcMain.handle(IPC.getSettings, async () => {
     await shellKeys
     return settings.view()

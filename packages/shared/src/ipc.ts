@@ -132,6 +132,21 @@ export interface ModelList {
   error: string | null
 }
 
+/** A library installed in the Python the kernel runs on. */
+export interface PackageView {
+  name: string
+  version: string
+}
+
+/** What the environment view shows: the Python, and the libraries it has. */
+export interface EnvironmentView {
+  python: string | null
+  version: string | null
+  packages: PackageView[]
+  /** Why the libraries couldn't be listed, like no Python being set up. The packages are empty then. */
+  error: string | null
+}
+
 export interface PythonState {
   python: string | null
   version: string | null
@@ -204,6 +219,8 @@ export interface DallianceApi {
   restartKernel(): Promise<void>
   kernelState(): Promise<KernelState>
   listVariables(): Promise<VariableView[]>
+  /** The Python in use and its libraries with versions. Reads the interpreter, so it never waits on a running cell. */
+  listPackages(): Promise<EnvironmentView>
   onKernelState(listener: (state: KernelState) => void): () => void
   getSettings(): Promise<SettingsView>
   listModels(): Promise<ModelList>
@@ -242,6 +259,7 @@ export const IPC = {
   restartKernel: 'restart-kernel',
   kernelState: 'kernel-state',
   listVariables: 'list-variables',
+  listPackages: 'list-packages',
   kernelStateChanged: 'kernel-state-changed',
   getSettings: 'get-settings',
   listModels: 'list-models',

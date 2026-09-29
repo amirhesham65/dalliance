@@ -20,6 +20,7 @@ Channel names are in the `IPC` constant. Never type a channel string by hand.
 | `restartKernel()` | invoke | `session.restart` | Fresh kernel in the same folder |
 | `kernelState()` | invoke | `session.kernelState` | Last known `KernelState` |
 | `listVariables()` | invoke | `session.variables` | Variables for the side pane |
+| `listPackages()` | invoke | `session.environment` | The Python in use and its libraries with versions, an `EnvironmentView`. Reads the interpreter with `importlib.metadata` in its own process, so a running cell doesn't hold it up. A failure comes back as `error`, never a throw |
 | `getSettings()` | invoke | `settings.view` | `SettingsView`, never the keys themselves |
 | `updateSettings(update)` | invoke | `settings.update` | Returns the new view. Restarts the kernel if `pythonPath` changed |
 | `listModels()` | invoke | `listModels` | Models for the picker |

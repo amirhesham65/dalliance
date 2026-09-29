@@ -7,6 +7,7 @@ import type {
   CellRunResult,
   KernelState,
   DallianceApi,
+  EnvironmentView,
   ModelList,
   PaneName,
   PythonState,
@@ -69,6 +70,9 @@ export interface NotebookState {
   messages: Record<string, string>
   kernel: KernelState
   variables: VariableView[]
+  /** The Python's libraries, once the environment view has asked. Null until then. */
+  environment: EnvironmentView | null
+  environmentLoading: boolean
   settings: SettingsView | null
   /** The Dalliance account. Null until the main process answers. */
   account: AccountView | null
@@ -129,6 +133,8 @@ export const useNotebook = create<NotebookState>(() => ({
   messages: {},
   kernel: { status: 'dead', python: null, cwd: '', error: null },
   variables: [],
+  environment: null,
+  environmentLoading: false,
   settings: null,
   account: null,
   settingsPage: null,
@@ -481,6 +487,19 @@ export const actions = {
     if (!api) return
     set({ variables: await api.listVariables() })
   },
+
+  /** Read the Python's libraries. A failure is kept as the view's error, so the pane can say what went wrong. */
+  async loadEnvironment() {
+    if (!api || get().environmentLoading) return
+    set({ environmentLoading: true })
+    try {
+      set({ environment: await api.listPackages() })
+    } catch (err) {
+      set({ environment: { python: null, version: null, packages: [], error: `Couldn't list the libraries: ${err instanceof Error ? err.message : String(err)}` } })
+    } finally {
+      set({ environmentLoading: false })
+    }
+  },
 }
 
 function emptyRun(status: CellRun['status']): CellRun {
@@ -541,6 +560,8 @@ async function pump() {
     pumping = false
   }
   void actions.refreshVariables().catch(() => {})
+  // A cell may have installed a library, so an environment view that is already loaded is read again
+  if (get().environment) void actions.loadEnvironment()
 }
 
 function failed(request: RunCellRequest, err: unknown): CellRunResult {
