@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { rename } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -36,8 +36,11 @@ export async function renameNotebookFile(file: string, raw: string): Promise<{ p
   if ('error' in cleaned) return cleaned
   const target = path.join(path.dirname(file), `${cleaned.name}.ipynb`)
   if (target === file) return { path: file }
-  const free = notebookPathIn(path.dirname(file), cleaned.name)
-  if ('error' in free) return free
+  // On a disk that ignores case, like the Mac's, "Foo" is found where "foo" is, but it's the same file, not a clash
+  if (!sameFile(file, target)) {
+    const free = notebookPathIn(path.dirname(file), cleaned.name)
+    if ('error' in free) return free
+  }
   try {
     await rename(file, target)
   } catch (err) {
@@ -45,4 +48,13 @@ export async function renameNotebookFile(file: string, raw: string): Promise<{ p
     return { error: `Couldn't rename the notebook: ${reason}` }
   }
   return { path: target }
+}
+
+function sameFile(a: string, b: string): boolean {
+  try {
+    const [x, y] = [statSync(a), statSync(b)]
+    return x.dev === y.dev && x.ino === y.ino
+  } catch {
+    return false
+  }
 }

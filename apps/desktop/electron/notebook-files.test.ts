@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -44,6 +44,21 @@ describe('notebook names', () => {
     expect(await renameNotebookFile(file, 'Survival')).toEqual({ path: path.join(dir, 'Survival.ipynb') })
     expect(existsSync(file)).toBe(false)
     expect(existsSync(path.join(dir, 'Survival.ipynb'))).toBe(true)
+  })
+
+  it('changes only the case of a name, even on a disk that ignores case', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'dalliance-'))
+    const file = path.join(dir, 'survival.ipynb')
+    writeFileSync(file, '{}')
+    writeFileSync(path.join(dir, 'Taken.ipynb'), '{}')
+
+    expect(await renameNotebookFile(file, 'Survival')).toEqual({ path: path.join(dir, 'Survival.ipynb') })
+    expect(readdirSync(dir).sort()).toEqual(['Survival.ipynb', 'Taken.ipynb'])
+    // Where case doesn't count, another file that differs only in case is still taken
+    if (existsSync(path.join(dir, 'taken.ipynb'))) {
+      expect(await renameNotebookFile(path.join(dir, 'Survival.ipynb'), 'taken')).toHaveProperty('error')
+      expect(readdirSync(dir).sort()).toEqual(['Survival.ipynb', 'Taken.ipynb'])
+    }
   })
 
   it('reports a rename the disk refuses instead of throwing', async () => {
