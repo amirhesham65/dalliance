@@ -51,6 +51,7 @@ export function fakeApi(onRun: RunHandler) {
     readBrief: async () => ({ path: '/tmp/AGENTS.md', text: null }),
     writeBrief: async (text) => ({ path: '/tmp/AGENTS.md', text }),
     listFiles: async () => [],
+    renameNotebook: async (current, name) => ({ path: `${(current ?? '/tmp/x.ipynb').replace(/[^/]*$/, '')}${name}.ipynb`, saved: current == null }),
     saveNotebook: async () => '/tmp/test.ipynb',
     confirmDiscard: async () => true,
     restoreSession: async () => null,

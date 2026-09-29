@@ -123,6 +123,8 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 
 ## The profile menu
 
+The notebook's name at the top of the overview, above the folder and the kernel state, is a button that turns into a text field, `NotebookName` in `components/app/`: Enter or leaving the field calls `renameNotebook()`, Esc keeps the old name, and a name that can't be used stays in the field with the reason under it. The tab in the top bar is unchanged and opens the recent notebooks, with New notebook, Open and Open folder.
+
 `ProfileMenu` sits at the right end of the full top bar, after the gear. The avatar shows the account's initials, or a person icon when signed out. Its menu shows the name and email, then Sign in or Sign out, Account, and Settings with its shortcut. It reads `account` from the store and calls the same bridge methods as the Account section of Settings. Avatars are initials only: the account's picture would need the auth plugin's image protocol, which `Account` in `electron/account.ts` turns off with `userImageProxy`.
 
 ## Settings

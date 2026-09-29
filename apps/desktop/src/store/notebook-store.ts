@@ -207,6 +207,11 @@ export const actions = {
     set({ settingsPage: null })
   },
 
+  /** The notebook file got a new name. Its edits are as saved or unsaved as they were, unless the rename wrote the file. */
+  renamed(path: string, saved: boolean) {
+    set(saved ? { path, dirty: false } : { path })
+  },
+
   markSaved(path: string) {
     const moved = get().path !== path
     set({ path, dirty: false })

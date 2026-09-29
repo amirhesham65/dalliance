@@ -132,6 +132,9 @@ export interface ModelList {
   error: string | null
 }
 
+/** What renaming a notebook came to: its new path, or why it couldn't be. */
+export type RenameResult = { path: string; /** True when the notebook had no file, so the rename wrote it. */ saved: boolean } | { error: string }
+
 export interface PythonState {
   python: string | null
   version: string | null
@@ -224,6 +227,11 @@ export interface DallianceApi {
   readBrief(): Promise<Brief>
   writeBrief(text: string): Promise<Brief>
   listFiles(): Promise<FileEntry[]>
+  /**
+   * Renames the open notebook's file, as Jupyter does. A notebook without a file is written under that name in the
+   * folder in use. Unsaved edits stay unsaved. The name is checked, and a taken one comes back as an error.
+   */
+  renameNotebook(current: string | null, name: string, notebook: Notebook): Promise<RenameResult>
   saveNotebook(path: string | null, notebook: Notebook): Promise<string | null>
   confirmDiscard(): Promise<boolean>
   restoreSession(): Promise<RestoredSession | null>
@@ -264,6 +272,7 @@ export const IPC = {
   writeBrief: 'write-brief',
   listFiles: 'list-files',
   saveNotebook: 'save-notebook',
+  renameNotebook: 'rename-notebook',
   confirmDiscard: 'confirm-discard',
   restoreSession: 'restore-session',
   saveDraft: 'save-draft',

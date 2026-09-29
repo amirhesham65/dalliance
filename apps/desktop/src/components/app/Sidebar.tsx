@@ -15,6 +15,7 @@ import {
   SidebarSeparator,
 } from '@/components/ui/sidebar'
 import { Kbd } from '@/components/ui/kbd'
+import { NotebookName } from './NotebookName'
 import { cellTitle } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
 import type { Cell, PromptCell } from '@dalliance/shared/notebook'
@@ -64,9 +65,7 @@ function NotebookStatus() {
   return (
     <>
       <div className="min-w-0">
-        <h1 className="truncate text-[17px] font-semibold tracking-[-0.01em]" title={path ?? undefined}>
-          {name}
-        </h1>
+        <NotebookName name={name} path={path} />
         <p className="mt-0.5 flex items-center justify-between gap-3 text-[12.5px] text-muted-foreground">
           <span className="truncate" title={folderPath}>
             {folder || 'No folder'}

@@ -2,14 +2,14 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { BrowserWindow, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
-import { type DraftState, IPC, type MenuAction, type OpenedNotebook, type Provider, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '@dalliance/shared/ipc'
+import { type DraftState, IPC, type MenuAction, type OpenedNotebook, type Provider, type RenameResult, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '@dalliance/shared/ipc'
 import { fromIpynb, toIpynb } from '@dalliance/shared/ipynb'
 import type { Notebook } from '@dalliance/shared/notebook'
 import { Account, siteUrl } from './account'
 import { checkKey, listModels } from './harness/model'
 import { DraftStore } from './draft'
 import { buildMenu } from './menu'
-import { newNotebookPath } from './notebook-files'
+import { newNotebookPath, notebookPathIn, renameNotebookFile } from './notebook-files'
 import { NotebookSession } from './session'
 import { ENV_KEYS, SettingsStore } from './settings'
 import { readShellEnv } from './shell-env'
@@ -261,6 +261,37 @@ function registerIpc() {
       win.close()
     }
     return file
+  })
+
+  ipcMain.handle(IPC.renameNotebook, async (_e, current: string | null, name: string, notebook: Notebook): Promise<RenameResult> => {
+    try {
+      if (current) {
+        const renamed = await renameNotebookFile(current, name)
+        if ('error' in renamed) return renamed
+        if (renamed.path !== current) {
+          settings.removeRecent(current)
+          settings.addRecent(renamed.path)
+          app.addRecentDocument(renamed.path)
+          // The draft keeps the edits as they are: a rename doesn't save them
+          drafts.update({ path: renamed.path, dirty: documentState.dirty, notebook })
+          documentState = { ...documentState, path: renamed.path }
+          updateTitle()
+        }
+        return { path: renamed.path, saved: false }
+      }
+      // A notebook that was never a file is written under its new name, in the folder in use
+      await mkdir(session.dir, { recursive: true })
+      const target = notebookPathIn(session.dir, name)
+      if ('error' in target) return target
+      await writeFile(target.path, `${JSON.stringify(toIpynb(notebook), null, 1)}\n`)
+      app.addRecentDocument(target.path)
+      settings.addRecent(target.path)
+      drafts.update({ path: target.path, dirty: false, notebook })
+      drafts.flush()
+      return { path: target.path, saved: true }
+    } catch (err) {
+      return { error: `Couldn't rename the notebook: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}` }
+    }
   })
 
   ipcMain.handle(IPC.confirmDiscard, async () => {

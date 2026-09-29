@@ -28,6 +28,7 @@ Channel names are in the `IPC` constant. Never type a channel string by hand.
 | `setupPython()` | invoke | `session.setupPython` | Creates the managed venv, then restarts the kernel |
 | `openNotebook()` | invoke | dialog, `openFile` | Open dialog, parse, restart the kernel in that folder |
 | `newNotebook(notebook)` | invoke | `createNotebook` | Writes the notebook as `Untitled.ipynb` in the folder in use, restarts the kernel there, returns the path. A folder that has gone is made again. When the write fails, a dialog says why and the result is null |
+| `renameNotebook(current, name, notebook)` | invoke | `renameNotebookFile`, `notebookPathIn` | Renames the file in its folder and moves its recent entry and draft. With no file yet, writes the notebook under that name in the folder in use. Returns a `RenameResult`: the path, or an `error` for a bad name, a taken one, or a disk that refuses. Never throws |
 | `openFolder(notebook)` | invoke | dialog, `createNotebook` | Asks for a folder, which the dialog can create, then does what `newNotebook` does in it. Null when cancelled, or when the write fails |
 | `openRecent(path)` | invoke | `openFile` | Same without a dialog. Drops the entry if the file is gone |
 | `recentNotebooks()` | invoke | `settings.recent` | Up to 8 that still exist |
