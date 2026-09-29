@@ -88,7 +88,7 @@ The renderer opens tables with more than 20 rows on the column overview, and sma
 
 - `warmUp()` starts it in the background at launch and after every restart.
 - `ensureKernel()` starts it on demand and shares one start promise between concurrent callers.
-- `openWorkspace(dir)` restarts it in the new notebook's folder. New and opened notebooks always get a fresh kernel.
+- `openWorkspace(dir)` restarts it in the new notebook's folder and remembers the folder. New and opened notebooks always get a fresh kernel.
 - `moveWorkspace(dir)` runs `os.chdir()` in the live kernel after Save As into another folder, so variables survive.
 - `interrupt()` sends `SIGINT`, but only while the kernel is busy. The script catches a stray interrupt between requests.
 - `shutdown()` closes stdin, sends `SIGTERM`, and `SIGKILL`s after 2 seconds.

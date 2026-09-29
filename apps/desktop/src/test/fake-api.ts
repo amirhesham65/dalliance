@@ -44,6 +44,8 @@ export function fakeApi(onRun: RunHandler) {
     },
     onPythonLog: () => () => {},
     openNotebook: async () => null,
+    newNotebook: async (notebook) => ({ path: '/tmp/Untitled.ipynb', notebook }),
+    openFolder: async () => null,
     openRecent: async () => null,
     recentNotebooks: async () => [],
     readBrief: async () => ({ path: '/tmp/AGENTS.md', text: null }),

@@ -54,8 +54,14 @@ export default function App() {
       switch (action) {
         case 'new':
           if (await api.confirmDiscard()) {
-            actions.load(welcomeNotebook(), null)
-            await api.restartKernel()
+            const created = await api.newNotebook(welcomeNotebook())
+            if (created) actions.load(created.notebook, created.path)
+          }
+          break
+        case 'open-folder':
+          if (await api.confirmDiscard()) {
+            const opened = await api.openFolder(welcomeNotebook())
+            if (opened) actions.load(opened.notebook, opened.path)
           }
           break
         case 'open':

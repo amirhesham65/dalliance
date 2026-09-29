@@ -178,6 +178,7 @@ export interface OpenedNotebook {
 export type MenuAction =
   | 'new'
   | 'open'
+  | 'open-folder'
   | 'save'
   | 'save-as'
   | 'run-cell'
@@ -214,6 +215,10 @@ export interface DallianceApi {
   setupPython(): Promise<PythonState>
   onPythonLog(listener: (line: string) => void): () => void
   openNotebook(): Promise<OpenedNotebook | null>
+  /** Writes a new notebook file into the folder in use, so it has a path from the start, on a fresh kernel. Null when the folder can't be written to, after the reason is shown. */
+  newNotebook(notebook: Notebook): Promise<OpenedNotebook | null>
+  /** Asks for a folder, an existing one or a new one made in the dialog, and starts a notebook file in it. Null when cancelled, or when the folder can't be written to. */
+  openFolder(notebook: Notebook): Promise<OpenedNotebook | null>
   openRecent(path: string): Promise<OpenedNotebook | null>
   recentNotebooks(): Promise<RecentNotebook[]>
   readBrief(): Promise<Brief>
@@ -251,6 +256,8 @@ export const IPC = {
   setupPython: 'setup-python',
   pythonLog: 'python-log',
   openNotebook: 'open-notebook',
+  newNotebook: 'new-notebook',
+  openFolder: 'open-folder',
   openRecent: 'open-recent',
   recentNotebooks: 'recent-notebooks',
   readBrief: 'read-brief',

@@ -8,7 +8,7 @@ On macOS this is `~/Library/Application Support/Dalliance/`. The code gets it wi
 
 | Path | Written by | Holds |
 | --- | --- | --- |
-| `settings.json` | `SettingsStore`, `electron/settings.ts` | Provider, model, effort, Python path, approval mode, titles on or off, onboarded, encrypted keys, recent notebooks. Mode `0600` |
+| `settings.json` | `SettingsStore`, `electron/settings.ts` | Provider, model, effort, Python path, approval mode, titles on or off, onboarded, the folder in use, encrypted keys, recent notebooks. Mode `0600` |
 | `account.json` | `fileStorage()`, `electron/account.ts` | The Dalliance account's session cookie and cached session, each encrypted with `safeStorage` by the auth client. Mode `0600`. See [accounts.md](accounts.md) |
 | `session.json` | `DraftStore`, `electron/draft.ts` | The open notebook's path, whether it's dirty, and its contents when dirty |
 | `logs/agent.jsonl` | The logging extension in `electron/session.ts` | One line per `run_start`, `tool_call`, `tool_result` and `run_end`, strings clipped to 2,000 characters |
@@ -55,7 +55,9 @@ The renderer sends the document with `saveDraft()` 400 ms after each change and 
 
 ## The notebook's folder
 
-The folder holding the `.ipynb` is the workspace. The kernel runs there, the agent can list and read files there, and the brief is `AGENTS.md` there. Unsaved notebooks use `~/Documents/Dalliance Notebooks/`, created at startup, so they never run in all of Documents.
+The folder holding the `.ipynb` is the workspace. The kernel runs there, the agent can list and read files there, and the brief is `AGENTS.md` there. The folder in use is remembered in `settings.json` as `workspaceDir`. `openWorkspace()` and `moveWorkspace()` set it, so it follows whatever notebook was opened or saved last. The next launch starts there, and falls back to `~/Documents/Dalliance Notebooks/`, created at startup, when the folder is gone. That default is also what keeps a first notebook from running in all of Documents.
+
+A new notebook is a file from the start. `newNotebook(notebook)` writes `Untitled.ipynb` into the folder in use, or `Untitled 2.ipynb` and up when that name is taken (`newNotebookPath()` in `electron/notebook-files.ts`), and starts a fresh kernel there. `openFolder(notebook)` first asks for a folder with the system dialog, which has a New Folder button, and then does the same in it. Only the notebook the window shows at launch, behind the start page, has no file yet.
 
 The app writes two things into it: the `.ipynb` on save, and `AGENTS.md` when the user edits the brief. Cells can write anything else, since they're the user's Python.
 

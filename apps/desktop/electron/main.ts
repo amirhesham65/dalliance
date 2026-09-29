@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { BrowserWindow, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { type DraftState, IPC, type MenuAction, type OpenedNotebook, type Provider, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '@dalliance/shared/ipc'
@@ -9,6 +9,7 @@ import { Account, siteUrl } from './account'
 import { checkKey, listModels } from './harness/model'
 import { DraftStore } from './draft'
 import { buildMenu } from './menu'
+import { newNotebookPath } from './notebook-files'
 import { NotebookSession } from './session'
 import { ENV_KEYS, SettingsStore } from './settings'
 import { readShellEnv } from './shell-env'
@@ -61,6 +62,28 @@ async function openFile(file: string): Promise<OpenedNotebook> {
   await session.openWorkspace(path.dirname(file))
   drafts.update({ path: file, dirty: false, notebook })
   return { path: file, notebook }
+}
+
+/**
+ * A new notebook is a file from the start, in the folder it was made for, with a fresh kernel there. When the folder
+ * can't be written to, the reason is shown in a dialog and the result is null, so the window stays as it was.
+ */
+async function createNotebook(dir: string, notebook: Notebook): Promise<OpenedNotebook | null> {
+  try {
+    // The folder may have been moved or deleted since it was chosen
+    await mkdir(dir, { recursive: true })
+    const file = newNotebookPath(dir)
+    await writeFile(file, `${JSON.stringify(toIpynb(notebook), null, 1)}\n`)
+    app.addRecentDocument(file)
+    settings.addRecent(file)
+    await session.openWorkspace(dir)
+    drafts.update({ path: file, dirty: false, notebook })
+    return { path: file, notebook }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message.split('\n')[0] : String(err)
+    if (win) await dialog.showMessageBox(win, { type: 'error', message: "Couldn't create a notebook here", detail: `${dir}\n${detail}` })
+    return null
+  }
 }
 
 function createWindow() {
@@ -171,11 +194,27 @@ function registerIpc() {
     if (!win) return null
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
       title: 'Open notebook',
+      defaultPath: session.dir,
       filters: [{ name: 'Notebooks', extensions: ['ipynb'] }],
       properties: ['openFile'],
     })
     if (canceled || !filePaths[0]) return null
     return openFile(filePaths[0])
+  })
+
+  ipcMain.handle(IPC.newNotebook, (_e, notebook: Notebook) => createNotebook(session.dir, notebook))
+
+  ipcMain.handle(IPC.openFolder, async (_e, notebook: Notebook) => {
+    if (!win) return null
+    // On macOS the dialog's New Folder button makes a folder and picks it in one go
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Choose a folder for your notebooks',
+      buttonLabel: 'Use folder',
+      defaultPath: session.dir,
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    if (canceled || !filePaths[0]) return null
+    return createNotebook(filePaths[0], notebook)
   })
 
   ipcMain.handle(IPC.openRecent, async (_e, file: string) => {
@@ -201,7 +240,7 @@ function registerIpc() {
     if (!file) {
       const { canceled, filePath } = await dialog.showSaveDialog(win, {
         title: 'Save notebook',
-        defaultPath: path.join(defaultWorkspace, 'Untitled.ipynb'),
+        defaultPath: path.join(session.dir, 'Untitled.ipynb'),
         filters: [{ name: 'Notebooks', extensions: ['ipynb'] }],
       })
       if (canceled || !filePath) {

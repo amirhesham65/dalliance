@@ -62,7 +62,7 @@ docs/                 you are here
 | Revision | A saved working version of a cell. Up to 12 per cell. |
 | Stale | Out of date because an earlier cell reran or the kernel restarted. |
 | Account | An optional Dalliance account. Signed in through the website, held by `Account` in `electron/account.ts`. |
-| Workspace | The notebook's folder. It is the kernel's working directory and the only folder the agent can read. |
+| Workspace | The folder in use, which is the open notebook's folder. It is the kernel's working directory, where new notebooks go, and the only folder the agent can read. |
 | Brief | `AGENTS.md` in the workspace. The agent reads it before every cell. |
 | Explore | Running a quick snippet to look at data, without it becoming the cell. |
 | Harness | `apps/desktop/electron/harness/`, the agent loop and its tools. |
