@@ -50,7 +50,7 @@ The real-Python kernel tests run in CI. The paid end-to-end test doesn't. Run th
 pnpm turbo run lint typecheck test build
 ```
 
-The website's `typecheck` runs `next typegen` first, so Next's route types exist before `tsc` reads them.
+The website's `typecheck` runs `next typegen` first, so Next's route types exist before `tsc` reads them. `apps/web/turbo.json` makes the website's build wait for it: `next build` empties `.next` when it starts, and running both at once can delete the types `tsc` is about to read.
 
 ## How dev mode works
 
