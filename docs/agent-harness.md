@@ -137,6 +137,10 @@ Two constraints shape the loop.
 
 The call has a 10 second timeout, one retry and 1,024 output tokens, since reasoning counts toward output. `cleanTitle()` keeps the first line, strips quotes, prefixes like `Title:`, trailing punctuation and `@`, and caps it at 6 words. Any failure returns `null`, and the cell keeps showing its prompt. The session starts the title request alongside the run and never waits on it. Settings can turn titles off with `autoTitles`.
 
+## Suggested next prompts
+
+`finish`'s `next` field carries up to three follow-ups, shown under a finished cell. Settings, Agent, can turn them off (`suggestNext`). Off, `buildCellPrompt` adds a line telling the agent to leave `next` empty, the reminder asks for an empty one, `generateCell()` returns none, and the renderer hides any a cell already has. The system prompt doesn't change, so the cache stays warm. Which cell shows them is decided in the renderer: the last one that finished or the one selected, in the Result tab, while it is up to date.
+
 ## Approvals
 
 `approval.ts` models the policy as data:

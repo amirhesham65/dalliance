@@ -195,6 +195,19 @@ describe('question cells', () => {
     expect(screen.getByRole('list', { name: 'Run log' })).toHaveTextContent('Wrote “Plot revenue by month”')
   })
 
+  it('leaves the suggested prompts out when Settings turns them off', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result({ answer: 'August led.', suggestions: ['Plot revenue by month'] }))
+    api.getSettings = async () => ({ ...fakeSettings(), suggestNext: false })
+    setApi(api)
+    render(<App />)
+
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Revenue by month')
+    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    expect(await screen.findByText('August led.')).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Suggested next prompts' })).not.toBeInTheDocument()
+  })
+
   it('keeps earlier versions of a cell and restores one', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi((req) => result({ code: req.prompt === 'Total sales' ? 'orders.total.sum()' : 'orders.total.mean()' }))

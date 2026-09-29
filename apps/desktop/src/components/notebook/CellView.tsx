@@ -236,7 +236,8 @@ function PromptCellView({ cell, run, selected, onDelete }: { cell: PromptCell; r
 
 /** What the agent thinks you might ask next. Clicking one adds it as the next cell and runs it. */
 function Suggestions({ cell }: { cell: PromptCell }) {
-  if (!cell.suggestions.length) return null
+  const enabled = useNotebook((s) => s.settings?.suggestNext !== false)
+  if (!enabled || !cell.suggestions.length) return null
   return (
     <ul aria-label="Suggested next prompts" className="-mx-2 flex flex-col">
       {cell.suggestions.map((s) => (

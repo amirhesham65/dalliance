@@ -227,6 +227,7 @@ export class NotebookSession {
         pythonVersion,
         projectInstructions: (await this.readBrief()).text,
         modelId: this.options.settings.modelConfig().model,
+        suggestNext: this.options.settings.suggestNext,
         emit,
         askUser: async (question, options) => {
           const answer = await ask((requestId) => ({ type: 'question', requestId, question, options }))

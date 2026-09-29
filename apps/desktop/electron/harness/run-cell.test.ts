@@ -228,6 +228,18 @@ describe('runCell with generation', () => {
     expect(result).toMatchObject({ ok: true, code: '', answer: 'There are **200** rows.', suggestions: ['Show the columns'], error: null })
   })
 
+  it('leaves the follow-up prompts out when the user turned them off', async () => {
+    const { model, prompts } = scriptedModel([
+      { tool: 'run_cell', input: { code: 'orders.total.mean()' } },
+      { tool: 'finish', input: { interpretation: '', answer: 'The mean is **41.2**.', next: ['Plot totals by month'] } },
+    ])
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [table] })), { suggestNext: false })
+    const result = await runCell(request(), deps)
+
+    expect(result).toMatchObject({ ok: true, answer: 'The mean is **41.2**.', suggestions: [] })
+    expect(JSON.stringify(prompts[0])).toContain('The user turned suggestions off')
+  })
+
   it('refuses to finish before a successful run', async () => {
     const { model } = scriptedModel([
       { tool: 'finish', input: { interpretation: '', answer: '' } },

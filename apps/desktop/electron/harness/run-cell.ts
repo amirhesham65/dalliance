@@ -18,6 +18,8 @@ export interface HarnessDeps {
   pythonVersion: string | null
   projectInstructions: string | null
   modelId?: string | null
+  /** Whether to ask for follow-up prompts. On unless the user turned it off. */
+  suggestNext?: boolean
   emit: (event: RunEvent) => void
   askUser: (question: string, options: string[]) => Promise<string | null>
   requestApproval: (title: string, detail: string) => Promise<boolean>
@@ -34,8 +36,8 @@ export interface HarnessDeps {
  * calling finish. That loses the interpretation and the follow-up prompts, so they are asked once more, and this time
  * the only tool on offer is finish.
  */
-const FINISH_NUDGE =
-  'The cell has run. Call finish now: how you read the prompt in interpretation, the answer in words grounded in the output, and up to three follow-up prompts in next.'
+const FINISH_NUDGE = (suggestNext: boolean) =>
+  `The cell has run. Call finish now: how you read the prompt in interpretation, the answer in words grounded in the output${suggestNext ? ', and up to three follow-up prompts in next' : ', and an empty next'}.`
 
 const TOOL_NAMES = ['list_variables', 'explore', 'list_files', 'read_file', 'run_cell', 'install_packages', 'ask_user', 'finish'] as const
 
@@ -124,6 +126,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     previousCells: request.previousCells,
     existingCode: request.code.trim() ? request.code : null,
     corrections: request.corrections,
+    suggestNext: deps.suggestNext,
   })
 
   let text = ''
@@ -174,7 +177,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
       try {
         const history = (await first.response).messages
         const second = await makeAgent({ toolChoice: { type: 'tool', toolName: 'finish' }, stopWhen: [stepCountIs(2), () => state.finished != null] }).stream({
-          messages: [{ role: 'user', content: prompt }, ...history, { role: 'user', content: FINISH_NUDGE }],
+          messages: [{ role: 'user', content: prompt }, ...history, { role: 'user', content: FINISH_NUDGE(deps.suggestNext !== false) }],
           abortSignal: deps.signal,
         })
         await consume(second)
@@ -226,7 +229,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     variables: created(last?.result.assigned ?? []),
     // If the model answered in text instead of calling finish, keep that answer
     answer: finished ? finished.answer : succeeded && prose ? clip(prose, 1200) : null,
-    suggestions: finished?.suggestions ?? [],
+    suggestions: deps.suggestNext === false ? [] : (finished?.suggestions ?? []),
     activity: [...activity.values()],
     error,
   }

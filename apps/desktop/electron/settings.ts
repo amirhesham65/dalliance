@@ -12,6 +12,7 @@ interface Stored {
   pythonPath: string | null
   approvalMode: 'interactive' | 'background'
   autoTitles: boolean
+  suggestNext: boolean
   onboarded: boolean
   /** Encrypted with the OS keychain when available. */
   keys: Partial<Record<Provider, string>>
@@ -30,6 +31,7 @@ const DEFAULTS: Stored = {
   pythonPath: null,
   approvalMode: 'interactive',
   autoTitles: true,
+  suggestNext: true,
   onboarded: false,
   keys: {},
   recent: [],
@@ -110,6 +112,10 @@ export class SettingsStore {
     return this.data.autoTitles
   }
 
+  get suggestNext() {
+    return this.data.suggestNext
+  }
+
   get recent() {
     return this.data.recent
   }
@@ -132,6 +138,7 @@ export class SettingsStore {
       pythonPath: this.data.pythonPath,
       approvalMode: this.data.approvalMode,
       autoTitles: this.data.autoTitles,
+      suggestNext: this.data.suggestNext,
       onboarded: this.data.onboarded,
       keySource: this.apiKey(this.data.provider).source,
       hasKey: { gateway: this.apiKey('gateway').key != null, anthropic: this.apiKey('anthropic').key != null },
@@ -149,6 +156,7 @@ export class SettingsStore {
     if (update.pythonPath !== undefined) this.data.pythonPath = update.pythonPath?.trim().replace(/^~(?=$|\/)/, homedir()) || null
     if (update.approvalMode) this.data.approvalMode = update.approvalMode
     if (update.autoTitles !== undefined) this.data.autoTitles = update.autoTitles
+    if (update.suggestNext !== undefined) this.data.suggestNext = update.suggestNext
     if (update.onboarded !== undefined) this.data.onboarded = update.onboarded
     if (update.apiKey) {
       const { provider, key } = update.apiKey

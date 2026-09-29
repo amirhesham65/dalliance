@@ -36,6 +36,21 @@ export function AgentSettings({ api, settings }: { api: DallianceApi; settings: 
             </SelectContent>
           </Select>
         </Row>
+        <Row
+          label="Suggested next prompts"
+          htmlFor="suggest"
+          description="Up to three follow-ups under the cell you just ran. Off, the agent doesn't write them."
+        >
+          <Select value={settings.suggestNext ? 'show' : 'hide'} onValueChange={(v) => update({ suggestNext: v === 'show' })}>
+            <SelectTrigger id="suggest" className="w-52">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="show">Show them</SelectItem>
+              <SelectItem value="hide">Don't show them</SelectItem>
+            </SelectContent>
+          </Select>
+        </Row>
       </Group>
     </>
   )
