@@ -36,10 +36,6 @@ Channel names are in the `IPC` constant. Never type a channel string by hand.
 | `restoreSession()` | invoke | `drafts.restore` | The notebook to show at load. See [storage.md](storage.md#session-and-drafts) |
 | `saveDraft(state)` | send | `drafts.update` | Mirrors the document to the main process |
 | `setDocumentState({ path, dirty })` | send | `updateTitle` | Window title and the macOS edited dot |
-| `getAccount()` | invoke | `account.current` | The `AccountView`: name and email, or null. Never the session |
-| `signIn()` | invoke | `account.signIn` | Opens the sign-in page in the browser. See [accounts.md](accounts.md) |
-| `redeemSignInCode(code)` | invoke | `account.redeem` | The code from the sign-in page, for when the browser couldn't open the app |
-| `signOut()` | invoke | `account.signOut` | Ends the session on the server and forgets it locally |
 
 ## Events from main
 
@@ -51,7 +47,6 @@ Each `on*` method subscribes and returns an unsubscribe function.
 | `onKernelState` | `kernel-state-changed` | `KernelState` |
 | `onPythonLog` | `python-log` | One line of venv or pip output |
 | `onMenu` | `menu` | A `MenuAction` from the app menu |
-| `onAccount` | `account-changed` | `AccountView`, when a sign-in lands, the session ends or the check fails |
 
 `RunEvent` is a union:
 

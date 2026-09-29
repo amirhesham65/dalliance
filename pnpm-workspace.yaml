@@ -7,22 +7,11 @@ onlyBuiltDependencies:
 
 # One version for dependencies more than one package uses; packages refer to them as "catalog:".
 catalog:
-  '@better-auth/electron': 1.6.33
-  # Exact peers of the Better Auth Electron plugin. Each package that uses the plugin lists them itself,
-  # or pnpm installs newer copies as its peers and two versions of Better Auth's core land in one bundle
-  '@better-auth/utils': 0.4.2
-  '@better-fetch/fetch': 1.3.1
   '@types/node': ^24.19.0
   '@types/react': ^19.3.0
   '@types/react-dom': ^19.3.0
-  better-auth: 1.6.33
-  convex: ^1.46.0
   react: ^19.3.0
   react-dom: ^19.3.0
   tailwindcss: ^4.3.3
   typescript: ~6.0.3
   vitest: ^5.0.2
-
-# Lets the Better Auth Electron plugin's server half run on Convex, which has no Node built-ins. See docs/accounts.md
-patchedDependencies:
-  '@better-auth/electron@1.6.33': patches/@better-auth__electron@1.6.33.patch

@@ -10,9 +10,8 @@ import type { Effort, RecentNotebook } from '@dalliance/shared/ipc'
 import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
 import { IconButton } from './IconButton'
 import { MakerLogo } from './MakerLogo'
-import { ProfileMenu } from './ProfileMenu'
 
-/** `minimal` is for the start page and the first-run setup: nothing but Settings, over a draggable bar. The full bar adds the account. */
+/** `minimal` is for the start page and the first-run setup: nothing but Settings, over a draggable bar. */
 export function TopBar({ minimal }: { minimal?: boolean }) {
   const platform = getApi()?.platform
   const { open, toggleSidebar } = useSidebar()
@@ -40,7 +39,6 @@ export function TopBar({ minimal }: { minimal?: boolean }) {
         <IconButton label="Settings" shortcut={`${mod},`} aria-pressed={settingsOpen} onClick={() => (settingsOpen ? actions.closeSettings() : actions.openSettings())}>
           <Settings />
         </IconButton>
-        {!minimal && <ProfileMenu mod={mod} />}
       </div>
     </header>
   )

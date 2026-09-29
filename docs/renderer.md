@@ -8,7 +8,7 @@ src/
   App.tsx                     menu handling, keyboard modes, the three-column layout
   store/notebook-store.ts     all document and run state, and every action
   components/
-    app/                      TopBar, ProfileMenu, Sidebar (the overview), IconButton, MakerLogo
+    app/                      TopBar, Sidebar (the overview), IconButton, MakerLogo
     settings/                 the Settings screen and one component per section
     notebook/                 NotebookView, CellView, editors, text renderers
     notebook/outputs/         OutputView: tables, images, text, errors, printed output
@@ -24,7 +24,7 @@ src/
 
 ## The store
 
-`src/store/notebook-store.ts` exports `useNotebook`, a zustand store, and `actions`, plain functions that change it. Components read with selectors, `useNotebook((s) => s.pane)`, and call `actions.*`. Besides the actions, `App.tsx`, `main.tsx` and the Settings sections write bridge results straight into `settings`, `account`, `python` and `kernel`.
+`src/store/notebook-store.ts` exports `useNotebook`, a zustand store, and `actions`, plain functions that change it. Components read with selectors, `useNotebook((s) => s.pane)`, and call `actions.*`. Besides the actions, `App.tsx`, `main.tsx` and the Settings sections write bridge results straight into `settings`, `python` and `kernel`.
 
 Saved with the notebook: `notebook`. Everything else is session state:
 
@@ -121,19 +121,14 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 | Pinned | Result cards for pinned cells, in pin order |
 | Activity | The session log. Click an entry to jump to its cell |
 
-## The profile menu
-
-`ProfileMenu` sits at the right end of the full top bar, after the gear. The avatar shows the account's initials, or a person icon when signed out. Its menu shows the name and email, then Sign in or Sign out, Account, and Settings with its shortcut. It reads `account` from the store and calls the same bridge methods as the Account section of Settings. Avatars are initials only: the account's picture would need the auth plugin's image protocol, which `Account` in `electron/account.ts` turns off with `userImageProxy`.
-
 ## Settings
 
-Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` opens it on a section, or on the one it was last left on, and `closeSettings()` goes back. The menu's Cmd+,, the gear in the top bar, the profile menu, the banner over the workspace, the model picker's provider item and the setup's Python step all call it. The banner and the setup open the section that fixes their problem.
+Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` opens it on a section, or on the one it was last left on, and `closeSettings()` goes back. The menu's Cmd+,, the gear in the top bar, the banner over the workspace, the model picker's provider item and the setup's Python step all call it. The banner and the setup open the section that fixes their problem.
 
 `SettingsScreen` in `components/settings/` draws the sections down the left as Radix vertical tabs, so the arrow keys move between them, and the open section on the right. The order is `SETTINGS_SECTIONS` in the store:
 
 | Section | Component | Holds |
 | --- | --- | --- |
-| Account | `AccountSettings` | Sign in and out, and the code field. See [accounts.md](accounts.md) |
 | Models | `ModelSettings` | Provider, key, model id, effort |
 | Agent | `AgentSettings` | Package installs, cell names |
 | Python | `PythonSettings` | The managed environment and a Python path |

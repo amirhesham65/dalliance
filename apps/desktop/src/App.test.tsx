@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
@@ -323,68 +323,6 @@ describe('question cells', () => {
     render(<App />)
     await user.hover(screen.getByRole('button', { name: /^Brief/ }))
     expect(await screen.findByRole('tooltip')).toHaveTextContent(/^Brief.+1$/)
-  })
-
-  it('shows the account in the top bar, with a menu to sign out', async () => {
-    const user = userEvent.setup()
-    const { api } = fakeApi(() => result())
-    api.getAccount = async () => ({ user: { name: 'Ada Lovelace', email: 'ada@example.com' }, checking: false, waiting: false, error: null })
-    let signedOut = false
-    api.signOut = async () => {
-      signedOut = true
-      return { user: null, checking: false, waiting: false, error: null }
-    }
-    setApi(api)
-    render(<App />)
-
-    // The gear's tooltip carries the shortcut
-    await user.hover(screen.getByRole('button', { name: 'Settings' }))
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(/^Settings.+,$/)
-    await user.unhover(screen.getByRole('button', { name: 'Settings' }))
-    const avatar = await screen.findByRole('button', { name: 'Account: Ada Lovelace' })
-    expect(avatar).toHaveTextContent('AL')
-
-    await user.click(avatar)
-    expect(await screen.findByText('ada@example.com')).toBeInTheDocument()
-    await user.click(screen.getByRole('menuitem', { name: 'Sign out' }))
-    expect(signedOut).toBe(true)
-    expect(await screen.findByRole('button', { name: 'Account' })).toBeInTheDocument()
-
-    // Signed out, the menu offers sign-in and Settings
-    await user.click(screen.getByRole('button', { name: 'Account' }))
-    expect(await screen.findByRole('menuitem', { name: 'Sign in…' })).toBeInTheDocument()
-    await user.click(screen.getByRole('menuitem', { name: /^Settings/ }))
-    expect(screen.getByRole('tablist', { name: 'Settings sections' })).toBeInTheDocument()
-  })
-
-  it('signs in from Settings, and takes the code when the browser could not open the app', async () => {
-    const user = userEvent.setup()
-    const { api } = fakeApi(() => result())
-    const codes: string[] = []
-    const redeem = api.redeemSignInCode
-    api.redeemSignInCode = async (code) => {
-      codes.push(code)
-      return redeem(code)
-    }
-    let push: (account: Awaited<ReturnType<typeof api.getAccount>>) => void = () => {}
-    api.onAccount = (listener) => {
-      push = listener
-      return () => {}
-    }
-    setApi(api)
-    render(<App />)
-
-    await user.click(screen.getByRole('button', { name: 'Settings' }))
-    await user.click(screen.getByRole('tab', { name: 'Account' }))
-    await user.click(await screen.findByRole('button', { name: 'Sign in' }))
-    await user.type(await screen.findByRole('textbox', { name: 'Code from the sign-in page' }), 'abc123')
-    await user.click(screen.getByRole('button', { name: 'Use code' }))
-    expect(codes).toEqual(['abc123'])
-    expect(await screen.findByText(/Signed in as/)).toHaveTextContent('Signed in as Ada (ada@example.com).')
-
-    // The main process reports a sign-out made elsewhere, like the session ending
-    act(() => push({ user: null, checking: false, waiting: false, error: null }))
-    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument()
   })
 
   it('shows the short title a small model wrote for a long prompt', async () => {

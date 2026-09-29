@@ -95,18 +95,6 @@ export interface SettingsUpdate {
   apiKey?: { provider: Provider; key: string }
 }
 
-/** The Dalliance account, as the renderer sees it. The session itself stays in the main process. */
-export interface AccountView {
-  /** Null when signed out. */
-  user: { name: string; email: string } | null
-  /** True until the first answer about the stored session. */
-  checking: boolean
-  /** True while the sign-in page is open in the browser, so the renderer can offer the code field. */
-  waiting: boolean
-  /** Why the account couldn't be checked or a code didn't work. The last known user stays. */
-  error: string | null
-}
-
 /** A model the chosen provider can run, for the model picker. */
 export interface ModelOption {
   id: string
@@ -225,13 +213,6 @@ export interface DallianceApi {
   saveDraft(state: DraftState): void
   setDocumentState(state: { path: string | null; dirty: boolean }): void
   onMenu(listener: (action: MenuAction) => void): () => void
-  getAccount(): Promise<AccountView>
-  /** Opens the sign-in page in the browser. */
-  signIn(): Promise<AccountView>
-  /** Redeems the code the sign-in page shows when the browser couldn't open the app. */
-  redeemSignInCode(code: string): Promise<AccountView>
-  signOut(): Promise<AccountView>
-  onAccount(listener: (account: AccountView) => void): () => void
 }
 
 export const IPC = {
@@ -262,9 +243,4 @@ export const IPC = {
   saveDraft: 'save-draft',
   documentState: 'document-state',
   menu: 'menu',
-  getAccount: 'get-account',
-  signIn: 'sign-in',
-  redeemSignInCode: 'redeem-sign-in-code',
-  signOut: 'sign-out',
-  accountChanged: 'account-changed',
 } as const

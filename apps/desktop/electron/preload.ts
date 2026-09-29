@@ -39,11 +39,6 @@ const api: DallianceApi = {
   saveDraft: (state) => ipcRenderer.send(IPC.saveDraft, state),
   setDocumentState: (state) => ipcRenderer.send(IPC.documentState, state),
   onMenu: (listener) => subscribe(IPC.menu, listener),
-  getAccount: () => ipcRenderer.invoke(IPC.getAccount),
-  signIn: () => ipcRenderer.invoke(IPC.signIn),
-  redeemSignInCode: (code) => ipcRenderer.invoke(IPC.redeemSignInCode, code),
-  signOut: () => ipcRenderer.invoke(IPC.signOut),
-  onAccount: (listener) => subscribe(IPC.accountChanged, listener),
 }
 
 contextBridge.exposeInMainWorld('dalliance', api)

@@ -55,11 +55,6 @@ export function fakeApi(onRun: RunHandler) {
     saveDraft: () => {},
     setDocumentState: () => {},
     onMenu: () => () => {},
-    getAccount: async () => ({ user: null, checking: false, waiting: false, error: null }),
-    signIn: async () => ({ user: null, checking: false, waiting: true, error: null }),
-    redeemSignInCode: async () => ({ user: { name: 'Ada', email: 'ada@example.com' }, checking: false, waiting: false, error: null }),
-    signOut: async () => ({ user: null, checking: false, waiting: false, error: null }),
-    onAccount: () => () => {},
   }
   return { api, requests, responses }
 }

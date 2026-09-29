@@ -5,7 +5,6 @@ import { BrowserWindow, app, dialog, ipcMain, nativeTheme, shell } from 'electro
 import { type DraftState, IPC, type MenuAction, type OpenedNotebook, type Provider, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '@dalliance/shared/ipc'
 import { fromIpynb, toIpynb } from '@dalliance/shared/ipynb'
 import type { Notebook } from '@dalliance/shared/notebook'
-import { Account, siteUrl } from './account'
 import { checkKey, listModels } from './harness/model'
 import { DraftStore } from './draft'
 import { buildMenu } from './menu'
@@ -40,13 +39,6 @@ const session = new NotebookSession({
   send: (channel, ...args) => {
     if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
   },
-})
-
-// The Dalliance account. Registering its scheme has to happen before the app is ready
-const account = new Account({ userData: app.getPath('userData'), site: siteUrl(app.isPackaged) })
-account.setupMain(() => win)
-account.onChange((view) => {
-  if (win && !win.isDestroyed()) win.webContents.send(IPC.accountChanged, view)
 })
 
 const sendMenu = (action: MenuAction) => win?.webContents.send(IPC.menu, action)
@@ -246,11 +238,6 @@ function registerIpc() {
   })
   ipcMain.on(IPC.saveDraft, (_e, state: DraftState) => drafts.update(state))
 
-  ipcMain.handle(IPC.getAccount, () => account.current)
-  ipcMain.handle(IPC.signIn, () => account.signIn())
-  ipcMain.handle(IPC.redeemSignInCode, (_e, code: string) => account.redeem(code))
-  ipcMain.handle(IPC.signOut, () => account.signOut())
-
   ipcMain.on(IPC.documentState, (_e, state: { path: string | null; dirty: boolean }) => {
     documentState = state
     updateTitle()
@@ -262,7 +249,6 @@ void app.whenReady().then(() => {
   buildMenu(sendMenu)
   createWindow()
   session.warmUp()
-  void account.refresh()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

@@ -15,7 +15,6 @@ Dalliance is an Electron app. You write a notebook cell in plain language, an ag
 | Calls between the renderer and the main process | [ipc.md](ipc.md) |
 | React, the store, panes, shortcuts, theming | [renderer.md](renderer.md) |
 | Settings, keys, drafts, logs and other files on disk | [storage.md](storage.md) |
-| Dalliance accounts: sign-in, the Convex backend, the website's auth proxy | [accounts.md](accounts.md) |
 | Running tests or writing new ones | [testing.md](testing.md) |
 | Setup, commands, conventions | [development.md](development.md) |
 | Building the .dmg and publishing a release | [releasing.md](releasing.md) |
@@ -29,7 +28,6 @@ apps/desktop/         the Electron app, @dalliance/desktop
   electron/           main process: window, menus, settings, the agent, the kernel
   src/                renderer: React 19, zustand, shadcn, Tailwind v4
 apps/web/             dalliance.io, Next.js 16, @dalliance/web
-packages/backend/     the Convex backend: accounts through Better Auth, @dalliance/backend
 packages/shared/      types and pure functions both sides import, @dalliance/shared
 .github/workflows/    CI on every pull request, and the release build on version tags
 docs/                 you are here
@@ -46,7 +44,6 @@ docs/                 you are here
 7. **One cell runs at a time.** The renderer queues cells and the kernel queues requests. Don't add parallel runs without reworking both.
 8. **`.ipynb` stays valid nbformat 4.** Dalliance fields live under `metadata.dalliance`. Jupyter must still open the file.
 9. **No AI attribution** in commits, PRs, comments or docs. See [AGENTS.md](../AGENTS.md).
-10. **The account session stays in the main process.** The renderer only ever sees the name and email. See [accounts.md](accounts.md#security).
 
 ## Words used in the code
 
@@ -61,7 +58,6 @@ docs/                 you are here
 | Suggestions | Up to three follow-up prompts the agent proposes. The `next` field of `finish`. |
 | Revision | A saved working version of a cell. Up to 12 per cell. |
 | Stale | Out of date because an earlier cell reran or the kernel restarted. |
-| Account | An optional Dalliance account. Signed in through the website, held by `Account` in `electron/account.ts`. |
 | Workspace | The notebook's folder. It is the kernel's working directory and the only folder the agent can read. |
 | Brief | `AGENTS.md` in the workspace. The agent reads it before every cell. |
 | Explore | Running a quick snippet to look at data, without it becoming the cell. |

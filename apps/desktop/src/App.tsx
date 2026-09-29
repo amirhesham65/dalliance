@@ -107,14 +107,12 @@ export default function App() {
   useEffect(() => {
     if (!api) return
     void api.getSettings().then((settings) => useNotebook.setState({ settings }))
-    void api.getAccount().then((account) => useNotebook.setState({ account }))
     void api.pythonState().then((python) => useNotebook.setState({ python }))
     void api.kernelState().then((kernel) => useNotebook.setState({ kernel }))
     void actions.loadBrief()
     const offs = [
       api.onRunEvent((cellId, event) => actions.applyRunEvent(cellId, event)),
       api.onKernelState((kernel) => useNotebook.setState({ kernel })),
-      api.onAccount((account) => useNotebook.setState({ account })),
       api.onMenu((action) => void handleMenu(action)),
     ]
     return () => offs.forEach((off) => off())
