@@ -65,7 +65,7 @@ What `finish()` does to a cell is in [notebook-model.md](notebook-model.md#after
 
 The overview sits in its own outer group, so opening a side pane never changes its width. Both groups use `preserve-pixel-size`. Widths persist through `useDefaultLayout` in `localStorage` under `dalliance-overview` and `dalliance-panes`. Whether the overview is open is `dalliance-sidebar`. Every column is a `Pane` from `components/panes/Pane.tsx`: a rounded card on the canvas.
 
-A banner above the workspace asks for a key, a Python or missing packages when the settings or Python state say so.
+A banner above the workspace asks for a key, a Python or missing packages when the settings or Python state say so. It has a cross on its right. Dismissing it hides that message for the session: it comes back if the message changes, or once the problem has been fixed and returns.
 
 ## Keyboard
 
