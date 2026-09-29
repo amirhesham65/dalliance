@@ -65,7 +65,7 @@ const { api, requests, responses } = fakeApi(async (request, emit) => {
 setApi(api)
 ```
 
-`notebook-store.test.ts` tests actions and the run queue. `App.test.tsx` renders the whole app with Testing Library and drives it like a user: running cells, answering questions, D D and Undo, table folding, suggestions, history, the brief, pinning, the model picker, titles and Cmd+A. `Welcome.test.tsx` covers the setup and start page.
+`notebook-store.test.ts` tests actions and the run queue. `App.test.tsx` renders the whole app with Testing Library and drives it like a user: running cells, answering questions, D D and Undo, table folding, suggestions, history, the brief, pinning, the model picker, titles, the Settings screen, signing in from Settings and Cmd+A. `Welcome.test.tsx` covers the setup and start page.
 
 The store is a module-level singleton. Call `setApi()` and `actions.load()` at the start of each test so state from the last one doesn't leak in.
 

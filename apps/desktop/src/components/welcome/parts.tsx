@@ -56,6 +56,3 @@ export function StepBar({ steps, current, onSelect }: { steps: string[]; current
   )
 }
 
-export function Kbd({ children }: { children: string }) {
-  return <kbd className="font-sans text-xs text-faint tabular-nums">{children}</kbd>
-}

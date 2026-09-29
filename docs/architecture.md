@@ -1,6 +1,6 @@
 # Architecture
 
-Dalliance runs as three processes on the user's machine. Nothing runs on a server except the model provider.
+Dalliance runs as three processes on the user's machine. The model provider runs the model. Signing in to an optional Dalliance account goes through dalliance.io to a Convex backend, see [accounts.md](accounts.md). Notebooks, data and code never leave the machine for either.
 
 ```mermaid
 flowchart LR
@@ -11,6 +11,8 @@ flowchart LR
   end
   K["Python kernel<br/>dalliance_kernel.py"]
   AI["Model provider<br/>Vercel AI Gateway or Anthropic API"]
+  W["dalliance.io<br/>/api/auth proxy"]
+  C["Convex<br/>Better Auth"]
 
   R -- "typed API calls" --> P
   P -- "ipcRenderer.invoke / send" --> M
@@ -18,12 +20,14 @@ flowchart LR
   M -- "JSON lines on stdin" --> K
   K -- "JSON lines on fd 3" --> M
   M -- "AI SDK 7 ToolLoopAgent" --> AI
+  M -- "account session" --> W
+  W -- "proxied, with a shared secret" --> C
 ```
 
 | Process | Code | Owns |
 | --- | --- | --- |
 | Renderer | `apps/desktop/src/` | The open notebook, the run queue, live run state, layout, every pixel |
-| Main | `apps/desktop/electron/` | Files and dialogs, settings and keys, the agent loop, the kernel's lifecycle |
+| Main | `apps/desktop/electron/` | Files and dialogs, settings and keys, the account session, the agent loop, the kernel's lifecycle |
 | Kernel | `apps/desktop/electron/kernel/dalliance_kernel.py` | One Python namespace that lives across cells |
 
 The renderer holds the document. The main process holds everything with side effects. The kernel holds Python state. `packages/shared` holds the types that cross those lines.
@@ -94,6 +98,7 @@ The renderer is treated as untrusted web content.
 - Links with `https://` open in the default browser. Every other new window is denied, and in-app navigation is blocked.
 - Packaged builds get a strict Content Security Policy from the `dalliance-csp` plugin in `vite.config.ts`. The dev server skips it because React Fast Refresh needs inline scripts.
 - API keys are encrypted with Electron `safeStorage`, which uses the macOS keychain. See [storage.md](storage.md).
+- The account session is encrypted the same way and never reaches the renderer. Sign-in uses PKCE, so only this process can redeem the code the browser hands back. See [accounts.md](accounts.md#security).
 
 The agent is fenced in by the harness rather than by the OS:
 
@@ -111,5 +116,6 @@ The agent is fenced in by the harness rather than by the OS:
 | Live run state (`runs`, activity, questions) | Renderer store | Nothing. A reload interrupts the running cell |
 | Python variables | Kernel process | Window reload. Not a relaunch or a restart |
 | Settings and keys | `settings.json` in userData | Everything |
+| The account session | `account.json` in userData, encrypted | Everything until sign-out. Without a keychain, only the app session |
 | Layout, sidebar open | `localStorage` in the renderer | Relaunch |
 | Package trust for installs | `NotebookSession.trust` | The app session |

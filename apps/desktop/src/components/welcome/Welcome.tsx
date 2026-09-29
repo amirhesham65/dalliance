@@ -8,7 +8,8 @@ import type { RecentNotebook, SettingsView } from '@dalliance/shared/ipc'
 import { newPromptCell } from '@dalliance/shared/notebook'
 import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
 import { Onboarding } from './Onboarding'
-import { Kbd, Wordmark } from './parts'
+import { Kbd } from '@/components/ui/kbd'
+import { Wordmark } from './parts'
 import { fresh, modKey, pythonReady, startWith } from './start'
 
 const KEY_SOURCES: Record<NonNullable<SettingsView['keySource']>, string> = {
@@ -18,12 +19,12 @@ const KEY_SOURCES: Record<NonNullable<SettingsView['keySource']>, string> = {
 }
 
 /** What the window shows with no notebook open: the first-run setup the first time, the start page after that. */
-export function WelcomeScreen({ onOpenSettings }: { onOpenSettings: () => void }) {
+export function WelcomeScreen() {
   const settings = useNotebook((s) => s.settings)
   const [setupStep, setSetupStep] = useState<number | null>(null)
   if (!settings) return <div className="flex-1" />
   if (!settings.onboarded || setupStep != null)
-    return <Onboarding initialStep={setupStep ?? 0} onClose={() => setSetupStep(null)} onOpenSettings={onOpenSettings} />
+    return <Onboarding initialStep={setupStep ?? 0} onClose={() => setSetupStep(null)} />
   return <StartPage onSetup={setSetupStep} />
 }
 
@@ -151,7 +152,7 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
             </>
           )}
           <footer className="mt-auto border-t px-6 py-3 text-xs leading-[1.6] text-faint">
-            Shift+Enter runs a cell. {mod}B hides the overview. {mod}1 to {mod}6 open the side panes.
+            <Kbd>Shift+Enter</Kbd> runs a cell. <Kbd>{mod}B</Kbd> hides the overview. <Kbd>{mod}1</Kbd> to <Kbd>{mod}6</Kbd> open the side panes.
           </footer>
         </section>
       </div>

@@ -2,7 +2,7 @@
 
 ## Setup
 
-You need Node 24 or newer, pnpm 10 and Python 3.9 or newer. The root `package.json` pins `pnpm@10.11.0`, so `corepack enable` picks the right one.
+You need Node 24 or newer, pnpm 10 and Python 3.9 or newer. Accounts need a Convex deployment, which can run locally. See [accounts.md](accounts.md#running-it-locally). The root `package.json` pins `pnpm@10.11.0`, so `corepack enable` picks the right one.
 
 ```bash
 pnpm install
@@ -50,7 +50,7 @@ The real-Python kernel tests run in CI. The paid end-to-end test doesn't. Run th
 pnpm turbo run lint typecheck test build
 ```
 
-The website's `typecheck` runs `next typegen` first, so Next's route types exist before `tsc` reads them.
+The website's `typecheck` runs `next typegen` first, so Next's route types exist before `tsc` reads them. `apps/web/turbo.json` makes the website's build wait for it: `next build` empties `.next` when it starts, and running both at once can delete the types `tsc` is about to read.
 
 ## How dev mode works
 
@@ -72,7 +72,7 @@ pnpm --filter @dalliance/desktop exec vite preview
 
 Open `http://localhost:4173/?demo`. `?demo&welcome` shows the start page and `?demo&setup` the first-run setup. `vite preview` serves the last build, so rebuild after changes. See [renderer.md](renderer.md#the-browser-preview).
 
-`.claude/launch.json` defines the same servers for tools that start them by name: `renderer-preview` on 4173, `desktop` for `pnpm dev`, and `web` for the built site on 3100.
+`.claude/launch.json` defines the same servers for tools that start them by name: `renderer-preview` on 4173, `desktop` for `pnpm dev`, `web` for the built site on 3100, `web-dev` for the site in dev mode, and `desktop-local-auth` for the app signing in against the local site.
 
 ## Debugging
 

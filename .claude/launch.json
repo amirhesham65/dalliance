@@ -33,6 +33,42 @@
         "start"
       ],
       "port": 3100
+    },
+    {
+      "name": "web-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@dalliance/web",
+        "dev"
+      ],
+      "port": 3100
+    },
+    {
+      "name": "desktop-local-auth",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DALLIANCE_SITE_URL=http://localhost:3100",
+        "pnpm",
+        "--filter",
+        "@dalliance/desktop",
+        "dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "convex-local",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "CONVEX_AGENT_MODE=anonymous",
+        "pnpm",
+        "--filter",
+        "@dalliance/backend",
+        "exec",
+        "convex",
+        "dev"
+      ],
+      "port": 3210
     }
   ]
 }

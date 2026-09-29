@@ -1,13 +1,14 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
-import { fakeApi, result } from '@/test/fake-api'
+import { fakeApi, fakeSettings, result } from '@/test/fake-api'
 import App from './App'
 
 beforeEach(() => {
   actions.load({ cells: [newNoteCell('# Sales review'), newPromptCell('')] }, null)
+  actions.closeSettings()
 })
 
 describe('App', () => {
@@ -285,6 +286,105 @@ describe('question cells', () => {
     await user.type(await screen.findByPlaceholderText('Search models'), 'gemini')
     await user.click(await screen.findByRole('option', { name: /Gemini 3 Pro/ }))
     expect(updates).toContainEqual({ model: 'google/gemini-3-pro' })
+  })
+
+  it('opens Settings as its own screen, with a tab per section', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    api.getSettings = async () => ({ ...fakeSettings(), keySource: null, hasKey: { gateway: false, anthropic: false } })
+    setApi(api)
+    render(<App />)
+
+    // The banner for a missing key goes straight to Models
+    await user.click(await screen.findByRole('button', { name: 'Open Settings' }))
+    expect(screen.getByRole('tab', { name: 'Models' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('textbox', { name: 'Model' })).toHaveValue('anthropic/claude-opus-5')
+
+    await user.click(screen.getByRole('tab', { name: 'Python' }))
+    expect(screen.getByRole('button', { name: 'Set up' })).toBeInTheDocument()
+
+    // Notebook keys stay off while Settings is up
+    const cells = screen.getAllByRole('article', { hidden: true }).length
+    await user.keyboard('b')
+    expect(screen.getAllByRole('article', { hidden: true })).toHaveLength(cells)
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('tab', { name: 'Python' })).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeInTheDocument()
+
+    // It reopens where it was left
+    await user.click(screen.getByRole('button', { name: 'Settings' }))
+    expect(screen.getByRole('tab', { name: 'Python' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('shows the pane shortcuts in the overview tooltips', async () => {
+    const user = userEvent.setup()
+    setApi(fakeApi(() => result()).api)
+    render(<App />)
+    await user.hover(screen.getByRole('button', { name: /^Brief/ }))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(/^Brief.+1$/)
+  })
+
+  it('shows the account in the top bar, with a menu to sign out', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    api.getAccount = async () => ({ user: { name: 'Ada Lovelace', email: 'ada@example.com' }, checking: false, waiting: false, error: null })
+    let signedOut = false
+    api.signOut = async () => {
+      signedOut = true
+      return { user: null, checking: false, waiting: false, error: null }
+    }
+    setApi(api)
+    render(<App />)
+
+    // The gear's tooltip carries the shortcut
+    await user.hover(screen.getByRole('button', { name: 'Settings' }))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(/^Settings.+,$/)
+    await user.unhover(screen.getByRole('button', { name: 'Settings' }))
+    const avatar = await screen.findByRole('button', { name: 'Account: Ada Lovelace' })
+    expect(avatar).toHaveTextContent('AL')
+
+    await user.click(avatar)
+    expect(await screen.findByText('ada@example.com')).toBeInTheDocument()
+    await user.click(screen.getByRole('menuitem', { name: 'Sign out' }))
+    expect(signedOut).toBe(true)
+    expect(await screen.findByRole('button', { name: 'Account' })).toBeInTheDocument()
+
+    // Signed out, the menu offers sign-in and Settings
+    await user.click(screen.getByRole('button', { name: 'Account' }))
+    expect(await screen.findByRole('menuitem', { name: 'Sign in…' })).toBeInTheDocument()
+    await user.click(screen.getByRole('menuitem', { name: /^Settings/ }))
+    expect(screen.getByRole('tablist', { name: 'Settings sections' })).toBeInTheDocument()
+  })
+
+  it('signs in from Settings, and takes the code when the browser could not open the app', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    const codes: string[] = []
+    const redeem = api.redeemSignInCode
+    api.redeemSignInCode = async (code) => {
+      codes.push(code)
+      return redeem(code)
+    }
+    let push: (account: Awaited<ReturnType<typeof api.getAccount>>) => void = () => {}
+    api.onAccount = (listener) => {
+      push = listener
+      return () => {}
+    }
+    setApi(api)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: 'Settings' }))
+    await user.click(screen.getByRole('tab', { name: 'Account' }))
+    await user.click(await screen.findByRole('button', { name: 'Sign in' }))
+    await user.type(await screen.findByRole('textbox', { name: 'Code from the sign-in page' }), 'abc123')
+    await user.click(screen.getByRole('button', { name: 'Use code' }))
+    expect(codes).toEqual(['abc123'])
+    expect(await screen.findByText(/Signed in as/)).toHaveTextContent('Signed in as Ada (ada@example.com).')
+
+    // The main process reports a sign-out made elsewhere, like the session ending
+    act(() => push({ user: null, checking: false, waiting: false, error: null }))
+    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument()
   })
 
   it('shows the short title a small model wrote for a long prompt', async () => {
