@@ -1,5 +1,6 @@
 import { type LanguageModel, ToolLoopAgent, type ToolLoopAgentSettings, stepCountIs } from 'ai'
 import type { ActivityItem, CellRunResult, RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
+import { readFinishJson } from '@dalliance/shared/leaked'
 import type { Output } from '@dalliance/shared/notebook'
 import type { Kernel } from '../kernel/kernel'
 import type { EventBus } from './events'
@@ -27,6 +28,14 @@ export interface HarnessDeps {
   /** Upper bound on model steps for one cell. */
   maxSteps?: number
 }
+
+/**
+ * Some models stop after the code runs and write the answer as prose, or print finish's arguments as JSON, without
+ * calling finish. That loses the interpretation and the follow-up prompts, so they are asked once more, and this time
+ * the only tool on offer is finish.
+ */
+const FINISH_NUDGE =
+  'The cell has run. Call finish now: how you read the prompt in interpretation, the answer in words grounded in the output, and up to three follow-up prompts in next.'
 
 const TOOL_NAMES = ['list_variables', 'explore', 'list_files', 'read_file', 'run_cell', 'install_packages', 'ask_user', 'finish'] as const
 
@@ -84,7 +93,8 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     exploreTimeoutMs: deps.exploreTimeoutMs,
   })
 
-  const agent = new ToolLoopAgent<never, CellTools>({
+  const makeAgent = (extra: Partial<ToolLoopAgentSettings<never, CellTools>> = {}) =>
+    new ToolLoopAgent<never, CellTools>({
     model: deps.model,
     // Stable behaviour first, marked for caching. Per-cell context goes in the prompt below.
     instructions: {
@@ -103,7 +113,9 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     // History stays append-only: with thinking on, the API rejects any change to earlier turns,
     // so there's no pruning here. The step cap and bounded tool outputs keep a run small instead.
     stopWhen: [stepCountIs(deps.maxSteps ?? 24), () => state.finished != null],
+    ...extra,
   })
+  const agent = makeAgent()
 
   const prompt = buildCellPrompt({
     prompt: request.prompt,
@@ -116,8 +128,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
 
   let text = ''
   let error: string | null = null
-  try {
-    const result = await agent.stream({ prompt, abortSignal: deps.signal })
+  const consume = async (result: Awaited<ReturnType<typeof agent.stream>>) => {
     for await (const part of result.fullStream) {
       switch (part.type) {
         case 'text-delta':
@@ -150,21 +161,58 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
           throw part.error
       }
     }
+  }
+  try {
+    const first = await agent.stream({ prompt, abortSignal: deps.signal })
+    await consume(first)
+    // Stopped without finish, after code that ran or an answer in words: ask for finish, and only finish
+    const answeredInText = state.lastRun == null && text.trim() !== ''
+    if (state.finished == null && !deps.signal.aborted && (state.lastRun?.result.ok === true || answeredInText)) {
+      deps.emit({ type: 'status', text: 'Finishing' })
+      const proseBefore = text
+      text = ''
+      try {
+        const history = (await first.response).messages
+        const second = await makeAgent({ toolChoice: { type: 'tool', toolName: 'finish' }, stopWhen: [stepCountIs(2), () => state.finished != null] }).stream({
+          messages: [{ role: 'user', content: prompt }, ...history, { role: 'user', content: FINISH_NUDGE }],
+          abortSignal: deps.signal,
+        })
+        await consume(second)
+      } catch (err) {
+        // The cell already ran. A failed reminder leaves whatever the model wrote before it
+        if (deps.signal.aborted) throw err
+      }
+      if (!text.trim()) text = proseBefore
+    }
   } catch (err) {
     error = deps.signal.aborted ? 'Stopped.' : friendlyError(err)
   }
   // An aborted stream can end without throwing
   if (deps.signal.aborted) error = 'Stopped.'
 
-  await deps.bus.emit('run_end', { cellId: request.cellId, ok: error == null && state.finished != null, error: error ?? undefined })
+  // A model that still printed finish's arguments as JSON instead of calling it gets them read back from the text
+  let finished = state.finished
+  let prose = text.trim()
+  if (!finished && !error) {
+    const json = readFinishJson(prose)
+    if (json) {
+      prose = json.rest
+      const answer = json.answer || prose
+      if (state.lastRun?.result.ok || answer) {
+        finished = { interpretation: json.interpretation || null, answer: answer || null, suggestions: json.next.slice(0, 3) }
+      }
+    }
+  }
+
+  await deps.bus.emit('run_end', { cellId: request.cellId, ok: error == null && finished != null, error: error ?? undefined })
 
   const last = state.lastRun
-  const answeredInWords = state.finished != null && last == null
+  const answeredInWords = finished != null && last == null
   const succeeded = last?.result.ok === true || answeredInWords
   if (!error && !succeeded) {
     error = last
       ? `The code still failed after ${state.attempts} ${state.attempts === 1 ? 'try' : 'tries'}. The last attempt is in the Code tab.`
-      : clip(text.trim(), 600) || 'The agent stopped without running any code.'
+      : clip(prose, 600) || 'The agent stopped without running any code.'
   }
 
   return {
@@ -174,11 +222,11 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     executionCount: last?.result.executionCount ?? null,
     durationMs: Date.now() - started,
     generated: true,
-    interpretation: state.finished?.interpretation ?? null,
+    interpretation: finished?.interpretation ?? null,
     variables: created(last?.result.assigned ?? []),
     // If the model answered in text instead of calling finish, keep that answer
-    answer: state.finished?.answer ?? (succeeded && text.trim() ? clip(text.trim(), 1200) : null),
-    suggestions: state.finished?.suggestions ?? [],
+    answer: finished ? finished.answer : succeeded && prose ? clip(prose, 1200) : null,
+    suggestions: finished?.suggestions ?? [],
     activity: [...activity.values()],
     error,
   }

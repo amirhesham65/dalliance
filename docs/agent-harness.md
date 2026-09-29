@@ -39,7 +39,9 @@ interface RunState {
 
 The result is `ok` when there was no error and either the last `run_cell` succeeded, or `finish` was called with an answer and no code ran at all. That second case is a question answered in words, and the cell ends up with empty code. When the model stops without finishing, the error says so: either the code still failed after N tries, or the model's own text, clipped to 600 characters.
 
-If the model answers in plain text instead of calling `finish`, and the last run succeeded, that text becomes the answer.
+If the model stops without calling `finish`, after code that ran or after looking at the data and answering in prose, `generateCell()` asks once more: it replays the history, adds a user turn (`FINISH_NUDGE`) and runs a second agent whose `toolChoice` is `finish` and nothing else. That is what brings back the interpretation, the answer and the follow-up prompts from models that skip the call. Models on Ollama do this often. The history stays append-only. A failed reminder doesn't fail the cell, which keeps whatever the model wrote.
+
+When it still ends in text, `readFinishJson()` in `packages/shared/src/leaked.ts` looks for `finish`'s arguments printed as JSON, the `{"answer": "", "interpretation": "", "next": []}` some models write. Those fields are used as if `finish` had been called, and an all-empty object is dropped rather than shown as the answer. Only then does plain text become the answer, when the last run succeeded.
 
 ## Tools
 

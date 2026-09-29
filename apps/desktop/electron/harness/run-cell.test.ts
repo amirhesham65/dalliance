@@ -141,6 +141,93 @@ describe('runCell with generation', () => {
     expect(result.error).toBe('Which dataset do you mean?')
   })
 
+  it('asks for finish once when the model stops after the code ran, so the answer and suggestions still arrive', async () => {
+    const { model, calls } = scriptedModel([
+      { tool: 'run_cell', input: { code: 'orders.total.mean()' } },
+      { text: 'The mean is 41.2.' },
+      { tool: 'finish', input: { interpretation: 'Mean of [[total]].', answer: 'The mean order is **$41.20**.', next: ['Plot totals by month'] } },
+    ])
+    const { deps, events } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [table] })))
+    const result = await runCell(request(), deps)
+
+    expect(calls()).toBe(3)
+    expect(result).toMatchObject({
+      ok: true,
+      interpretation: 'Mean of [[total]].',
+      answer: 'The mean order is **$41.20**.',
+      suggestions: ['Plot totals by month'],
+      error: null,
+    })
+    expect(events.some((e) => e.type === 'status' && e.text === 'Finishing')).toBe(true)
+  })
+
+  it('reads finish back from JSON the model printed, and never shows the JSON as the answer', async () => {
+    // The second reply is what a provider that ignores the forced tool call sends back
+    const { model } = scriptedModel([
+      { tool: 'run_cell', input: { code: 'orders.total.mean()' } },
+      { text: '{"answer": "", "interpretation": "", "next": ["Plot totals by month"]}' },
+    ])
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [table] })))
+    const result = await runCell(request(), deps)
+
+    expect(result.ok).toBe(true)
+    expect(result.answer).toBeNull()
+    expect(result.suggestions).toEqual(['Plot totals by month'])
+  })
+
+  it('drops finish arguments that are all empty instead of showing them', async () => {
+    const { model } = scriptedModel([
+      { tool: 'run_cell', input: { code: 'orders.total.mean()' } },
+      { text: '{\n  "answer": "",\n  "interpretation": "",\n  "next": []\n}' },
+    ])
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [table] })))
+    const result = await runCell(request(), deps)
+
+    expect(result).toMatchObject({ ok: true, answer: null, interpretation: null, suggestions: [] })
+    expect(JSON.stringify(result)).not.toContain('"answer": ""')
+  })
+
+  it('keeps the prose answer when the reminder itself fails', async () => {
+    let call = 0
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        call += 1
+        if (call > 2) throw new Error('503 overloaded')
+        const chunks =
+          call === 1
+            ? [
+                { type: 'stream-start', warnings: [] },
+                { type: 'tool-call', toolCallId: 'c1', toolName: 'run_cell', input: JSON.stringify({ code: 'orders.total.mean()' }) },
+                { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_use' }, usage },
+              ]
+            : [
+                { type: 'stream-start', warnings: [] },
+                { type: 'text-start', id: 't' },
+                { type: 'text-delta', id: 't', delta: 'The mean is 41.2.' },
+                { type: 'text-end', id: 't' },
+                { type: 'finish', finishReason: { unified: 'stop', raw: 'end_turn' }, usage },
+              ]
+        return { stream: simulateReadableStream({ chunks: chunks as never[] }) }
+      },
+    })
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [table] })))
+    const result = await runCell(request(), deps)
+
+    expect(result).toMatchObject({ ok: true, answer: 'The mean is 41.2.', suggestions: [], error: null })
+  })
+
+  it('turns a text answer after looking at the data into an answer, through finish', async () => {
+    const { model } = scriptedModel([
+      { tool: 'explore', input: { code: 'orders.shape' } },
+      { text: 'There are 200 rows.' },
+      { tool: 'finish', input: { interpretation: '', answer: 'There are **200** rows.', next: ['Show the columns'] } },
+    ])
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '(200, 3)' }] })))
+    const result = await runCell(request(), deps)
+
+    expect(result).toMatchObject({ ok: true, code: '', answer: 'There are **200** rows.', suggestions: ['Show the columns'], error: null })
+  })
+
   it('refuses to finish before a successful run', async () => {
     const { model } = scriptedModel([
       { tool: 'finish', input: { interpretation: '', answer: '' } },

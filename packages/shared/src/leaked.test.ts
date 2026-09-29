@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { leakedList, splitLeaked } from './leaked'
+import { leakedList, readFinishJson, splitLeaked } from './leaked'
 
 describe('splitLeaked', () => {
   it('leaves ordinary text alone', () => {
@@ -24,5 +24,32 @@ describe('splitLeaked', () => {
 
   it('ignores a list that is not JSON', () => {
     expect(leakedList('Load tips, show columns')).toEqual([])
+  })
+})
+
+describe('readFinishJson', () => {
+  it('reads finish arguments a model printed instead of calling it', () => {
+    expect(readFinishJson('{\n  "answer": "",\n  "interpretation": "",\n  "next": []\n}')).toEqual({ interpretation: '', answer: '', next: [], rest: '' })
+    expect(readFinishJson('{"interpretation": "Rows are [[orders]].", "answer": "There are **200** rows.", "next": ["Plot it", " ", "Show columns"]}')).toMatchObject({
+      interpretation: 'Rows are [[orders]].',
+      answer: 'There are **200** rows.',
+      next: ['Plot it', 'Show columns'],
+    })
+  })
+
+  it('finds it in a code fence or after a sentence, and returns the words around it', () => {
+    const fenced = readFinishJson('Done.\n```json\n{"answer": "It is 7.", "next": ["Why 7?"]}\n```')
+    expect(fenced).toMatchObject({ answer: 'It is 7.', next: ['Why 7?'], rest: 'Done.' })
+  })
+
+  it('reads a brace inside a string, and accepts suggestions as the list', () => {
+    expect(readFinishJson('{"answer": "Use {x} here", "suggestions": ["One"]}')).toMatchObject({ answer: 'Use {x} here', next: ['One'] })
+  })
+
+  it('leaves alone text that is not finish arguments', () => {
+    expect(readFinishJson('The mean is 4.2.')).toBeNull()
+    expect(readFinishJson('{"mean": 4.2}')).toBeNull()
+    expect(readFinishJson('Use {curly} braces')).toBeNull()
+    expect(readFinishJson('[1, 2, 3]')).toBeNull()
   })
 })
