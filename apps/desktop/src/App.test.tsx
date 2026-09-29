@@ -317,6 +317,14 @@ describe('question cells', () => {
     expect(screen.getByRole('tab', { name: 'Python' })).toHaveAttribute('aria-selected', 'true')
   })
 
+  it('draws a thin line between cells, and none after the last one', async () => {
+    setApi(fakeApi(() => result()).api)
+    actions.load({ cells: [newPromptCell('One'), newPromptCell('Two'), newPromptCell('Three')] }, null)
+    const { container } = render(<App />)
+    await screen.findAllByRole('article', { name: 'Prompt cell' })
+    expect(container.querySelectorAll('[data-slot="cell-divider"]')).toHaveLength(2)
+  })
+
   it('shows the pane shortcuts in the overview tooltips', async () => {
     const user = userEvent.setup()
     setApi(fakeApi(() => result()).api)

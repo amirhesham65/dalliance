@@ -49,7 +49,7 @@ export function NotebookView({ onDelete }: { onDelete: (id: string) => void }) {
           {cells.map((cell, i) => (
             <Fragment key={cell.id}>
               <CellView cell={cell} selected={cell.id === selectedId} onDelete={onDelete} />
-              <CellInserter index={i + 1} />
+              <CellInserter index={i + 1} divider={i < cells.length - 1} />
             </Fragment>
           ))}
           <button
@@ -66,13 +66,16 @@ export function NotebookView({ onDelete }: { onDelete: (id: string) => void }) {
   )
 }
 
-/** Hover between two cells to add one there. */
-function CellInserter({ index }: { index: number }) {
+/**
+ * A thin line between two cells, so it is clear where one ends. Hover it to add a cell there. The line is one
+ * piece, a little narrower than the cells, and the buttons sit over its middle.
+ */
+function CellInserter({ index, divider }: { index: number; divider: boolean }) {
   const button = 'flex items-center gap-1 rounded px-1.5 py-0.5 text-faint hover:bg-hover hover:text-foreground'
   return (
-    <div className="group/add flex h-5 items-center gap-2 pl-11">
-      <div className="h-px flex-1 group-hover/add:bg-border" />
-      <div className="flex gap-1 text-[11.5px] opacity-0 transition-opacity group-focus-within/add:opacity-100 group-hover/add:opacity-100">
+    <div className="group/add relative flex h-5 items-center justify-center pl-11">
+      {divider && <div aria-hidden data-slot="cell-divider" className="pointer-events-none absolute inset-x-3 top-1/2 h-px bg-foreground/10 transition-colors group-hover/add:bg-foreground/20" />}
+      <div className="relative flex gap-1 rounded bg-background px-1 text-[11.5px] opacity-0 transition-opacity group-focus-within/add:opacity-100 group-hover/add:opacity-100">
         <button type="button" className={button} onClick={() => actions.insertCell(index, 'prompt')}>
           <Plus className="size-3" />
           Prompt
@@ -82,7 +85,6 @@ function CellInserter({ index }: { index: number }) {
           Note
         </button>
       </div>
-      <div className="h-px flex-1 group-hover/add:bg-border" />
     </div>
   )
 }
