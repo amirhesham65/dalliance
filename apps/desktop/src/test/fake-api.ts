@@ -22,6 +22,15 @@ export function fakeApi(onRun: RunHandler) {
     restartKernel: async () => {},
     kernelState: async () => ({ status: 'idle', python: '3.12.0', cwd: '/tmp', error: null }),
     listVariables: async () => [{ name: 'orders', type: 'DataFrame', shape: '10 × 2', detail: '' }],
+    listPackages: async () => ({
+      python: '/usr/bin/python3',
+      version: '3.12.0',
+      packages: [
+        { name: 'numpy', version: '2.1.0' },
+        { name: 'pandas', version: '2.2.3' },
+      ],
+      error: null,
+    }),
     onKernelState: () => () => {},
     getSettings: async () => fakeSettings(),
     listModels: async () => ({

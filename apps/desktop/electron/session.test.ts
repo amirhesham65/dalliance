@@ -164,6 +164,41 @@ describe('built-in extensions', () => {
   })
 })
 
+describe('NotebookSession environment', () => {
+  // The Python the mocked pythonStatus reports
+  const python = '/py/bin/python'
+
+  it('lists the libraries from its userData folder, never the process’s working directory', async () => {
+    const userData = mkdtempSync(path.join(tmpdir(), 'dalliance-session-'))
+    const calls: { python: string; cwd: string }[] = []
+    const s = new NotebookSession({
+      settings: { pythonPath: python } as SettingsStore,
+      userData,
+      defaultWorkspace: '/default',
+      send: () => {},
+      listPackages: async (p, { cwd }) => {
+        calls.push({ python: p, cwd })
+        return [{ name: 'numpy', version: '2.1.0' }]
+      },
+    })
+    expect(await s.environment()).toMatchObject({ python, packages: [{ name: 'numpy', version: '2.1.0' }], error: null })
+    expect(calls).toEqual([{ python, cwd: userData }])
+  })
+
+  it('passes on why the listing failed', async () => {
+    const s = new NotebookSession({
+      settings: { pythonPath: python } as SettingsStore,
+      userData: mkdtempSync(path.join(tmpdir(), 'dalliance-session-')),
+      defaultWorkspace: '/default',
+      send: () => {},
+      listPackages: async () => {
+        throw new Error(`${python} took longer than 20 seconds to list its libraries.`)
+      },
+    })
+    expect(await s.environment()).toMatchObject({ packages: [], error: `Couldn't list the libraries: ${python} took longer than 20 seconds to list its libraries.` })
+  })
+})
+
 describe('base packages in an older managed environment', () => {
   const userData = () => mkdtempSync(path.join(tmpdir(), 'dalliance-session-'))
   const start = (s: NotebookSession) => (s as unknown as { ensureKernel(): Promise<unknown> }).ensureKernel()

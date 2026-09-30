@@ -6,7 +6,7 @@ import { usePythonSetup } from '@/components/welcome/use-python-setup'
 import { pythonReady } from '@/components/welcome/start'
 import { cn } from '@/lib/utils'
 import type { DallianceApi, SettingsView } from '@dalliance/shared/ipc'
-import { useNotebook } from '@/store/notebook-store'
+import { actions, useNotebook } from '@/store/notebook-store'
 import { Group, Note, Row, SectionHeading } from './parts'
 import { saveSettings } from './save'
 
@@ -28,6 +28,7 @@ export function PythonSettings({ api, settings }: { api: DallianceApi; settings:
       // The main process restarts the kernel on the new interpreter
       await saveSettings(api, { pythonPath: next || null })
       useNotebook.setState({ python: await api.pythonState() })
+      actions.environmentChanged()
     } catch (err) {
       setPathError(`Couldn't switch: ${err instanceof Error ? err.message : String(err)}`)
     }

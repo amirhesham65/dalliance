@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { DallianceApi } from '@dalliance/shared/ipc'
-import { useNotebook } from '@/store/notebook-store'
+import { actions, useNotebook } from '@/store/notebook-store'
 
 /** Creates the app's own Python environment, streaming the installer's output. Settings and the first-run setup share it. */
 export function usePythonSetup(api: DallianceApi) {
@@ -16,6 +16,7 @@ export function usePythonSetup(api: DallianceApi) {
     setLog([])
     try {
       useNotebook.setState({ python: await api.setupPython() })
+      actions.environmentChanged()
     } catch (err) {
       setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err))
     } finally {

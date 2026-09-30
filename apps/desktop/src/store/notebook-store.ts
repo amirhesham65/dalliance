@@ -6,6 +6,7 @@ import type {
   CellRunResult,
   KernelState,
   DallianceApi,
+  EnvironmentView,
   ModelList,
   PaneName,
   PythonState,
@@ -58,6 +59,7 @@ export interface Notice {
 
 /** The side panes, one open at a time. Cmd+1 to Cmd+6 open them in this order. */
 export type PaneKind = PaneName
+export type VariablesView = 'variables' | 'environment'
 export const PANE_ORDER: PaneKind[] = ['brief', 'variables', 'history', 'files', 'pinned', 'activity']
 
 export interface NotebookState {
@@ -76,6 +78,13 @@ export interface NotebookState {
   messages: Record<string, string>
   kernel: KernelState
   variables: VariableView[]
+  /** The Python's libraries, once the environment view has asked. Null until then. */
+  environment: EnvironmentView | null
+  environmentLoading: boolean
+  /** Something may have changed the libraries while the environment view was hidden, so it reads them again when shown. */
+  environmentStale: boolean
+  /** Which view the Variables & Environment pane shows. */
+  variablesView: VariablesView
   settings: SettingsView | null
   /** The Settings section on screen, or null when Settings is closed. It covers whatever screen is under it. */
   settingsPage: SettingsSection | null
@@ -136,6 +145,10 @@ export const useNotebook = create<NotebookState>(() => ({
   messages: {},
   kernel: { status: 'dead', python: null, cwd: '', error: null },
   variables: [],
+  environment: null,
+  environmentLoading: false,
+  environmentStale: false,
+  variablesView: 'variables',
   settings: null,
   settingsPage: null,
   python: null,
@@ -652,6 +665,7 @@ export const actions = {
       cells.map((c) => (c.kind === 'prompt' && hasRun(c) ? { ...c, executionCount: null, state: 'stale' as const } : c)),
     )
     set({ variables: [] })
+    actions.environmentChanged()
   },
 
   /** Shift+Enter: run this cell and move to the next one, adding a prompt cell at the end. */
@@ -722,6 +736,50 @@ export const actions = {
     if (!api) return
     set({ variables: await api.listVariables() })
   },
+
+  /**
+   * Read the Python's libraries. A failure is kept as the view's error, so the pane can say what went wrong.
+   * A call while a read is under way queues one more read after it, since the Python may have changed since the first began.
+   */
+  async loadEnvironment() {
+    if (!api) return
+    if (get().environmentLoading) {
+      environmentAgain = true
+      return
+    }
+    set({ environmentLoading: true, environmentStale: false })
+    try {
+      do {
+        environmentAgain = false
+        let environment: EnvironmentView
+        try {
+          environment = await api.listPackages()
+        } catch (err) {
+          environment = { python: null, version: null, packages: [], error: `Couldn't list the libraries: ${err instanceof Error ? err.message : String(err)}` }
+        }
+        // A read that was overtaken describes the Python as it was, so only the last one lands
+        if (!environmentAgain) set({ environment })
+      } while (environmentAgain)
+    } finally {
+      set({ environmentLoading: false })
+    }
+  },
+
+  /** Switch the Variables & Environment pane between its two views. */
+  showVariablesView(view: VariablesView) {
+    set({ variablesView: view })
+  },
+
+  /**
+   * A run, a restart or a new Python may have changed the libraries. Read them again if they're on screen.
+   * Otherwise mark them stale, so the view reads them when it's next shown instead of spawning a Python nobody looks at.
+   */
+  environmentChanged() {
+    const s = get()
+    if (!s.environment) return
+    if (s.pane === 'variables' && s.variablesView === 'environment') void actions.loadEnvironment()
+    else set({ environmentStale: true })
+  },
 }
 
 function emptyRun(status: CellRun['status']): CellRun {
@@ -730,6 +788,8 @@ function emptyRun(status: CellRun['status']): CellRun {
 
 const queue: string[] = []
 let pumping = false
+/** Set when loadEnvironment() is called during a read, so one more read follows it. */
+let environmentAgain = false
 /** Cells whose running result must be dropped when it arrives: deleted mid-run, or in a notebook since closed. */
 const abandoned = new Set<string>()
 
@@ -785,6 +845,8 @@ async function pump() {
     pumping = false
   }
   void actions.refreshVariables().catch(() => {})
+  // A cell may have installed a library
+  actions.environmentChanged()
 }
 
 function failed(request: RunCellRequest, err: unknown): CellRunResult {

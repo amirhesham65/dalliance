@@ -281,6 +281,106 @@ describe('question cells', () => {
     expect(screen.getByRole('list', { name: 'Run log' })).toHaveTextContent('Wrote “Plot revenue by month”')
   })
 
+  it('shows the Python and its libraries next to the variables, and searches them', async () => {
+    const user = userEvent.setup()
+    // The store outlives a test, so the pane and the libraries start clean
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })
+    setApi(fakeApi(() => result()).api)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    expect(screen.getByRole('tab', { name: 'Variables', selected: true })).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Environment' }))
+    const list = await screen.findByRole('list', { name: 'Libraries' })
+    expect(within(list).getByText('numpy')).toBeInTheDocument()
+    expect(within(list).getByText('2.2.3')).toBeInTheDocument()
+    expect(screen.getByText(/Python 3.12.0/)).toBeInTheDocument()
+
+    await user.type(screen.getByRole('textbox', { name: 'Search libraries' }), 'pand')
+    expect(within(list).queryByText('numpy')).not.toBeInTheDocument()
+    expect(within(list).getByText('pandas')).toBeInTheDocument()
+    await user.type(screen.getByRole('textbox', { name: 'Search libraries' }), 'zzz')
+    expect(screen.getByText('No library matches.')).toBeInTheDocument()
+  })
+
+  it('says why the libraries could not be listed', async () => {
+    const user = userEvent.setup()
+    // The store outlives a test, so the pane and the libraries start clean
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })
+    const { api } = fakeApi(() => result())
+    api.listPackages = async () => ({ python: null, version: null, packages: [], error: 'No Python found. Open Settings to set up a Python environment.' })
+    setApi(api)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    await user.click(screen.getByRole('tab', { name: 'Environment' }))
+    expect(await screen.findByText(/No Python found/)).toBeInTheDocument()
+  })
+
+  it('shows an error, not a blank pane, when reading the libraries throws', async () => {
+    const user = userEvent.setup()
+    // The store outlives a test, so the pane and the libraries start clean
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })
+    const { api } = fakeApi(() => result())
+    api.listPackages = async () => {
+      throw new Error('spawn failed')
+    }
+    setApi(api)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    await user.click(screen.getByRole('tab', { name: 'Environment' }))
+    expect(await screen.findByText(/Couldn't list the libraries: spawn failed/)).toBeInTheDocument()
+  })
+
+  it('switches views with the arrow keys, and keeps the view when the pane reopens', async () => {
+    const user = userEvent.setup()
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })
+    setApi(fakeApi(() => result()).api)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    const tabs = screen.getByRole('tablist', { name: 'View' })
+    within(tabs).getByRole('tab', { name: 'Variables' }).focus()
+    await user.keyboard('{ArrowRight}')
+    expect(within(tabs).getByRole('tab', { name: 'Environment', selected: true })).toHaveFocus()
+    expect(await screen.findByRole('list', { name: 'Libraries' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    expect(screen.getByRole('tab', { name: 'Environment', selected: true })).toBeInTheDocument()
+  })
+
+  it('reads the libraries again when shown after a run, and not while hidden', async () => {
+    const user = userEvent.setup()
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })
+    const { api } = fakeApi(() => result())
+    let reads = 0
+    api.listPackages = async () => {
+      reads++
+      return { python: '/usr/bin/python3', version: '3.12.0', packages: [{ name: `lib${reads}`, version: '1.0' }], error: null }
+    }
+    setApi(api)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    await user.click(screen.getByRole('tab', { name: 'Environment' }))
+    expect(await screen.findByText('lib1')).toBeInTheDocument()
+
+    // Back on the variables, a run doesn't spawn a Python to read the libraries
+    await user.click(screen.getByRole('tab', { name: 'Variables' }))
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Install seaborn')
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
+    await waitFor(() => expect(useNotebook.getState().runs).toEqual({}))
+    await waitFor(() => expect(useNotebook.getState().environmentStale).toBe(true))
+    expect(reads).toBe(1)
+
+    // Showing them reads them again, since the run may have installed something
+    await user.click(screen.getByRole('tab', { name: 'Environment' }))
+    expect(await screen.findByText('lib2')).toBeInTheDocument()
+    expect(reads).toBe(2)
+  })
+
   it('hides the suggested next prompts, even ones a cell already has, when Settings turns them off', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result({ answer: 'August led.', suggestions: ['Plot revenue by month'] }))
@@ -715,7 +815,7 @@ describe('command mode', () => {
     expect(screen.getByRole('button', { name: /^Variables/ })).toHaveFocus()
     await user.keyboard('dd')
     expect(count()).toBe(cells)
-    within(screen.getByRole('region', { name: 'Variables' })).getByRole('button', { name: 'Refresh' }).focus()
+    within(screen.getByRole('region', { name: 'Variables & Environment' })).getByRole('button', { name: 'Refresh' }).focus()
     await user.keyboard('dd')
     expect(count()).toBe(cells)
 
@@ -761,15 +861,15 @@ describe('narrow windows', () => {
       setApi(fakeApi(() => result()).api)
       render(<App />)
       await user.click(screen.getByRole('button', { name: /^Variables/ }))
-      expect(screen.getByRole('region', { name: 'Variables' })).toBeInTheDocument()
+      expect(screen.getByRole('region', { name: 'Variables & Environment' })).toBeInTheDocument()
       await user.keyboard('{Escape}')
-      expect(screen.queryByRole('region', { name: 'Variables' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: 'Variables & Environment' })).not.toBeInTheDocument()
       // Focus goes back to the button that opened it
       expect(screen.getByRole('button', { name: /^Variables/ })).toHaveFocus()
 
       await user.click(screen.getByRole('button', { name: /^Variables/ }))
       await user.click(screen.getByTestId('pane-scrim'))
-      expect(screen.queryByRole('region', { name: 'Variables' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: 'Variables & Environment' })).not.toBeInTheDocument()
       expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeInTheDocument()
     } finally {
       window.matchMedia = matchMedia

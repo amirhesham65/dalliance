@@ -356,3 +356,93 @@ describe('results that arrive late', () => {
     expect(cell(0)).toMatchObject({ state: 'stale', executionCount: null })
   })
 })
+
+describe('the environment view', () => {
+  /** A fake whose listPackages() answers only when the test says, one call at a time. */
+  function slowPackages() {
+    const pending: ((version: string) => void)[] = []
+    const { api } = fakeApi(() => result())
+    api.listPackages = () =>
+      new Promise((resolve) => {
+        pending.push((version) => resolve({ python: '/usr/bin/python3', version, packages: [{ name: 'numpy', version: '2.1.0' }], error: null }))
+      })
+    setApi(api)
+    return pending
+  }
+  const shown = () => useNotebook.getState().environment?.version
+
+  beforeEach(() => {
+    load(newPromptCell('Make x'))
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentLoading: false, environmentStale: false })
+  })
+
+  it('reads the libraries again after a restart while the view is showing', async () => {
+    const pending = slowPackages()
+    useNotebook.setState({ pane: 'variables', variablesView: 'environment' })
+    const first = actions.loadEnvironment()
+    pending[0]('3.12.0')
+    await first
+    expect(shown()).toBe('3.12.0')
+
+    await actions.restart()
+    expect(pending).toHaveLength(2)
+    pending[1]('3.13.0')
+    await flush()
+    expect(shown()).toBe('3.13.0')
+  })
+
+  it('queues one more read when asked during a read, and shows only the newer answer', async () => {
+    const pending = slowPackages()
+    const first = actions.loadEnvironment()
+    // The Python changes, twice, while the first read is still under way
+    void actions.loadEnvironment()
+    void actions.loadEnvironment()
+    expect(pending).toHaveLength(1)
+    pending[0]('3.12.0')
+    await flush()
+    expect(pending).toHaveLength(2)
+    expect(shown()).toBeUndefined()
+    expect(useNotebook.getState().environmentLoading).toBe(true)
+    pending[1]('3.13.0')
+    await first
+    expect(shown()).toBe('3.13.0')
+    expect(useNotebook.getState().environmentLoading).toBe(false)
+    expect(pending).toHaveLength(2)
+  })
+
+  it('reads the libraries after a run only while they are on screen, and marks them stale otherwise', async () => {
+    const pending = slowPackages()
+    const first = actions.loadEnvironment()
+    pending[0]('3.12.0')
+    await first
+
+    // The pane is closed
+    actions.run(cell(0).id)
+    await flush()
+    expect(pending).toHaveLength(1)
+    expect(useNotebook.getState().environmentStale).toBe(true)
+
+    // The pane is open on the variables
+    useNotebook.setState({ pane: 'variables', environmentStale: false })
+    actions.run(cell(0).id)
+    await flush()
+    expect(pending).toHaveLength(1)
+    expect(useNotebook.getState().environmentStale).toBe(true)
+
+    // The libraries are on screen
+    actions.showVariablesView('environment')
+    actions.run(cell(0).id)
+    await flush()
+    expect(pending).toHaveLength(2)
+    expect(useNotebook.getState().environmentStale).toBe(false)
+  })
+
+  it('never reads the libraries after a run or a restart when nobody has asked for them', async () => {
+    const pending = slowPackages()
+    useNotebook.setState({ pane: 'variables', variablesView: 'environment' })
+    actions.run(cell(0).id)
+    await flush()
+    await actions.restart()
+    expect(pending).toHaveLength(0)
+  })
+})

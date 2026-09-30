@@ -24,6 +24,7 @@ Every handler goes through `handle()` or `on()` in `main.ts`, never `ipcMain` di
 | `restartKernel()` | invoke | `session.restart` | Fresh kernel in the same folder. A kernel still starting is discarded |
 | `kernelState()` | invoke | `session.kernelState` | Last known `KernelState` |
 | `listVariables()` | invoke | `session.variables` | Variables for the side pane |
+| `listPackages()` | invoke | `session.environment` | The Python in use and its libraries with versions, an `EnvironmentView`. `installedPackages()` in `electron/kernel/python-packages.ts` reads the interpreter with `importlib.metadata` in its own process, so a running cell doesn't hold it up. It runs in userData, since `python -c` puts its working directory first on `sys.path` and a stray `json.py` there would shadow the standard library. A failure comes back as `error`, never a throw: no Python, a timeout after 20 seconds, or the last line Python wrote to stderr |
 | `getSettings()` | invoke | `settings.view` | `SettingsView`, never the keys themselves |
 | `updateSettings(update)` | invoke | `settings.update` | Returns the new view. Restarts the kernel if `pythonPath` changed |
 | `listModels()` | invoke | `listModels` | Models for the picker |

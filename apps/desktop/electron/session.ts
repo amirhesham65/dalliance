@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { WebContents } from 'electron'
-import { type Brief, type CellRunResult, type FileEntry, IPC, type KernelState, type PythonState, type RunCellRequest, type RunEvent } from '@dalliance/shared/ipc'
+import { type Brief, type CellRunResult, type EnvironmentView, type FileEntry, IPC, type KernelState, type PythonState, type RunCellRequest, type RunEvent } from '@dalliance/shared/ipc'
 import { createApproval, normalize } from './harness/approval'
 import { EventBus } from './harness/events'
 import { installExtensions } from './harness/extensions'
@@ -10,6 +10,7 @@ import { friendlyError, runCell } from './harness/run-cell'
 import { generateTitle, titleModel } from './harness/title'
 import type { Kernel, KernelInfo } from './kernel/kernel'
 import { installMissingBasePackages, installPackages, pythonStatus, setupManagedEnv } from './kernel/python-env'
+import { installedPackages } from './kernel/python-packages'
 import { PythonKernel } from './kernel/python-kernel'
 import { isBroadFolder, listFiles } from './harness/workspace'
 import { folderForNewNotebook } from './notebook-files'
@@ -22,6 +23,8 @@ interface SessionOptions {
   send: (channel: string, ...args: unknown[]) => void
   /** Starts a kernel in `cwd`. Defaults to the Python kernel; tests pass a fake. */
   launchKernel?: (cwd: string, onStatus: (info: KernelInfo) => void) => Promise<Kernel>
+  /** Lists a Python's libraries. Defaults to `installedPackages`; tests pass a fake. */
+  listPackages?: typeof installedPackages
 }
 
 /**
@@ -92,6 +95,20 @@ export class NotebookSession {
   private publishKernel(info: KernelInfo) {
     this.lastKernelState = { status: info.status, python: info.python, cwd: info.cwd, error: info.error }
     this.options.send(IPC.kernelStateChanged, this.lastKernelState)
+  }
+
+  /** The Python in use and its libraries, read from the interpreter itself so a running cell doesn't hold it up. */
+  async environment(): Promise<EnvironmentView> {
+    const status = await this.pythonState()
+    if (!status.python) return { python: null, version: null, packages: [], error: 'No Python found. Open Settings to set up a Python environment.' }
+    try {
+      // Run in userData, not the process's working directory, so no stray json.py can shadow the standard library
+      const packages = await (this.options.listPackages ?? installedPackages)(status.python, { cwd: this.options.userData })
+      return { python: status.python, version: status.version, packages, error: null }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      return { python: status.python, version: status.version, packages: [], error: `Couldn't list the libraries: ${reason}` }
+    }
   }
 
   async pythonState(): Promise<PythonState> {

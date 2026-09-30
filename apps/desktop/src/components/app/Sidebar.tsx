@@ -244,7 +244,7 @@ function Outline() {
 
 const PANES: { kind: PaneKind; label: string; icon: ReactNode; key: string }[] = [
   { kind: 'brief', label: 'Brief', icon: <FileText />, key: '1' },
-  { kind: 'variables', label: 'Variables', icon: <Variable />, key: '2' },
+  { kind: 'variables', label: 'Variables & Environment', icon: <Variable />, key: '2' },
   { kind: 'history', label: 'History', icon: <History />, key: '3' },
   { kind: 'files', label: 'Files', icon: <FolderOpen />, key: '4' },
   { kind: 'pinned', label: 'Pinned', icon: <Pin />, key: '5' },
@@ -294,10 +294,12 @@ function PaneMenu() {
                 </>
               ),
             }}
+            // The count sits over the right edge, so a long label gives way to it with an ellipsis instead of running under it
+            style={badge[p.kind] ? { paddingRight: `${12 + badge[p.kind].length * 7 + 6}px` } : undefined}
             className="text-[13px] [&_svg]:size-3.5 [&_svg]:text-muted-foreground"
           >
             {p.icon}
-            <span>{p.label}</span>
+            <span className="min-w-0 truncate">{p.label}</span>
           </SidebarMenuButton>
           {badge[p.kind] && (
             <SidebarMenuBadge className={cn('font-normal text-faint', p.kind === 'activity' && failures > 0 && 'text-destructive')}>{badge[p.kind]}</SidebarMenuBadge>

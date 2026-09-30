@@ -52,16 +52,19 @@ These run in Node with Electron mocked, and need nothing installed.
 
 | File | Covers |
 | --- | --- |
-| `electron/session.test.ts` | `NotebookSession`'s kernel lifecycle with a fake `launchKernel`: a notebook opened during the launch warm-up gets a kernel in its own folder, a caller waiting on a stale start gets the current kernel, a start under way is reused, and a kernel that finishes starting after quit is shut down. Also the `.env` guard on `read_file`, and, with `python-env` and `PythonKernel` mocked, that a kernel on the managed environment installs missing base packages once per session without waiting for them |
+| `electron/session.test.ts` | `NotebookSession`'s kernel lifecycle with a fake `launchKernel`: a notebook opened during the launch warm-up gets a kernel in its own folder, a caller waiting on a stale start gets the current kernel, a start under way is reused, and a kernel that finishes starting after quit is shut down. Also the `.env` guard on `read_file`, and, with `python-env` and `PythonKernel` mocked, that a kernel on the managed environment installs missing base packages once per session without waiting for them, and that the environment view's listing runs in userData and passes on why it failed |
 | `electron/settings.test.ts` | `SettingsStore` reads what an earlier run saved, keeps `settings.json` private (mode 600), and moves a file that doesn't parse or isn't an object aside before starting from the defaults |
 | `electron/draft.test.ts` | `DraftStore`: a notebook comes back as it was after a reload, unsaved changes come back after a relaunch, a saved notebook reopens from its file, a file from a newer version or one that's no longer a notebook is reported, and Don't Save forgets the draft |
 | `electron/ipc-sender.test.ts` | `isAppUrl` and `isTrustedSender`: IPC is answered only from the top frame of the app window showing the app's own page |
 | `electron/open-files.test.ts` | `notebookFromArgv` and `OpenQueue`: the last `.ipynb` on a command line that exists is found, a file the OS asks to open waits until the window can take it, a later one replaces it, and a reload asks the page again |
 | `electron/atomic-write.test.ts` | `writeFileAtomic` and `writeFileAtomicSync`, each: new and replaced files, file modes, writing through a symlink, a missing folder, and no temporary file left behind when the rename fails |
+| `electron/menu.test.ts` | The View menu names each pane the way the overview does, with its Cmd+number key left to the renderer |
 
 ### The kernel
 
 `python-kernel.test.ts` spawns the real script with the system Python. It checks state across cells, tracebacks, exploratory runs, the variable list, interrupts, restarts and which names a cell assigned. Its `PythonKernel hardening` block checks that a value whose `describe()` breaks doesn't kill the kernel, that a request failing outside the cell gets an error answer, that cells import modules from the notebook's folder, that API keys never reach the kernel's environment, and that cells get an empty stdin rather than the request pipe. Run it after any change to `dalliance_kernel.py`.
+
+`python-packages.test.ts` lists the system Python's libraries for the environment view, and checks that a `json.py` in the process's working directory can't break the listing and that a failure reads as a sentence, not the script. It skips without a system Python.
 
 `kernel-protocol.test.ts` drives the same script over raw pipes, with a system Python, and skips without one. It interrupts printing loops again and again and checks that no protocol line is torn and every request still gets its `done`.
 
