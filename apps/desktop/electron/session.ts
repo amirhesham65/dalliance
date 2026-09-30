@@ -1,9 +1,10 @@
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { WebContents } from 'electron'
 import { type Brief, type CellRunResult, type FileEntry, IPC, type KernelState, type PythonState, type RunCellRequest, type RunEvent } from '@dalliance/shared/ipc'
 import { createApproval, normalize } from './harness/approval'
 import { EventBus } from './harness/events'
+import { installExtensions } from './harness/extensions'
 import { MissingKeyError, resolveModel } from './harness/model'
 import { friendlyError, runCell } from './harness/run-cell'
 import { generateTitle, titleModel } from './harness/title'
@@ -20,12 +21,6 @@ interface SessionOptions {
   send: (channel: string, ...args: unknown[]) => void
   /** Starts a kernel in `cwd`. Defaults to the Python kernel; tests pass a fake. */
   launchKernel?: (cwd: string, onStatus: (info: KernelInfo) => void) => Promise<Kernel>
-}
-
-/** A read_file path the agent may not open: `.env` or `.env.*`, in any case, with either kind of separator. */
-export function isSecretPath(p: string): boolean {
-  const base = p.split(/[\\/]/).pop() ?? ''
-  return /^\.env(\..*)?$/i.test(base)
 }
 
 /**
@@ -52,26 +47,9 @@ export class NotebookSession {
     this.options = options
     this.workspace = options.defaultWorkspace
     this.lastKernelState = { status: 'dead', python: null, cwd: this.workspace, error: null }
-    this.installExtensions()
-  }
 
-  /** Built-in extensions on the event bus: keep .env files private, and log every run to JSONL. */
-  private installExtensions() {
-    this.bus.on('tool_call', ({ toolName, input }) => {
-      const p = String((input as { path?: string } | undefined)?.path ?? '')
-      if (toolName === 'read_file' && isSecretPath(p)) return { block: true, reason: `${p} may hold secrets, so it is off limits.` }
-    })
-    const logDir = path.join(this.options.userData, 'logs')
-    const log = async (event: string, data: object) => {
-      await mkdir(logDir, { recursive: true })
-      const line = JSON.stringify({ at: new Date().toISOString(), event, ...data }, (_k, v) => (typeof v === 'string' && v.length > 2000 ? `${v.slice(0, 2000)}…` : v))
-      await appendFile(path.join(logDir, 'agent.jsonl'), `${line}\n`)
-    }
-    for (const event of ['run_start', 'tool_call', 'tool_result', 'run_end'] as const) {
-      this.bus.on(event, (data) => {
-        void log(event, data).catch(() => {})
-      })
-    }
+    // Keep .env files private, and log every run to logs/agent.jsonl
+    installExtensions(this.bus, { logDir: path.join(options.userData, 'logs') })
   }
 
   private get briefPath() {
@@ -268,13 +246,10 @@ export class NotebookSession {
           const answer = await ask((requestId) => ({ type: 'question', requestId, question, options }))
           return typeof answer === 'string' ? answer : null
         },
-        requestApproval: async (title, detail) => {
+        requestApproval: async (title, detail, keys) => {
           const approved = (await ask((requestId) => ({ type: 'approval', requestId, title, detail }))) === true
-          if (approved) {
-            // Trust these packages for the rest of the session, so the same install isn't asked twice
-            const names = detail.replace(/^pip install /, '').split(' ')
-            for (const n of names) this.trust.add(normalize(n))
-          }
+          // Trust these packages, or this kind of code, for the rest of the session, so it isn't asked twice
+          if (approved) for (const key of keys) this.trust.add(normalize(key))
           return approved
         },
         needsApproval: createApproval({ mode: this.options.settings.approvalMode }, this.trust),
