@@ -4,7 +4,7 @@
 
 # Dalliance
 
-**The coding agent for researchers.**
+**The open-source coding agent for researchers.**
 
 A notebook where you write each cell in plain language.<br>
 Dalliance writes the Python, runs it on a live kernel and keeps the code that works.

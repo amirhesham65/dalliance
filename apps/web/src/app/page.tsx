@@ -111,7 +111,10 @@ export default function Home() {
       <div className={sheet}>
         <div className={`${gutter} grid gap-12 pt-16 pb-14 lg:grid-cols-[minmax(0,1fr)_500px] lg:items-center lg:gap-18 lg:pt-26 lg:pb-22`}>
           <div>
-            <h1 className={headline}>{site.headline}</h1>
+            {/* Hyphenated words stay whole: a line ending in "Open-" reads like a typo */}
+            <h1 className={headline}>
+              {site.headline.split(/(\S+-\S+)/).map((part, i) => (i % 2 ? <span key={i} className="whitespace-nowrap">{part}</span> : part))}
+            </h1>
             <p className={support}>{site.tagline}</p>
             <Act from="hero" />
           </div>
