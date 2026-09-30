@@ -27,7 +27,7 @@ vi.mock('node:child_process', async (importOriginal) => {
   }
 })
 
-const { BASE_PACKAGES, EXTERNALLY_MANAGED_MESSAGE, REQUIRED_PACKAGES, findSystemPython, installMissingBasePackages, installPackages, isPackageSpec, managedPython, missingBasePackages, missingPackages } =
+const { BASE_PACKAGES, EXTERNALLY_MANAGED_MESSAGE, REQUIRED_PACKAGES, findSystemPython, installMissingBasePackages, installPackages, isPackageSpec, managedPython, missingBasePackages, missingPackages, pipSpec } =
   await import('./python-env')
 
 beforeEach(() => {
@@ -191,12 +191,24 @@ describe('missing base packages in the managed environment', () => {
     expect(probes[0][2]).toContain('"sklearn"')
   })
 
+  it('maps IPython back to ipython', async () => {
+    const { envDir, exec, probes } = envWith(['IPython'])
+    expect(await missingBasePackages(envDir, exec)).toEqual(['ipython'])
+    expect(probes[0][2]).toContain('"IPython"')
+  })
+
   it('installs only what is missing into the managed environment', async () => {
     const { envDir, exec } = envWith(['sklearn', 'seaborn'])
     const log: string[] = []
     expect(await installMissingBasePackages(envDir, (line) => log.push(line), exec)).toEqual(['seaborn', 'scikit-learn'])
     expect(spawned).toEqual([{ cmd: managedPython(envDir), args: ['-m', 'pip', 'install', '--', 'seaborn', 'scikit-learn'] }])
     expect(log[0]).toBe('Installing seaborn, scikit-learn')
+  })
+
+  it('installs IPython within the versions the kernel supports', async () => {
+    const { envDir, exec } = envWith(['IPython'])
+    expect(await installMissingBasePackages(envDir, () => {}, exec)).toEqual(['ipython'])
+    expect(spawned).toEqual([{ cmd: managedPython(envDir), args: ['-m', 'pip', 'install', '--', 'ipython>=8,<10'] }])
   })
 
   it('does nothing when the environment is complete', async () => {
@@ -216,10 +228,10 @@ describe('missing base packages in the managed environment', () => {
 })
 
 describe('package lists', () => {
-  it('installs the research stack in the managed environment but only requires the core three', () => {
+  it('installs the research stack and IPython in the managed environment but only requires the core three', () => {
     expect(REQUIRED_PACKAGES).toEqual(['pandas', 'numpy', 'matplotlib'])
-    expect(BASE_PACKAGES).toEqual(expect.arrayContaining([...REQUIRED_PACKAGES, 'scipy', 'statsmodels', 'seaborn', 'scikit-learn']))
-    expect(BASE_PACKAGES.every(isPackageSpec)).toBe(true)
+    expect(BASE_PACKAGES).toEqual(expect.arrayContaining([...REQUIRED_PACKAGES, 'scipy', 'statsmodels', 'seaborn', 'scikit-learn', 'ipython']))
+    expect(BASE_PACKAGES.map(pipSpec).every(isPackageSpec)).toBe(true)
   })
 })
 

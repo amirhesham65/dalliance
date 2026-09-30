@@ -44,7 +44,7 @@ pnpm turbo run test --filter @dalliance/shared
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every pull request and every push to `main`. It runs the same job on Ubuntu and macOS, each with Node 24 and Python 3.12: it installs pandas, NumPy and matplotlib, then runs `pnpm turbo run lint typecheck test build`. One platform failing doesn't cancel the other. A newer push to the same branch cancels the runs in progress.
+`.github/workflows/ci.yml` runs on every pull request and every push to `main`. It runs the same job on Ubuntu and macOS, each with Node 24 and Python 3.12: it installs pandas, NumPy, matplotlib and IPython 8 or 9, then runs `pnpm turbo run lint typecheck test build`. One platform failing doesn't cancel the other. A newer push to the same branch cancels the runs in progress.
 
 The real-Python kernel tests run in CI. The paid end-to-end test doesn't. Run the same checks locally before you push:
 

@@ -100,6 +100,8 @@ const CODE_RULES: Rule[] = [
   ['shell', /(?<![\w.])pty\.spawn\s*\(/, 'runs a subprocess'],
   ['shell', /(?<![\w.])pip\.main\s*\(/, 'runs pip'],
   ['shell', /\bget_ipython\s*\(\s*\)\s*\.\s*(?:system|getoutput)\b/, 'runs a shell command'],
+  // Strings are blanked, so the magic's name can't be read: any magic called by name can run %sx or %%bash
+  ['shell', /\bget_ipython\s*\(\s*\)\s*\.\s*(?:run_line_magic|run_cell_magic|magic)\s*\(/, 'runs an IPython magic'],
   ['network', /(?<![\w.])(?:requests|httpx)\.(?:get|post|put|patch|delete|request|stream|Session|Client|AsyncClient)\s*\(/, 'uses the network'],
   ['network', /(?<![\w.])(?:aiohttp|urllib3)\.\w+/, 'uses the network'],
   ['network', /(?<![\w.])urllib\.request\b/, 'uses the network'],

@@ -56,6 +56,8 @@ describe('inspectCode', () => {
     'importlib.import_module("subprocess")',
     'await asyncio.create_subprocess_exec("ls")',
     'get_ipython().system("ls")',
+    'get_ipython().run_line_magic("sx", "ls")',
+    'get_ipython().run_cell_magic("bash", "", "ls")',
     'import os, subprocess',
   ])('flags shell commands in %s', (code) => {
     expect(kinds(code)).toEqual(['shell'])
