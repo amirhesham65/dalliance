@@ -14,6 +14,8 @@ interface Stored {
   approvalMode: 'interactive' | 'background'
   autoTitles: boolean
   onboarded: boolean
+  /** The folder in use: where new notebooks go, and where the kernel and the agent work. Null for the default one. */
+  workspaceDir: string | null
   /** Encrypted with the OS keychain when available. */
   keys: Partial<Record<Provider, string>>
   /** Notebooks opened or saved lately, newest first. */
@@ -38,6 +40,7 @@ const DEFAULTS: Stored = {
   approvalMode: 'interactive',
   autoTitles: true,
   onboarded: false,
+  workspaceDir: null,
   keys: {},
   recent: [],
 }
@@ -152,6 +155,18 @@ export class SettingsStore {
 
   get autoTitles() {
     return this.data.autoTitles
+  }
+
+  /** The folder last worked in, if it is still there. */
+  get workspaceDir() {
+    const dir = this.data.workspaceDir
+    return dir && existsSync(dir) ? dir : null
+  }
+
+  setWorkspaceDir(dir: string) {
+    if (dir === this.data.workspaceDir) return
+    this.data.workspaceDir = dir
+    this.save()
   }
 
   get recent() {

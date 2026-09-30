@@ -9,10 +9,11 @@ import { MissingKeyError, resolveModel } from './harness/model'
 import { friendlyError, runCell } from './harness/run-cell'
 import { generateTitle, titleModel } from './harness/title'
 import type { Kernel, KernelInfo } from './kernel/kernel'
-import { installPackages, pythonStatus, setupManagedEnv } from './kernel/python-env'
+import { installMissingBasePackages, installPackages, pythonStatus, setupManagedEnv } from './kernel/python-env'
 import { installedPackages } from './kernel/python-packages'
 import { PythonKernel } from './kernel/python-kernel'
 import { isBroadFolder, listFiles } from './harness/workspace'
+import { folderForNewNotebook } from './notebook-files'
 import type { SettingsStore } from './settings'
 
 interface SessionOptions {
@@ -43,12 +44,15 @@ export class NotebookSession {
   private trust = new Set<string>()
   private nextRequest = 0
   private lastKernelState: KernelState
+  /** Whether this app session has already topped up the managed environment's base packages. */
+  private baseChecked = false
   readonly bus = new EventBus()
   private readonly options: SessionOptions
 
   constructor(options: SessionOptions) {
     this.options = options
-    this.workspace = options.defaultWorkspace
+    // A remembered Documents or home folder came from a notebook kept there. Without that notebook, start in the default.
+    this.workspace = folderForNewNotebook(options.settings.workspaceDir ?? options.defaultWorkspace, options.defaultWorkspace)
     this.lastKernelState = { status: 'dead', python: null, cwd: this.workspace, error: null }
 
     // Keep .env files private, and log every run to logs/agent.jsonl
@@ -115,8 +119,20 @@ export class NotebookSession {
     return path.join(this.options.userData, 'python-env')
   }
 
+  private logPython = (line: string) => this.options.send(IPC.pythonLog, line)
+
+  /**
+   * A managed environment made before the base package list grew lacks the newer packages. Install them once
+   * per app session, in the background, so the kernel doesn't wait. A failure only means they stay missing.
+   */
+  private topUpBasePackages() {
+    if (this.baseChecked) return
+    this.baseChecked = true
+    void installMissingBasePackages(this.envDir, this.logPython).catch(() => {})
+  }
+
   async setupPython(): Promise<PythonState> {
-    await setupManagedEnv(this.envDir, (line) => this.options.send(IPC.pythonLog, line))
+    await setupManagedEnv(this.envDir, this.logPython)
     await this.restart()
     return this.pythonState()
   }
@@ -168,6 +184,7 @@ export class NotebookSession {
       onStatus,
     })
     await kernel.start()
+    if (status.source === 'managed') this.topUpBasePackages()
     return kernel
   }
 
@@ -176,9 +193,15 @@ export class NotebookSession {
     void this.ensureKernel().catch(() => {})
   }
 
-  /** A new or opened notebook gets a fresh kernel in its own folder. */
+  /** The folder in use: the kernel's working directory, where the agent reads, and where new notebooks go. */
+  get dir() {
+    return this.workspace
+  }
+
+  /** A new or opened notebook gets a fresh kernel in its own folder. The folder is remembered for the next launch. */
   async openWorkspace(dir: string | null) {
     this.workspace = dir ?? this.options.defaultWorkspace
+    this.options.settings.setWorkspaceDir(this.workspace)
     await this.restart()
   }
 
@@ -186,6 +209,7 @@ export class NotebookSession {
   async moveWorkspace(dir: string) {
     if (dir === this.workspace) return
     this.workspace = dir
+    this.options.settings.setWorkspaceDir(dir)
     if (this.kernel && this.kernel.info().status !== 'dead') {
       await this.kernel.execute(`import os as _os\n_os.chdir(${JSON.stringify(dir)})\ndel _os`, { store: false })
     }

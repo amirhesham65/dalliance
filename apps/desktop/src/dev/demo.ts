@@ -182,6 +182,7 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
       error: null,
     }
   }
+  api.openFolder = async (notebook) => ({ path: '/Users/demo/Trials/Untitled.ipynb', notebook })
   api.listVariables = async () => [
     { name: 'patients', type: 'DataFrame', shape: '412 × 9', detail: 'id, arm, age, stage, months, died, stopped_early, reason, switched' },
     { name: 'summary', type: 'DataFrame', shape: '2 × 5', detail: 'arm, patients, deaths, median_months, survival_24m' },

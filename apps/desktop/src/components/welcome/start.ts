@@ -16,10 +16,13 @@ export async function startWith(fn: () => Promise<OpenedNotebook | null>): Promi
   return true
 }
 
-/** A notebook that isn't a file yet, on a fresh kernel. */
-export const fresh = (notebook: Notebook) => async (): Promise<OpenedNotebook> => {
-  await actions.freshKernel()
-  return { notebook, path: null }
+/** A new notebook file in the folder in use, on a fresh kernel, so it has a path before anyone saves it. */
+export const fresh = (notebook: Notebook) => async (): Promise<OpenedNotebook | null> => getApi()?.newNotebook(notebook) ?? null
+
+/** The folder the open notebook is in, or the one the kernel works in when there is no file. Last part only. */
+export const folderName = (notebookPath: string | null, cwd: string): string => {
+  const dir = notebookPath ? notebookPath.replace(/[\\/][^\\/]*$/, '') : cwd
+  return dir.split(/[\\/]/).filter(Boolean).pop() ?? dir
 }
 
 /** Records that the first-run setup is behind us, finished or skipped. */

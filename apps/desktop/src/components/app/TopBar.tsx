@@ -1,4 +1,4 @@
-import { ChevronDown, FilePlus, FolderOpen, PanelLeft, Settings } from 'lucide-react'
+import { ChevronDown, FilePlus, FolderOpen, FolderPlus, PanelLeft, Settings } from 'lucide-react'
 import { useState } from 'react'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -8,6 +8,7 @@ import { ago, modelLabel } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
 import type { Effort, RecentNotebook } from '@dalliance/shared/ipc'
 import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
+import { folderName } from '@/components/welcome/start'
 import { IconButton } from './IconButton'
 import { MakerLogo } from './MakerLogo'
 
@@ -49,10 +50,12 @@ function NotebookTab() {
   const path = useNotebook((s) => s.path)
   const dirty = useNotebook((s) => s.dirty)
   const busy = useNotebook((s) => Object.values(s.runs).some((r) => r.status === 'running'))
+  const cwd = useNotebook((s) => s.kernel.cwd)
   const [open, setOpen] = useState(false)
   const [recent, setRecent] = useState<RecentNotebook[]>([])
   const api = getApi()
   const name = path ? (path.split(/[\\/]/).pop() ?? path).replace(/\.ipynb$/, '') : 'Untitled'
+  const folder = folderName(path, cwd)
 
   const load = async (fn: () => Promise<{ notebook: import('@dalliance/shared/notebook').Notebook; path: string | null } | null>) => {
     setOpen(false)
@@ -107,25 +110,22 @@ function NotebookTab() {
           <MenuButton
             icon={<FilePlus />}
             label="New notebook"
-            onClick={() =>
-              void load(async () => {
-                await actions.freshKernel()
-                return { notebook: welcomeNotebook(), path: null }
-              })
-            }
+            onClick={() => void load(() => api!.newNotebook(welcomeNotebook()))}
           />
           <MenuButton icon={<FolderOpen />} label="Open…" onClick={() => void load(() => api!.openNotebook())} />
+          <MenuButton icon={<FolderPlus />} label="Open folder…" detail={folder} onClick={() => void load(() => api!.openFolder(welcomeNotebook()))} />
         </div>
       </PopoverContent>
     </Popover>
   )
 }
 
-function MenuButton({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+function MenuButton({ icon, label, detail, onClick }: { icon: React.ReactNode; label: string; detail?: string; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-hover [&_svg]:size-3.5 [&_svg]:text-faint">
       {icon}
       {label}
+      {detail && <span className="ml-auto truncate pl-3 text-xs text-faint">{detail}</span>}
     </button>
   )
 }
