@@ -37,6 +37,8 @@ export interface EventData {
   step?: number
   /** On step: the model that answered. */
   modelId?: string
+  /** On step: whether the chosen model declined and a fallback model answered, the one in modelId. */
+  fallback?: boolean
   /** On step: the model's reasoning summary, null when it returned none. Never clipped in the log. */
   reasoning?: string | null
   /** On step: why the model stopped, like `tool-calls` or `stop`. */

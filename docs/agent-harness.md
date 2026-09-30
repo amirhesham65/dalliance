@@ -121,9 +121,11 @@ Two constraints shape the loop.
 
 | Provider | Setting | Default model | Key |
 | --- | --- | --- | --- |
-| Vercel AI Gateway | `gateway` | `anthropic/claude-opus-5` | `AI_GATEWAY_API_KEY` |
-| Anthropic API | `anthropic` | `claude-opus-5` | `ANTHROPIC_API_KEY` |
-| Dalliance Cloud | `cloud` | `anthropic/claude-opus-5` | None: the Dalliance account's Convex token |
+| Vercel AI Gateway | `gateway` | `anthropic/claude-sonnet-5.5` | `AI_GATEWAY_API_KEY` |
+| Anthropic API | `anthropic` | `claude-sonnet-5-5` | `ANTHROPIC_API_KEY` |
+| Dalliance Cloud | `cloud` | `anthropic/claude-sonnet-5.5` | None: the Dalliance account's Convex token |
+
+The default effort is `medium`. Settings from a version with another default move to this one, see [storage.md](storage.md#settings-and-keys).
 
 `resolveModel()` throws `MissingKeyError` without a key, and a `ModelSetupError` for Dalliance Cloud when signed out or not in this build. `MissingKeyError` is a `ModelSetupError` too, and the session shows either's message as the run's error. Effort maps per maker:
 
@@ -131,12 +133,14 @@ Two constraints shape the loop.
 
   | Models | Thinking | Effort |
   | --- | --- | --- |
-  | Opus 4.7 and later, Sonnet 5 and later, Fable, and any Claude id it doesn't know | Adaptive | All five levels |
+  | Opus 4.7 and later, Sonnet 5 and later, Fable, and any Claude id it doesn't know | Adaptive | All five levels. Sonnet 5.5 is one it doesn't know; a live call through the gateway showed it takes `xhigh`, which Opus 4.6 turns down there |
   | Opus 4.6, Sonnet 4.6 | Adaptive | `low` to `max`, no `xhigh`. `xhigh` becomes `high` |
   | Opus 4.5 | None | `low` to `high`. Anything above becomes `high` |
   | Sonnet 4.5, Haiku 4.5, Opus 4.1, Opus 4, Sonnet 4, Claude 3 | None | None. The API rejects `effort` on these, and they don't take adaptive thinking |
 
   An effort a model doesn't take steps down to the nearest level it does. Every Anthropic model also gets `disableParallelToolUse: true`, which the provider sends as `tool_choice: { type: 'auto', disable_parallel_tool_use: true }`: one tool call per step, so the loop stays a sequence of run, look, fix.
+
+  On the Anthropic API, the models in the first row also get `fallbacks: 'default'`. Their safety classifiers can decline a request; with this the API retries it on the model Anthropic recommends for that kind of refusal, inside the same call, instead of ending the step with a refusal. The provider adds the `server-side-fallback-2026-07-01` beta header. The option is the same on every step, so the prompt cache holds. It isn't sent through the gateway or Dalliance Cloud: the gateway drops it. A live call through the gateway with a fallback model that doesn't exist, or with a value that isn't a valid mode, was answered normally, where a bad `effort` is turned down. So on those routes a declined request still ends the step. A fallback shows in the run log, see [The event bus](#the-event-bus).
 - `openai/*` models get `reasoningEffort`, and `reasoningSummary: 'auto'` for the same per-step summaries. `high`, `xhigh` and `max` all map to `high`. OpenAI leaves out a summary when there was little reasoning, even with some reasoning tokens.
 - Every other maker runs with its defaults.
 
@@ -183,7 +187,8 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 | Field | Holds |
 | --- | --- |
 | `step` | Which model call of the run, from 1 |
-| `modelId` | The model that answered, as the provider reports it |
+| `modelId` | The model that answered, as the provider reports it. After a refusal fallback, the fallback model |
+| `fallback` | Whether the chosen model declined the call and a fallback model answered it. `servedByFallback()` reads it from the `fallback_message` entries Anthropic puts in its usage iterations |
 | `finishReason` | `tool-calls`, `stop`, `length` and so on |
 | `durationMs` | Wall time from the request to the end of the step's tool calls |
 | `reasoning` | The model's reasoning summary for the call, from the stream's `reasoning-delta` parts. `null` when it returned none, never left out, so a missing summary can't pass for lost data |
@@ -191,7 +196,7 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 
 `cacheReadTokens` is the quickest check that [caching](#context-and-caching) works: after the first step of a cell it should be most of `inputTokens`.
 
-`generateCell()` also returns every step's `{ step, modelId, reasoning }` as `steps` on `CellRunResult`, so the record of how a cell was made has the model and the stated reasoning of each call. A plain run of saved code has none. The request options, summaries included, are the same for every step of a run, so the prompt cache holds.
+`generateCell()` also returns every step's `{ step, modelId, fallback, reasoning }` as `steps` on `CellRunResult`, so the record of how a cell was made has the model and the stated reasoning of each call. A plain run of saved code has none. The request options, summaries included, are the same for every step of a run, so the prompt cache holds.
 
 `installExtensions()` in `extensions.ts` registers the built-in ones. `NotebookSession` calls it once, on its own bus:
 

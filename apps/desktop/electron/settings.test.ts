@@ -47,6 +47,31 @@ describe('SettingsStore', () => {
     expect(new SettingsStore(folder).view()).toMatchObject({ suggestNext: false, autoTitles: false })
   })
 
+  it.each([
+    ['gateway', 'anthropic/claude-opus-5', 'anthropic/claude-sonnet-5.5'],
+    ['anthropic', 'claude-opus-5', 'claude-sonnet-5-5'],
+    ['cloud', 'anthropic/claude-opus-5', 'anthropic/claude-sonnet-5.5'],
+  ])('moves a %s model left at the old default to the new one', (provider, stored, now) => {
+    const folder = dir()
+    writeFileSync(path.join(folder, 'settings.json'), JSON.stringify({ provider, model: stored }))
+    const settings = new SettingsStore(folder)
+    if (provider === 'cloud') settings.setCloud({ baseURL: 'https://cloud.example/api/ai', signedIn: () => true, token: async () => 'jwt' })
+    expect(settings.modelConfig()).toMatchObject({ provider, model: now })
+  })
+
+  it('keeps a model the user picked, even an old default in the other provider\'s form', () => {
+    for (const [provider, model] of [
+      ['gateway', 'anthropic/claude-opus-5.5'],
+      ['anthropic', 'claude-opus-4-8'],
+      ['gateway', 'claude-opus-5'],
+      ['anthropic', 'anthropic/claude-opus-5'],
+    ]) {
+      const folder = dir()
+      writeFileSync(path.join(folder, 'settings.json'), JSON.stringify({ provider, model }))
+      expect(new SettingsStore(folder).modelConfig()).toMatchObject({ provider, model })
+    }
+  })
+
   it.skipIf(process.platform === 'win32')('keeps settings.json private', () => {
     const folder = dir()
     new SettingsStore(folder).update({ autoTitles: false })
@@ -163,7 +188,7 @@ describe('SettingsStore', () => {
       const store = new SettingsStore(dir())
       store.setCloud(access)
       const view = store.update({ provider: 'cloud' })
-      expect(view).toMatchObject({ provider: 'cloud', cloud: true, keySource: null, model: 'anthropic/claude-opus-5' })
+      expect(view).toMatchObject({ provider: 'cloud', cloud: true, keySource: null, model: 'anthropic/claude-sonnet-5.5' })
       expect(store.modelConfig()).toMatchObject({ provider: 'cloud', apiKey: null, cloud: access })
     })
 
@@ -172,7 +197,7 @@ describe('SettingsStore', () => {
       writeFileSync(path.join(folder, 'settings.json'), JSON.stringify({ provider: 'cloud', model: 'google/gemini-3.8-flash' }))
       const store = new SettingsStore(folder)
       expect(store.view().provider).toBe('gateway')
-      expect(store.modelConfig()).toMatchObject({ provider: 'gateway', model: 'anthropic/claude-opus-5' })
+      expect(store.modelConfig()).toMatchObject({ provider: 'gateway', model: 'anthropic/claude-sonnet-5.5' })
       // And a build with it gets the choice back
       store.setCloud(access)
       expect(store.modelConfig()).toMatchObject({ provider: 'cloud', model: 'google/gemini-3.8-flash' })

@@ -4,7 +4,7 @@ import path from 'node:path'
 import { safeStorage } from 'electron'
 import type { Effort, KeyProvider, KeyStorage, Provider, SettingsUpdate, SettingsView } from '@dalliance/shared/ipc'
 import { writeFileAtomicSync } from './atomic-write'
-import { type CloudAccess, DEFAULT_MODELS, type ModelConfig } from './harness/model'
+import { type CloudAccess, DEFAULT_MODELS, type ModelConfig, PREVIOUS_DEFAULT_MODELS } from './harness/model'
 
 interface Stored {
   provider: Provider
@@ -72,6 +72,8 @@ export class SettingsStore {
       }
       // Settings from before the first-run setup existed: anyone who has opened a notebook is past it
       this.data = { ...structuredClone(DEFAULTS), onboarded: (stored.recent?.length ?? 0) > 0, ...stored }
+      // A model left at an earlier version's default follows the default. One picked by hand stays
+      if (PREVIOUS_DEFAULT_MODELS[this.data.provider]?.includes(this.data.model)) this.data.model = DEFAULT_MODELS[this.data.provider]
     }
   }
 
