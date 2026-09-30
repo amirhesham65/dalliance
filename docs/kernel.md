@@ -112,11 +112,17 @@ Status changes go to the renderer as `KernelState` over `kernel-state-changed`.
 
 1. `pythonPath` from Settings. A leading `~` expands to the home folder.
 2. The managed environment at `userData/python-env/`.
-3. The first system Python that is 3.9 or newer, trying `python3`, `/opt/homebrew/bin/python3`, `/usr/local/bin/python3` and `/usr/bin/python3`. Apps started from the Dock get a minimal `PATH`, hence the fixed paths.
+3. The newest system Python that is 3.9 or newer, from `findSystemPython()`.
+
+On a Mac, an app started from the Dock gets a `PATH` like `/usr/bin:/bin`, where `python3` is Apple's: an old 3.9 from the Command Line Tools, or an install prompt when they're missing. So `findSystemPython()` collects `python3` from the `PATH` (unless that is `/usr/bin/python3`), plus `python3` and every `python3.N` in `/opt/homebrew/bin`, `/usr/local/bin` and the python.org framework, and picks the newest. A tie goes to the earlier candidate. Only when none qualifies does it try `/usr/bin/python3`, and only after `xcode-select -p` succeeds, so it never triggers the install prompt. On Linux it picks the newest of `python3`, `/usr/local/bin/python3` and `/usr/bin/python3`. It takes injected `exec`, `exists`, `list`, `path` and `platform`, so the tests fake a whole machine.
 
 It also reports which of `pandas`, `numpy` and `matplotlib` are missing. The renderer shows a banner when any are.
 
 `setupManagedEnv()` creates the venv with the system Python if needed, then pip-installs `BASE_PACKAGES` (the three above plus SciPy, statsmodels, seaborn and scikit-learn), streaming lines to the renderer over `python-log`. Changing `pythonPath` in Settings restarts the kernel.
+
+Environments made before `BASE_PACKAGES` grew only have the three required packages. `missingBasePackages(envDir)` reports which base packages the managed environment lacks, as pip names, and `installMissingBasePackages(envDir, onLog)` installs just those and resolves with their names. Both do nothing when there's no managed environment.
+
+`installPackages()` only accepts package names: `isPackageSpec()` rejects anything that starts like a pip option or a path, and every archive name pip would install as a local file (`.whl`, `.zip`, `.tar`, `.tgz`, `.tar.gz`, `.tbz`, `.tar.bz2`, `.txz`, `.tlz`, `.tar.xz`, `.tar.lz`, `.tar.lzma`). When pip refuses a Homebrew or Debian Python with `externally-managed-environment` (PEP 668), it throws `EXTERNALLY_MANAGED_MESSAGE`, which tells the user to set up the managed environment in Settings > Python. It never passes `--break-system-packages`.
 
 ## The Kernel interface
 

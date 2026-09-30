@@ -63,6 +63,10 @@ The website's `typecheck` runs `next typegen` first, so Next's route types exist
 
 The kernel script is imported with `?raw`, so edits to `dalliance_kernel.py` need a main process rebuild and a kernel restart before they take effect.
 
+## The renderer bundle
+
+`build.rolldownOptions.output.codeSplitting` in `vite.config.ts` puts vendor code in its own chunks: `react` (React, React DOM, the scheduler), `ui` (Radix, cmdk, the resizable panels), `icons` (lucide) and `vendor` for any other package. The app's own code stays in `index`, and the demo notebook is a lazy chunk. Every chunk stays under Vite's 500 kB warning, the largest being `react` at about 220 kB. A new dependency lands in `vendor` unless it matches a group. If a build warns about chunk size again, give the package that grew its own group rather than raising the limit.
+
 ## Looking at the UI without Electron
 
 ```bash

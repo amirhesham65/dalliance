@@ -56,6 +56,10 @@ This is a stopgap until downloads are counted somewhere better. `download/route.
 
 Each entry holds `t` (ISO time), `from`, `country`, `region`, `city`, `referrer`, `browser`, `os` and `device`. `referrer` is the page path when the click came from the site, otherwise only the other site's host. No IP is stored.
 
+The list keeps the newest 10,000 entries, `KEEP` in the route. `LPUSH` and `LTRIM` go in one `MULTI`/`EXEC` transaction, Upstash's `/multi-exec`, so the list never grows past the cap, even between the two commands. The privacy page states the cap, so change both together.
+
+The website has no test runner, so the route has no test. The transaction was checked by pointing the Upstash client at a local server: it sends `[["lpush","downloads",...],["ltrim","downloads",0,9999]]` to `/multi-exec`.
+
 The store is `dalliance-downloads`, on Upstash's free plan. To read the log, use the Data Browser in the Upstash console, or pull the variables with the Vercel CLI and call the REST API with the read-only token:
 
 ```bash
