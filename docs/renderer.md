@@ -89,7 +89,7 @@ The overview sits in its own outer group, so opening a side pane never changes i
 
 Below 1200 px wide, `NARROW_WINDOW` in `App.tsx`, there is no room for a side pane column without squeezing the notebook to its minimum. `PaneOverlay` then draws the side pane over the notebook's left edge, 400 px wide at most, with a light scrim over the rest. Esc closes it and puts focus back where it was. A click on the scrim closes it and leaves focus with the notebook. Esc inside a text field, menu or dialog stays with that control. `useMediaQuery()` in `hooks/use-media-query.ts` follows the width.
 
-A banner above the workspace asks for a key, a Python or missing packages when the settings or Python state say so.
+A banner above the workspace asks for a key, a Python or missing packages when the settings or Python state say so. It has a cross on its right. Dismissing it hides that message for the session: it comes back if the message changes, or once the problem has been fixed and returns.
 
 ## Keyboard
 
