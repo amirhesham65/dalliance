@@ -34,16 +34,20 @@ export function resolveModel(config: ModelConfig): {
     config.provider === 'gateway'
       ? createGateway({ apiKey: config.apiKey })(config.model)
       : createAnthropic({ apiKey: config.apiKey })(config.model)
-  return { model, providerOptions: effortOptions(config) }
+  return { model, providerOptions: agentProviderOptions(config) }
 }
 
 /**
- * How hard the model thinks. Anthropic models take adaptive thinking with an effort level, OpenAI reasoning
+ * Options for the agent's requests. Anthropic models take adaptive thinking with an effort level, OpenAI reasoning
  * models take a reasoning effort, both also through the gateway. Other makers get their defaults.
+ *
+ * Anthropic models also get automatic caching: a top-level cacheControl puts a breakpoint on the last block of
+ * every request, so each step of a cell reads the steps before it from the cache. It marks no message, so the
+ * history the model sees stays append-only.
  */
-function effortOptions(config: ModelConfig): ToolLoopAgentSettings['providerOptions'] {
+export function agentProviderOptions(config: Pick<ModelConfig, 'provider' | 'model' | 'effort'>): ToolLoopAgentSettings['providerOptions'] {
   if (config.provider === 'anthropic' || config.model.startsWith('anthropic/')) {
-    return { anthropic: { thinking: { type: 'adaptive' }, effort: config.effort } }
+    return { anthropic: { thinking: { type: 'adaptive' }, effort: config.effort, cacheControl: { type: 'ephemeral' } } }
   }
   if (config.model.startsWith('openai/')) {
     return { openai: { reasoningEffort: config.effort === 'low' || config.effort === 'medium' ? config.effort : 'high' } }

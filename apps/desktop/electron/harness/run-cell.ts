@@ -1,4 +1,5 @@
-import { type LanguageModel, ToolLoopAgent, type ToolLoopAgentSettings, stepCountIs } from 'ai'
+import { GatewayError } from '@ai-sdk/gateway'
+import { APICallError, type LanguageModel, RetryError, ToolLoopAgent, type ToolLoopAgentSettings, stepCountIs } from 'ai'
 import type { ActivityItem, CellRunResult, RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
 import type { Output } from '@dalliance/shared/notebook'
 import type { Kernel } from '../kernel/kernel'
@@ -92,13 +93,14 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
       content: buildSystemPrompt({
         pythonVersion: deps.pythonVersion,
         toolNames: [...TOOL_NAMES],
-        projectInstructions: deps.projectInstructions,
         modelId: deps.modelId,
       }),
       providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
     },
     tools,
     toolOrder: [...TOOL_NAMES],
+    // For Anthropic this carries a top-level cacheControl (see agentProviderOptions), which caches the growing
+    // history at the last block of each step without marking any message
     providerOptions: deps.providerOptions,
     // History stays append-only: with thinking on, the API rejects any change to earlier turns,
     // so there's no pruning here. The step cap and bounded tool outputs keep a run small instead.
@@ -107,6 +109,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
 
   const prompt = buildCellPrompt({
     prompt: request.prompt,
+    projectInstructions: deps.projectInstructions,
     variables: formatVariables(variables),
     files,
     previousCells: request.previousCells,
@@ -237,12 +240,44 @@ function describeResult(toolName: string, output: unknown): { label?: string; de
 }
 
 const firstLine = (s: string) => clip(s.trim().split('\n')[0] ?? '', 80)
-const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err))
+const errorMessage = (err: unknown): string => {
+  if (err instanceof Error) return err.message
+  // A provider's stream error can arrive as a plain object, like { type: 'overloaded_error', message: 'Overloaded' }
+  const message = (err as { message?: unknown } | null)?.message
+  return typeof message === 'string' ? message : String(err)
+}
+
+/**
+ * The HTTP status behind a failed call. AI SDK errors carry it as statusCode; after retries it sits on RetryError's
+ * lastError. Without one, only a status the message spells out counts, like "status 401" or "429 Too Many Requests",
+ * never a bare number that could be a token count.
+ */
+function statusOf(err: unknown): number | undefined {
+  if (RetryError.isInstance(err)) return statusOf(err.lastError)
+  if (APICallError.isInstance(err) || GatewayError.isInstance(err)) return err.statusCode
+  const match = errorMessage(err).match(/\b(?:status(?: code)?|http(?:\/[\d.]+)?)[\s:=]*([1-5]\d\d)\b|\b([45]\d\d) (?:unauthorized|forbidden|not found|too many requests)\b/i)
+  return match ? Number(match[1] ?? match[2]) : undefined
+}
+
+const NETWORK = /\b(?:fetch failed|cannot connect to api|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|network error)\b/i
 
 export function friendlyError(err: unknown): string {
   const message = errorMessage(err)
-  if (/api key|unauthorized|authentication|401|403/i.test(message)) return `The model provider rejected the API key. Check it in Settings. (${clip(message, 200)})`
-  if (/rate limit|429/i.test(message)) return 'The model provider is rate limiting requests. Try again in a minute.'
-  if (/not found|404/i.test(message) && /model/i.test(message)) return `The model wasn't found. Check the model name in Settings. (${clip(message, 200)})`
+  const detail = clip(message, 200)
+  const status = statusOf(err)
+  if (status === 401 || status === 403 || (status == null && /\b(?:invalid (?:x-)?api[ -]key|unauthorized|authentication (?:error|failed))\b/i.test(message))) {
+    return `The model provider rejected the API key. Check it in Settings. (${detail})`
+  }
+  if (status === 429 || (status == null && /\brate[ -]limit/i.test(message))) return 'The model provider is rate limiting requests. Try again in a minute.'
+  if ((status === 404 || (status == null && /\bnot found\b/i.test(message))) && /\bmodel\b/i.test(message)) return `The model wasn't found. Check the model name in Settings. (${detail})`
+  if (status === 529 || /\boverloaded\b/i.test(message)) return 'The model provider is overloaded right now. Try again in a minute.'
+  if (status != null && status >= 500) return `The model provider had a problem (${status}). Try again. (${detail})`
+  if (status == null && NETWORK.test(`${message} ${causeCode(err)}`)) return `Couldn't reach the model provider. Check your internet connection. (${detail})`
   return clip(message, 400)
+}
+
+/** Node puts the network error code, like ENOTFOUND, on the cause of "fetch failed". */
+function causeCode(err: unknown): string {
+  const cause = err instanceof Error ? (err.cause as { code?: unknown } | undefined) : undefined
+  return typeof cause?.code === 'string' ? cause.code : ''
 }

@@ -100,7 +100,7 @@ WHEN NOT TO USE: the data is already loaded in a variable.`,
     }),
 
     read_file: tool({
-      description: `Read a text file from the notebook's folder. Returns numbered lines, at most 500.
+      description: `Read a text file from the notebook's folder. Returns numbered lines, at most 500 lines and 20,000 characters.
 WHEN TO USE: checking a CSV header, a config file or a README before loading it with Python.
 WHEN NOT TO USE: loading data for analysis (do that in run_cell with pandas).
 DO NOT USE FOR: files outside the notebook's folder.`,
