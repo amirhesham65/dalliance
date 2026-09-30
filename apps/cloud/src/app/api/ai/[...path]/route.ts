@@ -10,6 +10,12 @@ const GATEWAY = 'https://ai-gateway.vercel.sh'
 const convex = process.env.CONVEX_SITE_URL?.trim().replace(/\/$/, '') || null
 const secret = process.env.AUTH_PROXY_SECRET?.trim() || null
 const gatewayKey = process.env.AI_GATEWAY_API_KEY?.trim() || null
+/**
+ * Only `ZERO_DATA_RETENTION=off` turns the flag off, for a Vercel team not yet on a paid plan, which refuses it.
+ * Never in production: the product promises zero data retention. See docs/billing.md
+ */
+const retentionOff = process.env.ZERO_DATA_RETENTION?.trim() === 'off'
+if (retentionOff) console.warn('ZERO_DATA_RETENTION=off: model calls run without zero data retention')
 
 /** The only gateway endpoints the app needs: writing with a model, and the model list. */
 const ROUTES: Record<string, 'GET' | 'POST'> = { 'language-model': 'POST', config: 'GET' }
@@ -105,7 +111,7 @@ async function forward(request: NextRequest, { params }: { params: Promise<{ pat
     if (typeof call !== 'object' || call === null || Array.isArray(call)) return refuse(400, "The model call wasn't valid.")
     // The model and any gateway fallbacks, so a fallback can't reach a model the list leaves out
     if (!modelsOf(request.headers.get('ai-language-model-id') ?? '', call).every((id) => allowed.has(id))) return refuse(403, NOT_OFFERED)
-    body = JSON.stringify(withZeroDataRetention(call))
+    body = JSON.stringify(retentionOff ? call : withZeroDataRetention(call))
   }
 
   // No abort signal from the caller: a call that's cut off still runs to the end at the gateway, which bills us
