@@ -34,12 +34,26 @@ export interface ToolDeps {
   needsApproval: (keys: string[]) => boolean
   installPackages: (packages: string[]) => Promise<string>
   exploreTimeoutMs?: number
+  /** How long run_cell may take before the kernel is interrupted. Defaults to RUN_TIMEOUT_MS. */
+  runTimeoutMs?: number
 }
 
 const MAX_EXPLORE_CHARS = 4000
 /** Exploration should take seconds. Anything slower is usually scanning something huge. */
 export const EXPLORE_TIMEOUT_MS = 20_000
 const MAX_RUN_CHARS = 5000
+/** A cell that runs longer than this is almost always stuck or working on far too much data. */
+export const RUN_TIMEOUT_MS = 10 * 60_000
+
+/** "10 minutes", "45 seconds". */
+export function duration(ms: number): string {
+  if (ms >= 60_000) {
+    const minutes = Math.round(ms / 60_000)
+    return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+  }
+  const seconds = Math.max(1, Math.round(ms / 1000))
+  return `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`
+}
 
 /**
  * Tool descriptions are the model's selection API: WHEN TO USE, WHEN NOT TO USE, DO NOT USE FOR.
@@ -143,7 +157,27 @@ USAGE: pass the whole cell, not a diff. Only the last successful run is kept. Af
         tracked(guarded('run_cell', { code }, async () => {
           state.attempts += 1
           deps.onAttempt(code)
-          const result = await kernel.execute(code, { store: true, onOutput: deps.onOutput })
+          const limit = deps.runTimeoutMs ?? RUN_TIMEOUT_MS
+          let timedOut = false
+          const timer = setTimeout(() => {
+            timedOut = true
+            kernel.interrupt()
+          }, limit)
+          let result: ExecuteResult
+          try {
+            result = await kernel.execute(code, { store: true, onOutput: deps.onOutput })
+          } catch (err) {
+            // A kernel that ignores the interrupt gets killed, and the run fails with it
+            if (!timedOut) throw err
+            result = { ok: false, outputs: [], executionCount: null, durationMs: limit, assigned: [] }
+          } finally {
+            clearTimeout(timer)
+          }
+          if (timedOut) {
+            // Never a run finish can keep, whatever the kernel reported after the interrupt
+            state.lastRun = { code, result: { ...result, ok: false } }
+            return `The cell timed out after ${duration(limit)} and was stopped. Make it faster: work on a sample or fewer rows, use vectorized pandas instead of Python loops, and keep slow steps in their own cell. Then call run_cell again.`
+          }
           state.lastRun = { code, result }
           const text = outputsToText(result.outputs, MAX_RUN_CHARS)
           return result.ok

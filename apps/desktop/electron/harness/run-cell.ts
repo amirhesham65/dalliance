@@ -27,6 +27,8 @@ export interface HarnessDeps {
   installPackages: (packages: string[]) => Promise<string>
   signal: AbortSignal
   exploreTimeoutMs?: number
+  /** How long one run_cell may take before the kernel is interrupted. Defaults to 10 minutes. */
+  runTimeoutMs?: number
   /** Upper bound on model steps for one cell. */
   maxSteps?: number
 }
@@ -85,6 +87,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     needsApproval: deps.needsApproval,
     installPackages: deps.installPackages,
     exploreTimeoutMs: deps.exploreTimeoutMs,
+    runTimeoutMs: deps.runTimeoutMs,
   })
 
   const agent = new ToolLoopAgent<never, CellTools>({
@@ -249,6 +252,7 @@ function describeResult(toolName: string, output: unknown): { label?: string; de
     case 'list_files':
       return { label: 'Listed files' }
     case 'run_cell':
+      if (text.startsWith('The cell timed out')) return { label: 'Ran the cell', detail: `Stopped after ${text.match(/after ([^.]+) and/)?.[1] ?? 'too long'}`, failed: true }
       return text.startsWith('The cell failed')
         ? { label: 'Ran the cell', detail: firstLine(text.split('\n')[1] ?? ''), failed: true }
         : { label: 'Ran the cell', detail: text.match(/in (\d+) ms/)?.[0] }

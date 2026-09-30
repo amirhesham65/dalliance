@@ -13,6 +13,7 @@ import { type EventData, EventBus } from './events'
 import { installExtensions } from './extensions'
 import { agentProviderOptions } from './model'
 import { type HarnessDeps, friendlyError, runCell } from './run-cell'
+import { RUN_TIMEOUT_MS, duration } from './tools'
 
 type Step = { tool: string; input: Record<string, unknown>; thinking?: string } | { text: string }
 
@@ -330,6 +331,63 @@ describe('safety limits', () => {
     await runCell(request(), { ...deps, exploreTimeoutMs: 50 } as HarnessDeps)
     expect(interrupted).toBe(true)
     expect(JSON.stringify(prompts[1])).toContain('Exploration must be quick')
+  })
+})
+
+describe('the run_cell time limit', () => {
+  /** A kernel whose runs of `slow` code only end when interrupted, the way Ctrl+C ends a stuck cell. */
+  function stuckKernel(onInterrupt: 'returns' | 'throws') {
+    const kernel = new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] }))
+    const execute = kernel.execute.bind(kernel)
+    let interrupts = 0
+    kernel.interrupt = () => void interrupts++
+    kernel.execute = async (code, options) => {
+      if (!code.includes('slow')) return execute(code, options)
+      kernel.executed.push({ code, store: options.store })
+      await new Promise<void>((resolve) => {
+        const poll = setInterval(() => interrupts > 0 && (clearInterval(poll), resolve()), 5)
+      })
+      if (onInterrupt === 'throws') throw new Error('The kernel was killed.')
+      return { ok: false, outputs: [{ type: 'error', ename: 'KeyboardInterrupt', evalue: '', traceback: ['KeyboardInterrupt'] }], executionCount: 1, durationMs: 60, assigned: [] }
+    }
+    return { kernel, interrupts: () => interrupts }
+  }
+
+  it.each(['returns', 'throws'] as const)('interrupts a run that takes too long and tells the model, when the kernel %s', async (onInterrupt) => {
+    const { kernel, interrupts } = stuckKernel(onInterrupt)
+    const { model, prompts } = scriptedModel([
+      { tool: 'run_cell', input: { code: 'slow_model.fit(everything)' } },
+      { tool: 'finish', input: { interpretation: '', answer: '' } },
+      { text: 'It is too slow.' },
+    ])
+    const { deps } = harness(model, kernel, { runTimeoutMs: 40 })
+    const result = await runCell(request(), deps)
+    expect(interrupts()).toBe(1)
+    const told = JSON.stringify(prompts[1])
+    expect(told).toContain('The cell timed out after 1 second and was stopped.')
+    // Bounded: a fixed message, not the kernel's output
+    expect(told).not.toContain('KeyboardInterrupt')
+    // finish refuses the timed-out run
+    expect(JSON.stringify(prompts[2])).toContain('The last run_cell failed')
+    expect(result).toMatchObject({ ok: false, code: 'slow_model.fit(everything)' })
+    expect(result.activity[0]).toMatchObject({ label: 'Ran the cell', detail: 'Stopped after 1 second', status: 'error' })
+  })
+
+  it('leaves runs inside the limit alone', async () => {
+    const { kernel, interrupts } = stuckKernel('returns')
+    const { model } = scriptedModel([{ tool: 'run_cell', input: { code: 'x = 1\nx' } }, { tool: 'finish', input: { interpretation: '', answer: '' } }])
+    const { deps } = harness(model, kernel, { runTimeoutMs: 200 })
+    const result = await runCell(request(), deps)
+    expect(result.ok).toBe(true)
+    await new Promise((r) => setTimeout(r, 250))
+    expect(interrupts()).toBe(0)
+  })
+
+  it('defaults to ten minutes', () => {
+    expect(RUN_TIMEOUT_MS).toBe(600_000)
+    expect(duration(RUN_TIMEOUT_MS)).toBe('10 minutes')
+    expect(duration(60_000)).toBe('1 minute')
+    expect(duration(45_000)).toBe('45 seconds')
   })
 })
 
