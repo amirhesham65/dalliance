@@ -100,7 +100,7 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
     if (request.nameIt) setTimeout(() => emit({ type: 'title', title: 'Early stops by reason', prompt: request.prompt }), 900)
     // The sample's last cell is ambiguous on purpose: patients who switched arms change the counts, so the agent asks
     if (/stopped treatment early/.test(request.prompt)) {
-      const look = { id: 'q1', label: 'Looking at patients.switched.value_counts()' }
+      const look = { id: 'q1', label: 'Checking who switched arms', code: 'patients.switched.value_counts()' }
       emit({ type: 'activity', item: { id: 'q0', label: 'Checked variables', status: 'done' } })
       emit({ type: 'activity', item: { ...look, status: 'running' } })
       await wait(600)
@@ -127,10 +127,11 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
         durationMs: 3_100,
       })
     }
+    const stageCode = "patients.groupby('stage').died.mean().sort_values(ascending=False)"
     const steps = [
       { id: 'a', label: 'Checked variables' },
-      { id: 'b', label: 'Looking at patients.stage.value_counts()' },
-      { id: 'c', label: 'Ran the cell', detail: 'in 84 ms' },
+      { id: 'b', label: 'Counting patients per stage', code: 'patients.stage.value_counts()' },
+      { id: 'c', label: 'Comparing death rates by stage', detail: 'Ran in 84 ms', code: stageCode },
     ]
     for (const s of steps) {
       emit({ type: 'status', text: s.label })
@@ -139,7 +140,7 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
       emit({ type: 'activity', item: { ...s, status: 'done' } })
     }
     return result({
-      code: "patients.groupby('stage').died.mean().sort_values(ascending=False)",
+      code: stageCode,
       outputs: [{ type: 'text', text: 'stage\nIII    0.58\nII     0.41\nI      0.27' }],
       answer: 'Stage **III** patients had the highest death rate, **58%**.',
       suggestions: ['Survival curves by stage', 'Adjust the arm comparison for stage'],

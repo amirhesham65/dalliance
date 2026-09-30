@@ -6,14 +6,15 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { APICallError, RetryError, generateText } from 'ai'
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test'
 import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import type { RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
 import { FakeKernel } from '../kernel/fake-kernel'
 import { createApproval } from './approval'
 import { type EventData, EventBus } from './events'
 import { installExtensions } from './extensions'
 import { agentProviderOptions, cloudGateway } from './model'
-import { type HarnessDeps, friendlyError, runCell, servedByFallback } from './run-cell'
-import { RUN_TIMEOUT_MS, duration } from './tools'
+import { type HarnessDeps, describeCall, describeResult, friendlyError, runCell, servedByFallback } from './run-cell'
+import { RUN_TIMEOUT_MS, type ToolDeps, createCellTools, duration } from './tools'
 
 type Step = { tool: string; input: Record<string, unknown>; thinking?: string } | { text: string }
 
@@ -90,7 +91,7 @@ const table = { type: 'table' as const, columns: ['month', 'aov'], index: ['0'],
 describe('runCell with generation', () => {
   it('asks for no suggested next prompts when they are off, and drops any the model writes anyway', async () => {
     const steps = [
-      { tool: 'run_cell', input: { code: 'orders.total.mean()' } },
+      { tool: 'run_cell', input: { summary: 'Looking at the orders', code: 'orders.total.mean()' } },
       { tool: 'finish', input: { interpretation: '', answer: 'The mean is **41.2**.', next: ['Plot totals by month'] } },
     ]
     const kernel = () => new FakeKernel(() => ({ ok: true, outputs: [table] }))
@@ -117,8 +118,8 @@ describe('runCell with generation', () => {
     )
     const { model } = scriptedModel([
       { tool: 'list_variables', input: {} },
-      { tool: 'run_cell', input: { code: 'orders.groupby("month").bad.mean()' } },
-      { tool: 'run_cell', input: { code: 'orders.groupby("month").total.mean()' } },
+      { tool: 'run_cell', input: { summary: 'Averaging order value by month', code: 'orders.groupby("month").bad.mean()' } },
+      { tool: 'run_cell', input: { summary: 'Averaging the order totals by month', code: 'orders.groupby("month").total.mean()' } },
       { tool: 'finish', input: { interpretation: 'Order value is [[total including tax]].', answer: 'August averaged $41.20.', next: ['"Plot it by month"', ' ', 'Median order value'] } },
     ])
     const { deps, events } = harness(model, kernel)
@@ -139,8 +140,8 @@ describe('runCell with generation', () => {
     expect(events.filter((e) => e.type === 'attempt')).toHaveLength(2)
     expect(result.activity.map((a) => [a.label, a.status])).toEqual([
       ['Checked variables', 'done'],
-      ['Ran the cell', 'error'],
-      ['Ran the cell', 'done'],
+      ['Averaging order value by month', 'error'],
+      ['Averaging the order totals by month', 'done'],
       ['Finished', 'done'],
     ])
   })
@@ -172,7 +173,7 @@ describe('runCell with generation', () => {
   it('refuses to finish before a successful run', async () => {
     const { model } = scriptedModel([
       { tool: 'finish', input: { interpretation: '', answer: '' } },
-      { tool: 'run_cell', input: { code: 'x = 1\nx' } },
+      { tool: 'run_cell', input: { summary: 'Looking at the orders', code: 'x = 1\nx' } },
       { tool: 'finish', input: { interpretation: '', answer: '' } },
     ])
     const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })))
@@ -219,7 +220,7 @@ describe('runCell with generation', () => {
   it('asks before code uses the network, through the same approval as installs', async () => {
     const approvals: [string, string, string[]][] = []
     const kernel = new FakeKernel()
-    const { model, prompts } = scriptedModel([{ tool: 'run_cell', input: { code: 'import requests\nrates = requests.get(URL).json()' } }, { text: 'Okay.' }])
+    const { model, prompts } = scriptedModel([{ tool: 'run_cell', input: { summary: 'Looking at the orders', code: 'import requests\nrates = requests.get(URL).json()' } }, { text: 'Okay.' }])
     const { deps } = harness(model, kernel, {
       requestApproval: async (...args) => {
         approvals.push(args)
@@ -237,7 +238,7 @@ describe('runCell with generation', () => {
   it('runs network code without asking in background mode', async () => {
     let asked = false
     const kernel = new FakeKernel()
-    const { model } = scriptedModel([{ tool: 'explore', input: { code: 'import requests' } }, { text: 'Okay.' }])
+    const { model } = scriptedModel([{ tool: 'explore', input: { summary: 'Looking at the orders', code: 'import requests' } }, { text: 'Okay.' }])
     const { deps } = harness(model, kernel, {
       needsApproval: createApproval({ mode: 'background' }),
       requestApproval: async () => (asked = true),
@@ -260,7 +261,7 @@ describe('runCell with generation', () => {
 
 describe('observability', () => {
   it('reports every step with its model, finish reason, duration and token usage', async () => {
-    const { model } = scriptedModel([{ tool: 'run_cell', input: { code: 'x = 1\nx' } }, { tool: 'finish', input: { interpretation: '', answer: '' } }])
+    const { model } = scriptedModel([{ tool: 'run_cell', input: { summary: 'Looking at the orders', code: 'x = 1\nx' } }, { tool: 'finish', input: { interpretation: '', answer: '' } }])
     const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })))
     const order: string[] = []
     const steps: EventData[] = []
@@ -285,8 +286,8 @@ describe('observability', () => {
 
   it("keeps each step's reasoning summary, and null for a step without one", async () => {
     const { model } = scriptedModel([
-      { tool: 'explore', input: { code: 'orders.head()' }, thinking: 'Look at the columns first.' },
-      { tool: 'run_cell', input: { code: 'x = 1\nx' } },
+      { tool: 'explore', input: { summary: 'Looking at the orders', code: 'orders.head()' }, thinking: 'Look at the columns first.' },
+      { tool: 'run_cell', input: { summary: 'Looking at the orders', code: 'x = 1\nx' } },
       { tool: 'finish', input: { interpretation: '', answer: '' }, thinking: 'It ran, so finish.' },
     ])
     const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })))
@@ -330,7 +331,7 @@ describe('parallel tool calls', () => {
   it('makes finish wait for a run_cell sent in the same step', async () => {
     const chunks = [
       { type: 'stream-start' as const, warnings: [] },
-      { type: 'tool-call' as const, toolCallId: 'call-1', toolName: 'run_cell', input: JSON.stringify({ code: 'total = orders.total.sum()\ntotal' }) },
+      { type: 'tool-call' as const, toolCallId: 'call-1', toolName: 'run_cell', input: JSON.stringify({ summary: 'Adding up order totals', code: 'total = orders.total.sum()\ntotal' }) },
       { type: 'tool-call' as const, toolCallId: 'call-2', toolName: 'finish', input: JSON.stringify({ interpretation: '', answer: '' }) },
       { type: 'finish' as const, finishReason: { unified: 'tool-calls' as const, raw: 'tool_use' }, usage },
     ]
@@ -353,8 +354,125 @@ describe('parallel tool calls', () => {
     const { deps } = harness(model, kernel)
     const result = await runCell(request(), deps)
     expect(result).toMatchObject({ ok: true, code: 'total = orders.total.sum()\ntotal', outputs: [{ type: 'text', text: '42' }], error: null })
-    expect(result.activity.map((a) => a.label)).toEqual(['Ran the cell', 'Finished'])
+    expect(result.activity.map((a) => a.label)).toEqual(['Adding up order totals', 'Finished'])
     expect(calls).toBe(1)
+  })
+})
+
+describe('step labels', () => {
+  const finishStep = { type: 'finish' as const, finishReason: { unified: 'tool-calls' as const, raw: 'tool_use' }, usage }
+  const done = [
+    { type: 'stream-start' as const, warnings: [] },
+    { type: 'tool-call' as const, toolCallId: 'end', toolName: 'finish', input: JSON.stringify({ interpretation: '', answer: '' }) },
+    finishStep,
+  ]
+
+  /** One tool call whose input streams in the pieces given, the way providers send it. */
+  function streamedCall(toolName: string, pieces: string[], opts: { complete?: boolean } = {}) {
+    const id = 'call-1'
+    return [
+      { type: 'stream-start' as const, warnings: [] },
+      { type: 'tool-input-start' as const, id, toolName },
+      ...pieces.map((delta) => ({ type: 'tool-input-delta' as const, id, delta })),
+      ...(opts.complete === false ? [] : [{ type: 'tool-input-end' as const, id }, { type: 'tool-call' as const, toolCallId: id, toolName, input: pieces.join('') }]),
+      finishStep,
+    ]
+  }
+
+  function playback(...steps: object[][]) {
+    let call = 0
+    return new MockLanguageModelV4({ doStream: async () => ({ stream: simulateReadableStream({ chunks: steps[Math.min(call++, steps.length - 1)] as never[] }) }) })
+  }
+
+  const code = "patients.groupby('stage').size()"
+
+  it('shows the summary as soon as it has streamed, before the code has', async () => {
+    const pieces = ['{"summ', 'ary": "Counting pat', 'ients per stage", "co', `de": "${code.slice(0, 10)}`, `${code.slice(10)}"}`]
+    const kernel = new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: 'III 12' }] }))
+    const { deps, events } = harness(playback(streamedCall('run_cell', pieces), done), kernel)
+    const result = await runCell(request(), deps)
+
+    const steps = events.flatMap((e, at) => (e.type === 'activity' && e.item.id === 'call-1' ? [{ at, ...e.item }] : []))
+    expect(steps.map((s) => s.label)).toEqual(['Running the cell', 'Counting patients per stage', 'Counting patients per stage', 'Counting patients per stage'])
+    // The summary lands from the stream, then the whole call confirms it and brings the code
+    expect(steps[1].code).toBeUndefined()
+    expect(steps[2].code).toBe(code)
+    const status = events.findIndex((e) => e.type === 'status' && e.text === 'Counting patients per stage')
+    expect(status).toBeGreaterThan(-1)
+    expect(status).toBeLessThan(steps[2].at)
+    expect(result.activity[0]).toMatchObject({ label: 'Counting patients per stage', detail: 'Ran in 5 ms', code, status: 'done' })
+  })
+
+  it("shows the summary once the call is whole when the code came first, and never a summary that's still streaming", async () => {
+    const pieces = [`{"code": "${code}", "summary": "Look`, 'ing at stages"}']
+    const { deps, events } = harness(playback(streamedCall('explore', pieces), done), new FakeKernel())
+    await runCell(request(), deps)
+    const labels = events.flatMap((e) => (e.type === 'activity' && e.item.id === 'call-1' ? [e.item.label] : []))
+    expect(labels).toEqual(['Exploring the data', 'Looking at stages', 'Looking at stages', 'Looking at stages'])
+  })
+
+  it('falls back to a generic label when the summary is empty', async () => {
+    const { model } = scriptedModel([
+      { tool: 'explore', input: { summary: '  ', code } },
+      { tool: 'run_cell', input: { summary: '', code } },
+      { tool: 'finish', input: { interpretation: '', answer: '' } },
+    ])
+    const { deps, events } = harness(model, new FakeKernel())
+    const result = await runCell(request(), deps)
+    const running = events.flatMap((e) => (e.type === 'activity' && e.item.status === 'running' ? [e.item.label] : []))
+    expect(running).toEqual(['Exploring the data', 'Running the cell', 'Finishing'])
+    expect(result.activity.map((a) => a.label)).toEqual(['Explored the data', 'Ran the cell', 'Finished'])
+  })
+
+  it('never puts code in a label or detail, even when a call leaves out its summary', async () => {
+    const failing = "orders.merge(customers, on='id').bad_column"
+    const kernel = new FakeKernel((c) =>
+      c === failing
+        ? { ok: false, outputs: [{ type: 'stream', name: 'stderr', text: 'FutureWarning: a pandas warning' }, { type: 'error', ename: 'AttributeError', evalue: "no attribute 'bad_column'", traceback: [`----> 1 ${failing}\n`] }] }
+        : { ok: true, outputs: [] },
+    )
+    const { model } = scriptedModel([
+      { tool: 'explore', input: { code: 'secret_first_line()' } },
+      { tool: 'run_cell', input: { summary: 'Joining orders to customers', code: failing } },
+      { tool: 'finish', input: { interpretation: '', answer: '' } },
+      { text: 'Stuck.' },
+    ])
+    const { deps, events } = harness(model, kernel)
+    const result = await runCell(request(), deps)
+
+    const shown = events.flatMap((e) => (e.type === 'activity' ? [e.item.label, e.item.detail ?? ''] : e.type === 'status' ? [e.text] : []))
+    for (const text of shown) {
+      expect(text).not.toContain('secret_first_line')
+      expect(text).not.toContain('orders.merge')
+      expect(text).not.toContain('---->')
+    }
+    expect(result.activity[0]).toMatchObject({ label: 'Exploring the data', detail: 'The call was malformed and went back to the model', status: 'error' })
+    expect(result.activity[1]).toMatchObject({ label: 'Joining orders to customers', detail: "AttributeError: no attribute 'bad_column'", code: failing, status: 'error' })
+  })
+
+  it("doesn't leave a call spinning when the stream ends before its input does", async () => {
+    const cutOff = streamedCall('run_cell', ['{"summary": "Counting patients", "code": "x'], { complete: false })
+    const { deps } = harness(playback(cutOff), new FakeKernel())
+    const result = await runCell(request(), deps)
+    expect(result.activity).toEqual([{ id: 'call-1', label: 'Counting patients', status: 'error' }])
+  })
+
+  it('makes the summary a required first field of explore and run_cell', () => {
+    const tools = createCellTools({ cellId: 'c1', state: { lastRun: null, finished: null, attempts: 0 } } as unknown as ToolDeps)
+    for (const name of ['explore', 'run_cell'] as const) {
+      const schema = z.toJSONSchema(tools[name].inputSchema as z.ZodType) as { properties: Record<string, unknown>; required: string[] }
+      expect(Object.keys(schema.properties)[0]).toBe('summary')
+      expect(schema.required).toContain('summary')
+      expect((tools[name].inputSchema as z.ZodType).safeParse({ code: 'x' }).success).toBe(false)
+    }
+  })
+
+  it('describes results in words', () => {
+    const traceback = 'The cell failed.\n[stderr]\nUserWarning: careful\nKeyError: \'amount\'\n----> 1 orders["amount"].sum()'
+    expect(describeResult('run_cell', traceback, { summary: 'Totalling amounts' })).toEqual({ label: undefined, detail: "KeyError: 'amount'", failed: true })
+    expect(describeResult('run_cell', 'The cell failed.\n(no output)', { summary: '' })).toEqual({ label: 'Ran the cell', detail: 'The cell failed', failed: true })
+    expect(describeResult('explore', 'Unnamed: 0\nx = frame.bad', { summary: 'Looking' })).toEqual({ label: undefined, detail: undefined })
+    expect(describeCall('explore', { summary: 'Counting patients per stage.', code })).toBe('Counting patients per stage')
   })
 })
 
@@ -367,7 +485,7 @@ describe('safety limits', () => {
       if (code.includes('glob')) await new Promise<void>((r) => (kernel.interrupt = () => ((interrupted = true), r())))
       return { ok: !code.includes('glob'), outputs: [], executionCount: null, durationMs: 1, assigned: [] }
     }
-    const { model, prompts } = scriptedModel([{ tool: 'explore', input: { code: 'glob.glob("**/*.csv", recursive=True)' } }, { text: 'ok' }])
+    const { model, prompts } = scriptedModel([{ tool: 'explore', input: { summary: 'Looking at the orders', code: 'glob.glob("**/*.csv", recursive=True)' } }, { text: 'ok' }])
     const { deps } = harness(model, kernel)
     await runCell(request(), { ...deps, exploreTimeoutMs: 50 } as HarnessDeps)
     expect(interrupted).toBe(true)
@@ -397,7 +515,7 @@ describe('the run_cell time limit', () => {
   it.each(['returns', 'throws'] as const)('interrupts a run that takes too long and tells the model, when the kernel %s', async (onInterrupt) => {
     const { kernel, interrupts } = stuckKernel(onInterrupt)
     const { model, prompts } = scriptedModel([
-      { tool: 'run_cell', input: { code: 'slow_model.fit(everything)' } },
+      { tool: 'run_cell', input: { summary: '', code: 'slow_model.fit(everything)' } },
       { tool: 'finish', input: { interpretation: '', answer: '' } },
       { text: 'It is too slow.' },
     ])
@@ -416,7 +534,7 @@ describe('the run_cell time limit', () => {
 
   it('leaves runs inside the limit alone', async () => {
     const { kernel, interrupts } = stuckKernel('returns')
-    const { model } = scriptedModel([{ tool: 'run_cell', input: { code: 'x = 1\nx' } }, { tool: 'finish', input: { interpretation: '', answer: '' } }])
+    const { model } = scriptedModel([{ tool: 'run_cell', input: { summary: 'Looking at the orders', code: 'x = 1\nx' } }, { tool: 'finish', input: { interpretation: '', answer: '' } }])
     const { deps } = harness(model, kernel, { runTimeoutMs: 200 })
     const result = await runCell(request(), deps)
     expect(result.ok).toBe(true)
@@ -434,10 +552,10 @@ describe('the run_cell time limit', () => {
 
 describe('history', () => {
   it('only ever appends to what the model saw before, even over a long run with thinking', async () => {
-    const explore = Array.from({ length: 16 }, (_, i) => ({ tool: 'explore', input: { code: `orders.iloc[${i}]` }, thinking: `Look at row ${i}.` }))
+    const explore = Array.from({ length: 16 }, (_, i) => ({ tool: 'explore', input: { summary: 'Looking at the orders', code: `orders.iloc[${i}]` }, thinking: `Look at row ${i}.` }))
     const { model, prompts } = scriptedModel([
       ...explore,
-      { tool: 'run_cell', input: { code: 'orders.total.sum()' }, thinking: 'Now the real cell.' },
+      { tool: 'run_cell', input: { summary: 'Adding up order totals', code: 'orders.total.sum()' }, thinking: 'Now the real cell.' },
       { tool: 'finish', input: { interpretation: '', answer: '' } },
     ])
     const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })))
@@ -522,7 +640,7 @@ describe('caching', () => {
   it('asks for automatic caching on every step and marks no message but the system prompt', async () => {
     const { model, prompts, providerOptions } = scriptedModel([
       { tool: 'list_variables', input: {} },
-      { tool: 'run_cell', input: { code: 'x = 1\nx' } },
+      { tool: 'run_cell', input: { summary: 'Looking at the orders', code: 'x = 1\nx' } },
       { tool: 'finish', input: { interpretation: '', answer: '' } },
     ])
     const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })), { providerOptions: anthropicOptions })

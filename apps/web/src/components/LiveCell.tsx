@@ -30,7 +30,7 @@ const y = (s: number) => 6 + (1 - s) * 92
 const at = (arm: Arm, m: number) => arm.steps.filter(([sm]) => sm <= m).at(-1)![1]
 const curve = (arm: Arm) => `M${x(0)},${y(1)}` + arm.steps.slice(1).map(([m, s]) => `H${x(m)}V${y(s)}`).join('') + `H${x(MONTHS)}`
 
-const STEPS = ['Looked at df.head()', 'Ran the cell']
+const STEPS = ['Checking follow-up by arm', 'Comparing survival by arm']
 
 type Phase = 'idle' | 'typing' | 'running' | 'done'
 

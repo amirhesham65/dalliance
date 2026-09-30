@@ -26,7 +26,7 @@ The agent lives in `apps/desktop/electron/harness/`. It follows Vercel's [Build 
 2. Reads the kernel's variables and lists up to 80 files in the workspace.
 3. Builds the tools with `createCellTools()` and a `ToolLoopAgent` with the system prompt as `instructions`.
 4. Streams with `stopWhen: [stepCountIs(24), () => state.finished != null]`.
-5. Turns stream parts into activity items and status text for the renderer, and emits `step` at the end of every model call.
+5. Turns stream parts into activity items and status text for the renderer (see [Step labels](#step-labels)), and emits `step` at the end of every model call.
 6. Emits `run_end` and builds a `CellRunResult` from `state.lastRun` and `state.finished`.
 
 The tools write to a shared `RunState`:
@@ -52,10 +52,10 @@ Every tool's description follows the course's format: WHEN TO USE, WHEN NOT TO U
 | Tool | Does | Bounds |
 | --- | --- | --- |
 | `list_variables` | Lists kernel variables with type, shape and DataFrame columns | 40 variables, 300 characters of detail each |
-| `explore` | Runs a snippet with `store: false`. No execution count, no `_` | 4,000 characters. Interrupted after 20 s |
+| `explore` | Runs a snippet with `store: false`. No execution count, no `_`. Takes a `summary` and the `code` | 4,000 characters. Interrupted after 20 s |
 | `list_files` | Lists the workspace, 4 folders deep, skipping dotfiles and `node_modules`, `.venv` and similar | 200 files |
 | `read_file` | Numbered lines of a text file in the workspace | 500 lines, 500 characters a line, 20,000 characters in all. Refuses binaries |
-| `run_cell` | Runs the complete cell with `store: true` and records it as `lastRun` | 5,000 characters. Tables show 15 rows to the model. Interrupted after 10 minutes |
+| `run_cell` | Runs the complete cell with `store: true` and records it as `lastRun`. Takes a `summary` and the `code` | 5,000 characters. Tables show 15 rows to the model. Interrupted after 10 minutes |
 | `install_packages` | `pip install` into the kernel's interpreter | 1 to 5 packages. Last 1,500 characters of the log |
 | `ask_user` | A multiple-choice question in the cell | 2 to 4 options |
 | `finish` | Ends the cell with interpretation, answer and `next` | Up to 3 suggestions. None when `suggestNext` is off |
@@ -65,6 +65,18 @@ Every tool's description follows the course's format: WHEN TO USE, WHEN NOT TO U
 `run_cell` has a time limit, `runTimeoutMs` in `HarnessDeps`, 10 minutes by default (`RUN_TIMEOUT_MS`). Past it the tool calls `kernel.interrupt()`, like `explore` does after 20 seconds. The kernel escalates to a kill if the interrupt doesn't land; if `execute()` then rejects, the tool still answers. The model gets a fixed, short result, `The cell timed out after 10 minutes and was stopped.` with advice to work on a sample, never the partial output. The run is recorded as `lastRun` with `ok: false`, so `finish` refuses it, and the activity shows "Stopped after 10 minutes". Plain runs of saved code have no limit; the user can stop those.
 
 A model can ask for several tools in one step, and the AI SDK runs them at the same time. Anthropic models are told not to (see [Models and providers](#models-and-providers)), but other makers may still send `run_cell` and `finish` together. So `finish` first waits for every `run_cell` still executing, and judges the run they leave behind, never the one before.
+
+### Step labels
+
+Each tool call is a line in the cell's activity list, and its label doubles as the status text. `describeCall()` writes it, and `describeResult()` updates it when the call ends. Labels are plain words, never code.
+
+`explore` and `run_cell` take a required `summary`, "3 to 7 plain words for the user", like "Counting patients per stage". It is the first field in both schemas, so models tend to write it before the code. The label shows as early as the stream allows:
+
+1. `tool-input-start`: the step appears with a generic label, "Exploring the data" or "Running the cell".
+2. `tool-input-delta`: the harness collects the input's JSON per call id and reads it with `parsePartialJson()`. Once the summary is complete, which means a later field has started or the input is whole, it becomes the label. A summary still being written never shows.
+3. `tool-call`: the whole input confirms the label, and the call's code, clipped to 4,000 characters, goes on the item as `code`. The user opens the step to see it.
+
+An empty summary falls back to the generic label, and to "Explored the data" or "Ran the cell" when the call ends. A call without one fails the schema and goes back to the model; its step says the call was malformed, since the SDK's error quotes the whole input. A step's detail is the run's duration, "Ran in 84 ms", or the error's `Name: message` line, never the traceback around it. A step still running when the stream ends, cut off by a stop or an error, is marked failed.
 
 ### guarded()
 
