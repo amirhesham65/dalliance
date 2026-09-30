@@ -132,7 +132,7 @@ Two constraints shape the loop.
   | Opus 4.5 | None | `low` to `high`. Anything above becomes `high` |
   | Sonnet 4.5, Haiku 4.5, Opus 4.1, Opus 4, Sonnet 4, Claude 3 | None | None. The API rejects `effort` on these, and they don't take adaptive thinking |
 
-  An effort a model doesn't take steps down to the nearest level it does. They also get `disableParallelToolUse: true`, which the provider sends as `tool_choice: { type: 'auto', disable_parallel_tool_use: true }`: one tool call per step, so the loop stays a sequence of run, look, fix.
+  An effort a model doesn't take steps down to the nearest level it does. Every Anthropic model also gets `disableParallelToolUse: true`, which the provider sends as `tool_choice: { type: 'auto', disable_parallel_tool_use: true }`: one tool call per step, so the loop stays a sequence of run, look, fix.
 - `openai/*` models get `reasoningEffort`. `high`, `xhigh` and `max` all map to `high`.
 - Every other maker runs with its defaults.
 
