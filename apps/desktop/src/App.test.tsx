@@ -392,9 +392,33 @@ describe('question cells', () => {
     render(<App />)
 
     expect(await screen.findByText('Add an API key to turn prompts into code.')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Dismiss' }))
+    await user.click(screen.getByRole('button', { name: 'Dismiss notice' }))
     expect(screen.queryByText('Add an API key to turn prompts into code.')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Open Settings' })).not.toBeInTheDocument()
+  })
+
+  it('shows the notice again when its message changes, or when the problem comes back', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    api.getSettings = async () => ({ ...fakeSettings(), keySource: null })
+    setApi(api)
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: 'Dismiss notice' }))
+    expect(screen.queryByText('Add an API key to turn prompts into code.')).not.toBeInTheDocument()
+
+    // A key gets added and Python turns out to be missing a package: a new message
+    await waitFor(() => expect(useNotebook.getState().python).not.toBeNull())
+    const python = useNotebook.getState().python!
+    act(() => useNotebook.setState({ settings: { ...fakeSettings(), keySource: 'settings' }, python: { ...python, missingPackages: ['pandas'] } }))
+    expect(screen.getByText('Python is missing pandas. Cells that need them will fail.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Dismiss notice' }))
+    expect(screen.queryByText(/Python is missing/)).not.toBeInTheDocument()
+
+    // Fixed, then back: the same message shows again
+    act(() => useNotebook.setState({ python: { ...python, missingPackages: [] } }))
+    act(() => useNotebook.setState({ python: { ...python, missingPackages: ['pandas'] } }))
+    expect(screen.getByText('Python is missing pandas. Cells that need them will fail.')).toBeInTheDocument()
   })
 
   it('shows the pane shortcuts in the overview tooltips', async () => {

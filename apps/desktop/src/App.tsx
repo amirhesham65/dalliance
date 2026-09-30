@@ -152,7 +152,8 @@ export default function App() {
         ? 'Python is not set up yet.'
         : `Python is missing ${python.missingPackages.join(', ')}. Cells that need them will fail.`
       : kernel.error
-  // A dismissed notice stays gone until the problem changes, or is fixed and comes back
+  // A dismissed notice stays gone until its message changes. Once the problem is fixed, forget the dismissal so the
+  // banner shows again if it comes back. Resetting during render, not in an effect, avoids an extra commit
   if (!banner && dismissedBanner != null) setDismissedBanner(null)
 
   return (
@@ -172,7 +173,7 @@ export default function App() {
                     <Button size="xs" variant="secondary" onClick={() => actions.openSettings(needsKey ? 'models' : 'python')}>
                       Open Settings
                     </Button>
-                    <IconButton label="Dismiss" size="icon-xs" className="ml-auto" onClick={() => setDismissedBanner(banner)}>
+                    <IconButton label="Dismiss notice" size="icon-xs" className="ml-auto" onClick={() => setDismissedBanner(banner)}>
                       <X />
                     </IconButton>
                   </div>
