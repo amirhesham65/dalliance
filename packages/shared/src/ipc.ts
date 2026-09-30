@@ -264,4 +264,6 @@ export const IPC = {
   saveDraft: 'save-draft',
   documentState: 'document-state',
   menu: 'menu',
+  /** Sent by the preload when the page subscribes to menu actions, so the main process knows it can send one. */
+  menuReady: 'menu-ready',
 } as const
