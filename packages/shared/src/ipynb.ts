@@ -6,6 +6,9 @@ import {
   type Notebook,
   type NoteCell,
   type Output,
+  type Pins,
+  type PinnedFile,
+  type PinnedPackage,
   type PromptCell,
   type Provenance,
   type ProvenanceApproval,
@@ -187,6 +190,43 @@ function provenanceFromNb(v: unknown): Provenance | null {
   }
 }
 
+/** How many packages and files a notebook's pins keep. A hand-edited file can't make the app hash thousands. */
+export const MAX_PINNED = 1000
+
+function packageFromNb(p: unknown): PinnedPackage | null {
+  return isObject(p) && typeof p.name === 'string' && typeof p.version === 'string' ? { name: p.name, version: p.version } : null
+}
+
+function pinnedFileFromNb(f: unknown): PinnedFile | null {
+  if (!isObject(f) || typeof f.path !== 'string') return null
+  const size = asNumber(f.size)
+  if (size == null || size < 0) return null
+  if (typeof f.hash === 'string') return { path: f.path, size, hash: f.hash }
+  return { path: f.path, size, hash: null, note: asString(f.note) ?? 'Not hashed.' }
+}
+
+/**
+ * The notebook's pins, type-checked, or null when there are none. A package without a string name and version, or a
+ * file without a string path and a size, is dropped. Also reads pins sent over IPC.
+ */
+export function pinsFromNb(v: unknown): Pins | null {
+  if (!isObject(v)) return null
+  const pins: Pins = {
+    python: asString(v.python),
+    packages: Array.isArray(v.packages) ? v.packages.slice(0, MAX_PINNED).map(packageFromNb).filter(present) : [],
+    files: Array.isArray(v.files) ? v.files.slice(0, MAX_PINNED).map(pinnedFileFromNb).filter(present) : [],
+  }
+  return pins.python == null && !pins.packages.length && !pins.files.length ? null : pins
+}
+
+function pinsToNb(pins: Pins): Json {
+  return {
+    python: pins.python,
+    packages: pins.packages.map(({ name, version }) => ({ name, version })),
+    files: pins.files.map((f) => (f.hash == null ? { path: f.path, size: f.size, hash: null, note: f.note } : { path: f.path, size: f.size, hash: f.hash })),
+  }
+}
+
 function outputToNb(o: Output, executionCount: number | null): Json {
   switch (o.type) {
     case 'stream':
@@ -304,7 +344,7 @@ export function toIpynb(nb: Notebook): Json {
       kernelspec: hasKernel ? found.kernelspec : DEFAULT_KERNELSPEC,
       ...(isObject(found.language_info) ? { language_info: found.language_info } : hasKernel ? {} : { language_info: { name: 'python' } }),
       ...metadata,
-      dalliance: { ...asObject(found.dalliance), version: FORMAT_VERSION },
+      dalliance: { ...asObject(found.dalliance), version: FORMAT_VERSION, ...(nb.pins ? { pins: pinsToNb(nb.pins) } : {}) },
     },
     cells: nb.cells.map((cell) => (cell.kind === 'note' ? noteToNb(cell) : promptToNb(cell))),
   }
@@ -374,7 +414,8 @@ export function fromIpynb(raw: unknown): Notebook {
     cell.state = cell.outputs.length || cell.executionCount != null ? 'stale' : 'idle'
     cells.push(cell)
   }
-  // Everything but the version is carried through: kernelspec, language_info, widget state...
-  const kept = withoutDallianceFields(asObject(raw.metadata), ['version'])
-  return { cells, ...(isEmpty(kept) ? {} : { metadata: kept }) }
+  // Everything but the version and the pins is carried through: kernelspec, language_info, widget state...
+  const kept = withoutDallianceFields(asObject(raw.metadata), ['version', 'pins'])
+  const pins = pinsFromNb(asObject(asObject(raw.metadata).dalliance).pins)
+  return { cells, ...(isEmpty(kept) ? {} : { metadata: kept }), ...(pins ? { pins } : {}) }
 }

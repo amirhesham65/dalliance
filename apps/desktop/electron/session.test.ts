@@ -1,11 +1,13 @@
 // @vitest-environment node
-import { mkdtempSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test'
 import type { WebContents } from 'electron'
 import { IPC, type KernelState } from '@dalliance/shared/ipc'
+import { type Notebook, newPromptCell } from '@dalliance/shared/notebook'
 import { FakeKernel } from './kernel/fake-kernel'
 import type { KernelInfo } from './kernel/kernel'
 import { NotebookSession, type SharedPythonState } from './session'
@@ -44,13 +46,15 @@ vi.mock('./harness/model', async (importOriginal) => ({
 /** A kernel that remembers its folder and whether it was shut down. */
 class FolderKernel extends FakeKernel {
   stopped = false
+  /** Reported as running a cell. */
+  busy = false
   readonly cwd: string
-  constructor(cwd: string) {
-    super()
+  constructor(cwd: string, handler?: ConstructorParameters<typeof FakeKernel>[0]) {
+    super(handler)
     this.cwd = cwd
   }
   override info(): KernelInfo {
-    return { ...super.info(), cwd: this.cwd, status: this.stopped ? 'dead' : 'idle' }
+    return { ...super.info(), cwd: this.cwd, status: this.stopped ? 'dead' : this.busy ? 'busy' : 'idle' }
   }
   override async shutdown() {
     this.stopped = true
@@ -357,5 +361,69 @@ describe('what a run cost', () => {
     const result = await run(false)
     expect(result.ok).toBe(true)
     expect(result).not.toHaveProperty('cost')
+  })
+})
+
+describe("the notebook's pins", () => {
+  const sha = (text: string) => `sha256:${createHash('sha256').update(text).digest('hex')}`
+
+  /** A session in a folder with a data file, and a kernel whose cells read it when their code names it. */
+  function pinning() {
+    const dir = mkdtempSync(path.join(tmpdir(), 'dalliance-ws-'))
+    writeFileSync(path.join(dir, 'visits.csv'), 'id,age\n1,40\n')
+    const kernel = new FolderKernel(dir, (code) => ({ ok: true, outputs: [], filesRead: code.includes('visits') ? ['visits.csv'] : [] }))
+    kernel.packages = [{ name: 'pandas', version: '2.2.3' }]
+    const s = new NotebookSession({
+      settings: { workspaceDir: null, setWorkspaceDir: () => {}, pythonPath: '/py/bin/python', modelConfig: () => ({}), autoTitles: false } as unknown as SettingsStore,
+      userData: mkdtempSync(path.join(tmpdir(), 'dalliance-session-')),
+      defaultWorkspace: dir,
+      send: () => {},
+      launchKernel: async () => kernel,
+      listPackages: async () => [{ name: 'pandas', version: '2.2.3' }],
+    })
+    const contents = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+    const run = (cellId: string, code: string) => s.runCell({ cellId, prompt: '', code, generate: false, corrections: [], previousCells: [] }, contents)
+    const notebook: Notebook = { cells: [{ ...newPromptCell('', 'visits = read("visits.csv")'), id: 'a' }] }
+    return { s, dir, kernel, run, notebook }
+  }
+
+  it('records the Python, what the kernel imported and the files the cells read, hashed', async () => {
+    const { s, run, notebook } = pinning()
+    expect((await s.pin(notebook)).pins).toBeUndefined()
+    await run('a', 'visits = read("visits.csv")')
+    expect((await s.pin(notebook)).pins).toEqual({
+      python: '3.12.0',
+      packages: [{ name: 'pandas', version: '2.2.3' }],
+      files: [{ path: 'visits.csv', size: 12, hash: sha('id,age\n1,40\n') }],
+    })
+  })
+
+  it('forgets what ran once the kernel restarts, so the pins stay as they were', async () => {
+    const { s, run, notebook } = pinning()
+    await run('a', 'visits = read("visits.csv")')
+    const pinned = await s.pin(notebook)
+    await s.restart()
+    expect((await s.pin({ ...notebook, pins: { ...pinned.pins!, python: '3.11.9' } })).pins?.python).toBe('3.11.9')
+  })
+
+  it("uses the kernel's last answer while a cell runs, rather than wait for it", async () => {
+    const { s, kernel, run, notebook } = pinning()
+    await run('a', 'visits = read("visits.csv")')
+    await s.pin(notebook)
+    kernel.packages = [{ name: 'pandas', version: '3.0.0' }]
+    kernel.busy = true
+    expect((await s.pin(notebook)).pins?.packages).toEqual([{ name: 'pandas', version: '2.2.3' }])
+  })
+
+  it('says what changed since the pins were recorded', async () => {
+    const { s, dir, run, notebook } = pinning()
+    await run('a', 'visits = read("visits.csv")')
+    const { pins } = await s.pin(notebook)
+    expect(await s.checkPins(pins!)).toEqual([])
+    writeFileSync(path.join(dir, 'visits.csv'), 'id,age\n1,41\n')
+    expect(await s.checkPins({ ...pins!, packages: [{ name: 'pandas', version: '2.1.0' }] })).toEqual([
+      { kind: 'package', name: 'pandas', was: '2.1.0', now: '2.2.3' },
+      { kind: 'file', path: 'visits.csv', change: 'contents' },
+    ])
   })
 })

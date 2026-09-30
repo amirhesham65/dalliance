@@ -59,6 +59,14 @@ for (const { name, env, skip } of PATHS) {
       expect(r.outputs).toEqual([{ type: 'text', text: '20' }])
     })
 
+    // What Verify has to catch: a cell that only works thanks to a name the agent's explore made
+    it('keeps names an exploratory run defines for later cells, without reporting them as assigned', async () => {
+      const explored = await kernel.execute('seen = x * 2', { store: false })
+      expect(explored.assigned).toEqual([])
+      const later = await kernel.execute('seen', { store: true })
+      expect(later.outputs).toEqual([{ type: 'text', text: '40' }])
+    })
+
     it('lists variables with their types', async () => {
       await kernel.execute('names = ["a", "b", "c"]', { store: true })
       const vars = await kernel.variables()
@@ -82,6 +90,8 @@ for (const { name, env, skip } of PATHS) {
       const r = await kernel.execute('x', { store: true })
       expect(r.ok).toBe(false)
       expect(r.executionCount).toBe(1)
+      const explored = await kernel.execute('seen', { store: false })
+      expect(explored.outputs.find((o) => o.type === 'error')).toMatchObject({ ename: 'NameError', evalue: "name 'seen' is not defined" })
     }, 20_000)
   })
 
@@ -226,6 +236,52 @@ for (const { name, env, skip } of PATHS) {
       const r = await kernel.execute('import pandas as pd\norders = pd.read_csv("data/orders.csv")\nlen(orders)', { store: true })
       expect(r.outputs).toEqual([{ type: 'text', text: '1' }])
       expect(r.filesRead?.paths).toEqual(['data/orders.csv'])
+    })
+  })
+
+  describe.skipIf(skip)(`PythonKernel packages the executes imported (${name})`, () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'dalliance-kernel-'))
+    const kernel = new PythonKernel({ python: python!, cwd: dir, scratchDir: dir, env })
+    /** A distribution in the notebook's folder, which is first on sys.path, so importlib.metadata finds it. */
+    const distribution = (name: string, version: string, module: string, source: string, requires: string[] = []) => {
+      const info = path.join(dir, `${name.replace(/-/g, '_')}-${version}.dist-info`)
+      mkdirSync(info)
+      writeFileSync(path.join(info, 'METADATA'), [`Metadata-Version: 2.1`, `Name: ${name}`, `Version: ${version}`, ...requires.map((r) => `Requires-Dist: ${r}`), ''].join('\n'))
+      writeFileSync(path.join(info, 'top_level.txt'), `${module}\n`)
+      writeFileSync(path.join(dir, `${module}.py`), source)
+    }
+
+    beforeAll(() => {
+      distribution('fake-dep', '0.4', 'fakedep', 'VALUE = 1\n')
+      distribution('fake-pkg', '1.2.3', 'fakepkg', 'import fakedep\n', ['fake-dep>=0.1', 'fake-unused ; extra == "test"'])
+      distribution('fake-unused', '9.9', 'fakeunused', '')
+      return kernel.start()
+    }, 20_000)
+    afterAll(() => kernel.shutdown())
+
+    it('lists nothing before a cell imports a package, and never the standard library', async () => {
+      await kernel.execute('import json, collections\njson.dumps([1])', { store: true })
+      const r = await kernel.environment()
+      expect(r.python).toMatch(/^\d+\.\d+\.\d+/)
+      // The kernel's own imports at startup, like IPython, don't count
+      expect(r.packages).toEqual([])
+    })
+
+    it('lists what a cell imported with the packages it needs, but not an import that failed', async () => {
+      await kernel.execute('try:\n    import not_installed_anywhere\nexcept ImportError:\n    pass', { store: true })
+      await kernel.execute('import fakepkg', { store: true })
+      const r = await kernel.environment()
+      expect(r.packages).toEqual([
+        { name: 'fake-dep', version: '0.4' },
+        { name: 'fake-pkg', version: '1.2.3' },
+      ])
+    })
+
+    it.skipIf(!hasData)('pins numpy behind pandas', async () => {
+      await kernel.execute('import pandas as pd', { store: true })
+      const names = (await kernel.environment()).packages.map((p) => p.name.toLowerCase())
+      expect(names).toEqual(expect.arrayContaining(['pandas', 'numpy']))
+      expect(names).not.toContain('ipython')
     })
   })
 

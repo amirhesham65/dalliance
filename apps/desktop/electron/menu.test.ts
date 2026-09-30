@@ -97,3 +97,11 @@ describe('tabs in the menu', () => {
     expect(new Set(all).size).toBe(all.length)
   })
 })
+
+describe('the Kernel menu', () => {
+  it('offers Verify, which the renderer confirms before it restarts anything', () => {
+    const { top, click, sent } = menu()
+    click(top('Kernel').find((i) => i.label === 'Verify Notebook…')!)
+    expect(sent).toEqual(['verify'])
+  })
+})

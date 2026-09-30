@@ -14,10 +14,11 @@ import {
   type RenameResult,
   type RecentNotebook,
   type RunCellRequest,
+  type SavedNotebook,
   type SettingsUpdate,
   type TabsState,
 } from '@dalliance/shared/ipc'
-import { fromIpynb, toIpynb } from '@dalliance/shared/ipynb'
+import { fromIpynb, pinsFromNb, toIpynb } from '@dalliance/shared/ipynb'
 import type { Notebook } from '@dalliance/shared/notebook'
 import { writeFileAtomic } from './atomic-write'
 import { createRunLog } from './harness/extensions'
@@ -570,7 +571,7 @@ function registerIpc() {
   handle(IPC.writeBrief, (tab, text: string) => tab.session.writeBrief(text))
   handle(IPC.listFiles, (tab) => tab.session.files())
 
-  handle(IPC.saveNotebook, async (tab, current: string | null, notebook: Notebook) => {
+  handle(IPC.saveNotebook, async (tab, current: string | null, unpinned: Notebook): Promise<SavedNotebook | null> => {
     if (!win) return null
     let saved = false
     try {
@@ -584,6 +585,8 @@ function registerIpc() {
         if (canceled || !filePath) return null
         file = filePath.endsWith('.ipynb') ? filePath : `${filePath}.ipynb`
       }
+      // The Python, packages and data files the cells ran with. See docs/notebook-model.md#pins
+      const notebook = await tab.session.pin(unpinned)
       // A crash or a full disk mid-save leaves the old file, never a truncated one
       await writeFileAtomic(file, ipynbText(notebook))
       remember(file)
@@ -593,7 +596,7 @@ function registerIpc() {
       tabs.report(tab, { path: file, dirty: false, running: tab.doc.running })
       await tab.session.moveWorkspace(path.dirname(file))
       saved = true
-      return file
+      return { path: file, pins: notebook.pins ?? null }
     } finally {
       // A close waiting on this save goes ahead only if it landed. Cancelled or failed, it stops, and either way a
       // later ordinary Save never closes anything.
@@ -601,7 +604,7 @@ function registerIpc() {
     }
   })
 
-  handle(IPC.renameNotebook, async (tab, current: string | null, name: string, notebook: Notebook): Promise<RenameResult> => {
+  handle(IPC.renameNotebook, async (tab, current: string | null, name: string, unpinned: Notebook): Promise<RenameResult> => {
     try {
       if (current !== null) {
         // Only ever a notebook file: the window names what to rename, so any other path is refused
@@ -612,7 +615,7 @@ function registerIpc() {
           settings.removeRecent(current)
           remember(renamed.path)
           // The draft keeps the edits as they are: a rename doesn't save them
-          drafts.update(tab.id, { path: renamed.path, dirty: tab.doc.dirty, notebook })
+          drafts.update(tab.id, { path: renamed.path, dirty: tab.doc.dirty, notebook: unpinned })
           tabs.report(tab, { ...tab.doc, path: renamed.path })
         }
         return { path: renamed.path, saved: false }
@@ -623,6 +626,8 @@ function registerIpc() {
       await mkdir(dir, { recursive: true })
       const target = notebookPathIn(dir, name)
       if ('error' in target) return target
+      // Writing the file is a save, so it records the pins too
+      const notebook = await tab.session.pin(unpinned)
       try {
         await writeFile(target.path, ipynbText(notebook), { flag: 'wx' })
       } catch (err) {
@@ -633,10 +638,16 @@ function registerIpc() {
       remember(target.path)
       drafts.update(tab.id, { path: target.path, dirty: false, notebook })
       drafts.flush()
-      return { path: target.path, saved: true }
+      return { path: target.path, saved: true, pins: notebook.pins ?? null }
     } catch (err) {
       return { error: `Couldn't rename the notebook: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}` }
     }
+  })
+
+  handle(IPC.checkPins, (tab, pins: unknown) => {
+    // Pins come from the file, so they're checked like the file is. Paths outside the folder are never read
+    const checked = pinsFromNb(pins)
+    return checked ? tab.session.checkPins(checked) : []
   })
 
   handle(IPC.restoreSession, async (tab) => {

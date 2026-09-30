@@ -92,7 +92,7 @@ export function buildMenu({ send, tab, openRecent, recent }: MenuHandlers) {
     },
     {
       label: 'Kernel',
-      submenu: [item('Interrupt', 'interrupt', 'CmdOrCtrl+.'), item('Restart', 'restart')],
+      submenu: [item('Interrupt', 'interrupt', 'CmdOrCtrl+.'), item('Restart', 'restart'), { type: 'separator' }, item('Verify Notebook…', 'verify')],
     },
     {
       label: 'View',

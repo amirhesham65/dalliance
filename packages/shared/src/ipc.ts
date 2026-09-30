@@ -1,4 +1,4 @@
-import type { Correction, CreatedVariable, Notebook, Output, Provenance } from './notebook'
+import type { Correction, CreatedVariable, Notebook, Output, Pins, Provenance } from './notebook'
 
 /** One line in a cell's activity log: what the agent did while writing the cell. */
 export interface ActivityItem {
@@ -213,8 +213,26 @@ export interface EnvironmentView {
   /** Why the libraries couldn't be listed, like no Python being set up. The packages are empty then. */
   error: string | null
 }
-/** What renaming a notebook came to: its new path, or why it couldn't be. */
-export type RenameResult = { path: string; /** True when the notebook had no file, so the rename wrote it. */ saved: boolean } | { error: string }
+/**
+ * What renaming a notebook came to: its new path, or why it couldn't be. A rename that wrote the file recorded its
+ * pins too, like a save.
+ */
+export type RenameResult = { path: string; /** True when the notebook had no file, so the rename wrote it. */ saved: boolean; pins?: Pins | null } | { error: string }
+
+/** A saved notebook: where it went, and the pins the save recorded, or null when there was nothing to record. */
+export interface SavedNotebook {
+  path: string
+  pins: Pins | null
+}
+
+/**
+ * One way the environment or the data differs from what the notebook's pins recorded. `now` is null for a package
+ * that isn't installed any more. A file's `size` changed, or it kept its size and its `contents` hash differently.
+ */
+export type PinChange =
+  | { kind: 'python'; was: string; now: string }
+  | { kind: 'package'; name: string; was: string; now: string | null }
+  | { kind: 'file'; path: string; change: 'missing' | 'size' | 'contents' }
 
 export interface PythonState {
   python: string | null
@@ -305,6 +323,7 @@ export type MenuAction =
   | 'run-all'
   | 'interrupt'
   | 'restart'
+  | 'verify'
   | 'settings'
   | 'add-prompt'
   | 'add-note'
@@ -408,7 +427,13 @@ export interface DallianceApi {
    * folder in use. Unsaved edits stay unsaved. The name is checked, and a taken one comes back as an error.
    */
   renameNotebook(current: string | null, name: string, notebook: Notebook): Promise<RenameResult>
-  saveNotebook(path: string | null, notebook: Notebook): Promise<string | null>
+  /** Records the notebook's pins and writes it. Null when the Save dialog was cancelled. */
+  saveNotebook(path: string | null, notebook: Notebook): Promise<SavedNotebook | null>
+  /**
+   * Compares pins with the Python, its packages and the files in the folder in use now. Empty when nothing changed.
+   * Reads the interpreter, not the kernel, so a running cell doesn't hold it up.
+   */
+  checkPins(pins: Pins): Promise<PinChange[]>
   restoreSession(): Promise<RestoredSession | RestoreFailure | null>
   saveDraft(state: DraftState): void
   setDocumentState(state: DocumentState): void
@@ -472,6 +497,7 @@ export const IPC = {
   writeBrief: 'write-brief',
   listFiles: 'list-files',
   saveNotebook: 'save-notebook',
+  checkPins: 'check-pins',
   renameNotebook: 'rename-notebook',
   restoreSession: 'restore-session',
   saveDraft: 'save-draft',

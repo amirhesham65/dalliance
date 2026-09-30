@@ -1,4 +1,4 @@
-import { Activity, CircleAlert, File, FolderOpen, History, LocateFixed, Pencil, Pin, PinOff, Play, RefreshCw, RotateCw, Sparkles, Square, Variable } from 'lucide-react'
+import { Activity, CircleAlert, File, FolderOpen, History, LocateFixed, Pencil, Pin, PinOff, Play, RefreshCw, RotateCw, ShieldCheck, Sparkles, Square, Variable } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { IconButton } from '@/components/app/IconButton'
@@ -356,6 +356,7 @@ const LOG_ICON: Record<LogEntry['kind'], ReactNode> = {
   stopped: <Square className="fill-current text-faint" />,
   restarted: <RotateCw className="text-faint" />,
   restored: <History className="text-faint" />,
+  verified: <ShieldCheck className="text-ink" />,
 }
 
 /**

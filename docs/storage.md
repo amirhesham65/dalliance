@@ -84,6 +84,8 @@ A new notebook is a file from the start. `newNotebook(notebook)` writes `Untitle
 
 The app writes three things into it: a new notebook's `.ipynb` when it is made or first named, the `.ipynb` on save, and `AGENTS.md` when the user edits the brief. The save writes a hidden `.<name>.ipynb.<pid>.<random>.tmp` file next to the notebook and renames it into place. Cells can write anything else, since they're the user's Python.
 
+The app also reads the data files the cells read, to hash them for the notebook's pins: after the run that read them, on save, and when the notebook opens. It never writes them. The hashes are kept in memory only, by path, size and modification time, and files over 1 GB are never read. See [notebook-model.md](notebook-model.md#pins).
+
 ## localStorage
 
 Per-window conveniences only, shared by every tab since they all load the same page. Every read and write is wrapped in try/catch.

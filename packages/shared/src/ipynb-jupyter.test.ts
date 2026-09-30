@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { FORMAT_VERSION, TABLE_MIME, fromIpynb, toIpynb } from './ipynb'
-import { type Notebook, type NoteCell, type PromptCell, newPromptCell } from './notebook'
+import { type Notebook, type NoteCell, type Pins, type PromptCell, newPromptCell } from './notebook'
 
 type Json = Record<string, any>
 
@@ -241,5 +241,72 @@ describe.skipIf(!hasNbformat)('nbformat.validate', () => {
       },
     }
     expect(nbformatErrors(save({ cells: [cell] }))).toBe('')
+  })
+
+  it('accepts a notebook with pins', () => {
+    const nb = fromIpynb(fixture('jupyter-python.ipynb'))
+    expect(nbformatErrors(save({ ...nb, pins: PINS }))).toBe('')
+  })
+})
+
+const PINS: Pins = {
+  python: '3.12.4',
+  packages: [
+    { name: 'numpy', version: '2.1.3' },
+    { name: 'pandas', version: '2.2.3' },
+  ],
+  files: [
+    { path: 'data/visits.csv', size: 48213, hash: `sha256:${'a'.repeat(64)}` },
+    { path: 'imaging/all.parquet', size: 2_147_483_648, hash: null, note: 'Not hashed: larger than 1 GB.' },
+  ],
+}
+
+describe('pins', () => {
+  it('save under the notebook metadata beside the version, and read back the same', () => {
+    const saved = save({ cells: [newPromptCell('Load visits', 'visits = pd.read_csv("data/visits.csv")')], pins: PINS })
+    expect(saved.metadata.dalliance).toEqual({ version: FORMAT_VERSION, pins: PINS })
+    const back = fromIpynb(saved)
+    expect(back.pins).toEqual(PINS)
+    // Read into the notebook, not carried as passthrough, so a save writes the notebook's own
+    expect(back.metadata?.dalliance).toBeUndefined()
+    expect(save(back)).toEqual(saved)
+  })
+
+  it('are absent from a Jupyter file and from a notebook saved before them', () => {
+    const nb = fromIpynb(fixture('jupyter-python.ipynb'))
+    expect(nb).not.toHaveProperty('pins')
+    expect(save(nb).metadata.dalliance).toEqual({ version: FORMAT_VERSION })
+  })
+
+  it('keep other keys under metadata.dalliance, and drop pins a save cleared', () => {
+    const nb = fromIpynb({ nbformat: 4, metadata: { dalliance: { version: 1, theme: 'dark', pins: PINS } }, cells: [] })
+    expect(nb.pins).toEqual(PINS)
+    expect(save({ ...nb, pins: undefined }).metadata.dalliance).toEqual({ theme: 'dark', version: FORMAT_VERSION })
+  })
+
+  it('read malformed parts as missing', () => {
+    const read = (pins: unknown) => fromIpynb({ nbformat: 4, metadata: { dalliance: { version: 1, pins } }, cells: [] }).pins
+    expect(read('3.12')).toBeUndefined()
+    expect(read({ python: 3.12, packages: 'pandas', files: {} })).toBeUndefined()
+    expect(
+      read({
+        python: '3.12.4',
+        packages: [{ name: 'pandas', version: '2.2.3' }, { name: 'numpy' }, 'scipy', null],
+        files: [
+          { path: 'a.csv', size: 3, hash: 'sha256:00' },
+          { path: 'b.csv', size: -1, hash: 'sha256:00' },
+          { path: 'c.csv', hash: 'sha256:00' },
+          { path: 'd.csv', size: 5, hash: 7 },
+          { size: 5, hash: 'sha256:00' },
+        ],
+      }),
+    ).toEqual({
+      python: '3.12.4',
+      packages: [{ name: 'pandas', version: '2.2.3' }],
+      files: [
+        { path: 'a.csv', size: 3, hash: 'sha256:00' },
+        { path: 'd.csv', size: 5, hash: null, note: 'Not hashed.' },
+      ],
+    })
   })
 })

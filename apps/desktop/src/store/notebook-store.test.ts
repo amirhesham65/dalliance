@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { type PromptCell, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
+import type { PinChange } from '@dalliance/shared/ipc'
+import { type Pins, type PromptCell, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { fakeApi, fakeSettings, provenance, result } from '@/test/fake-api'
 import { actions, setApi, useNotebook } from './notebook-store'
 
@@ -564,5 +565,75 @@ describe("the notebook's costs", () => {
     arrive(3)
     await flush()
     expect(useNotebook.getState().spend).toEqual({ usd: 0, credits: 0, unpricedTokens: 0, counting: 0 })
+  })
+})
+
+describe("the notebook's pins", () => {
+  const pins: Pins = { python: '3.11.9', packages: [{ name: 'pandas', version: '2.1.0' }], files: [{ path: 'visits.csv', size: 10, hash: 'sha256:a' }] }
+  const changes: PinChange[] = [
+    { kind: 'package', name: 'pandas', was: '2.1.0', now: '2.2.3' },
+    { kind: 'file', path: 'visits.csv', change: 'contents' },
+  ]
+
+  it('checks them on open, without holding the notebook up, and shows what changed', async () => {
+    const { api } = fakeApi(() => result())
+    const asked: Pins[] = []
+    api.checkPins = async (p) => {
+      asked.push(p)
+      return changes
+    }
+    setApi(api)
+    actions.load({ cells: [newPromptCell('Load', 'x = 1')], pins }, '/tmp/trial.ipynb')
+    expect(useNotebook.getState().screen).toBe('notebook')
+    expect(useNotebook.getState().pinChanges).toEqual([])
+    await flush()
+    expect(asked).toEqual([pins])
+    expect(useNotebook.getState().pinChanges).toEqual(changes)
+    actions.dismissPinChanges()
+    expect(useNotebook.getState().pinChanges).toEqual([])
+  })
+
+  it('never asks for a notebook saved before pins, and a failed check finds nothing', async () => {
+    const { api } = fakeApi(() => result())
+    let asked = 0
+    api.checkPins = async () => {
+      asked++
+      throw new Error('no Python')
+    }
+    setApi(api)
+    load(newPromptCell('Load', 'x = 1'))
+    await flush()
+    expect(asked).toBe(0)
+    actions.load({ cells: [], pins }, null)
+    expect(await actions.checkPins()).toEqual([])
+    expect(useNotebook.getState().pinChanges).toEqual([])
+  })
+
+  it('returns the changes to a caller, such as Verify, and drops a check another notebook overtook', async () => {
+    const { api } = fakeApi(() => result())
+    let answer!: (c: PinChange[]) => void
+    api.checkPins = () => new Promise((resolve) => (answer = resolve))
+    setApi(api)
+    actions.load({ cells: [], pins }, null)
+    load(newNoteCell('Another notebook'))
+    answer(changes)
+    await flush()
+    expect(useNotebook.getState().pinChanges).toEqual([])
+
+    actions.load({ cells: [], pins }, null)
+    const checking = actions.checkPins()
+    answer(changes)
+    expect(await checking).toEqual(changes)
+    expect(useNotebook.getState().pinChanges).toEqual(changes)
+  })
+
+  it('keeps the pins a save recorded, without marking the notebook changed', () => {
+    load(newPromptCell('Load', 'x = 1'))
+    actions.markSaved('/tmp/trial.ipynb', pins)
+    expect(useNotebook.getState()).toMatchObject({ path: '/tmp/trial.ipynb', dirty: false, notebook: { pins } })
+    actions.markSaved('/tmp/trial.ipynb', null)
+    expect(useNotebook.getState().notebook).not.toHaveProperty('pins')
+    actions.renamed('/tmp/named.ipynb', true, pins)
+    expect(useNotebook.getState().notebook.pins).toEqual(pins)
   })
 })
