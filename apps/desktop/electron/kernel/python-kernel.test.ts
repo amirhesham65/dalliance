@@ -1,10 +1,12 @@
 // @vitest-environment node
+import { spawnSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import type { Output } from '@dalliance/shared/notebook'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { findSystemPython } from './python-env'
-import { PythonKernel } from './python-kernel'
+import { KILLED_AFTER_INTERRUPT, PythonKernel } from './python-kernel'
 
 const python = await findSystemPython()
 
@@ -140,4 +142,148 @@ describe.skipIf(!python)('PythonKernel hardening', () => {
     expect(await value(child)).toEqual([{ type: 'text', text: "'0\\n'" }])
     expect(await value('1 + 1')).toEqual([{ type: 'text', text: '2' }])
   })
+})
+
+const hasData = python !== null && spawnSync(python, ['-c', 'import pandas, matplotlib'], { stdio: 'ignore' }).status === 0
+
+describe.skipIf(!python)('PythonKernel output budgets', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'dalliance-kernel-'))
+  const kernel = new PythonKernel({ python: python!, cwd: dir, scratchDir: dir })
+  beforeAll(async () => {
+    await kernel.start()
+    // The first pyplot import on a fresh machine builds matplotlib's font cache, which takes tens of seconds on
+    // macOS. Pay for it here, so the figure test times the budgets and not the cache.
+    if (hasData) await kernel.execute('import matplotlib.pyplot', { store: false })
+  }, 120_000)
+  afterAll(() => kernel.shutdown())
+
+  const stdout = (outputs: Output[]) =>
+    outputs
+      .filter((o) => o.type === 'stream' && o.name === 'stdout')
+      .map((o) => (o.type === 'stream' ? o.text : ''))
+      .join('')
+
+  it('caps stream text per run and says how much it dropped', async () => {
+    const r = await kernel.execute("print('x' * 1_500_000)\nprint('never seen')", { store: true })
+    expect(r.ok).toBe(true)
+    expect(stdout(r.outputs)).toBe('x'.repeat(1_000_000))
+    expect(r.outputs.at(-1)).toEqual({ type: 'stream', name: 'stderr', text: 'Output truncated: 500,012 more characters.\n' })
+    // The next run gets a fresh budget
+    expect((await kernel.execute("print('ok')", { store: false })).outputs).toEqual([{ type: 'stream', name: 'stdout', text: 'ok\n' }])
+  })
+
+  it('coalesces many small writes into a few messages, in order', async () => {
+    const r = await kernel.execute('for i in range(20000):\n    print(i)', { store: true })
+    expect(stdout(r.outputs)).toBe(Array.from({ length: 20000 }, (_, i) => `${i}\n`).join(''))
+    expect(r.outputs.length).toBeLessThan(20)
+  })
+
+  it('keeps prints and displayed values in order', async () => {
+    const r = await kernel.execute("print('a')\ndisplay(1)\nprint('b')\n2", { store: false })
+    expect(r.outputs).toEqual([
+      { type: 'stream', name: 'stdout', text: 'a\n' },
+      { type: 'text', text: '1' },
+      { type: 'stream', name: 'stdout', text: 'b\n' },
+      { type: 'text', text: '2' },
+    ])
+  })
+
+  it('still sends a print before a long wait', async () => {
+    const seen: Output[] = []
+    const running = kernel.execute("import time\nprint('early')\ntime.sleep(1.5)", { store: false, onOutput: (o) => seen.push(o) })
+    await new Promise((r) => setTimeout(r, 700))
+    expect(seen).toEqual([{ type: 'stream', name: 'stdout', text: 'early\n' }])
+    await running
+  })
+
+  it('caps displayed values per run', async () => {
+    const r = await kernel.execute('for i in range(150):\n    display(i)', { store: false })
+    expect(r.outputs.filter((o) => o.type === 'text')).toHaveLength(100)
+    expect(r.outputs.at(-1)).toEqual({ type: 'stream', name: 'stderr', text: '50 more displayed values not shown (limit 100 per run).\n' })
+  })
+
+  it('clips a huge error message', async () => {
+    const r = await kernel.execute("raise ValueError('e' * 1_000_000)", { store: false })
+    const error = r.outputs.at(-1)
+    expect(error).toMatchObject({ type: 'error', ename: 'ValueError' })
+    expect(JSON.stringify(error).length).toBeLessThan(100_000)
+  })
+
+  it.skipIf(!hasData)('sends the first 50 columns of a wide table and notes the rest', async () => {
+    const r = await kernel.execute("import pandas as pd\npd.DataFrame([['v' * 5000] * 120] * 3)", { store: false })
+    const table = r.outputs[0]
+    if (table.type !== 'table') throw new Error('expected a table')
+    expect(table.columns).toHaveLength(50)
+    expect(table.rows[0]).toHaveLength(50)
+    expect(table.profile).toHaveLength(50)
+    expect(String(table.rows[0][0]).length).toBeLessThan(1100)
+    expect(r.outputs[1]).toEqual({ type: 'stream', name: 'stderr', text: 'Showing the first 50 of 120 columns.\n' })
+  })
+
+  it.skipIf(!hasData)('caps figures per run and their size', async () => {
+    const many = await kernel.execute('import matplotlib.pyplot as plt\nfor i in range(25):\n    plt.figure(figsize=(1, 1))', { store: false })
+    expect(many.outputs.filter((o) => o.type === 'image')).toHaveLength(20)
+    expect(many.outputs.at(-1)).toEqual({ type: 'stream', name: 'stderr', text: '5 more figures not shown (limit 20 per run).\n' })
+
+    const big = await kernel.execute('plt.figure(figsize=(60, 4))\nplt.plot([1, 2])\nplt.figure(figsize=(500, 2))', { store: false })
+    const images = big.outputs.flatMap((o) => (o.type === 'image' ? [Buffer.from(o.data, 'base64')] : []))
+    expect(images).toHaveLength(1)
+    const [width, height] = [images[0].readUInt32BE(16), images[0].readUInt32BE(20)]
+    expect(Math.max(width, height)).toBeLessThanOrEqual(4000)
+    expect(width).toBeGreaterThan(3000)
+    expect(big.outputs.at(-1)).toMatchObject({
+      type: 'stream',
+      name: 'stderr',
+      text: expect.stringContaining('Figure 2 is 55,000 × 220 pixels, too big to show'),
+    })
+  }, 20_000)
+})
+
+describe.skipIf(!python)('PythonKernel interrupt escalation', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'dalliance-kernel-'))
+  const states: string[] = []
+  const kernel = new PythonKernel({
+    python: python!,
+    cwd: dir,
+    scratchDir: dir,
+    interruptGraceMs: 600,
+    onStatus: (info) => states.push(info.status),
+  })
+  beforeAll(() => kernel.start(), 20_000)
+  afterAll(() => kernel.shutdown())
+
+  it('leaves a kernel that stopped in time alone', async () => {
+    await kernel.execute('kept = 1', { store: true })
+    const running = kernel.execute('import time\nwhile True: time.sleep(0.05)', { store: true })
+    await new Promise((r) => setTimeout(r, 300))
+    kernel.interrupt()
+    expect((await running).ok).toBe(false)
+    await new Promise((r) => setTimeout(r, 900))
+    expect(kernel.info().status).toBe('idle')
+    expect((await kernel.execute('kept', { store: false })).outputs).toEqual([{ type: 'text', text: '1' }])
+  })
+
+  it('kills a run that swallows the interrupt, and fails what was queued', async () => {
+    const code = 'import time\nwhile True:\n    try:\n        time.sleep(1)\n    except KeyboardInterrupt:\n        pass'
+    const running = kernel.execute(code, { store: true })
+    const queued = kernel.variables()
+    await new Promise((r) => setTimeout(r, 300))
+    const started = Date.now()
+    kernel.interrupt()
+    await new Promise((r) => setTimeout(r, 300))
+    kernel.interrupt() // pressing Stop again doesn't push the deadline back
+    await expect(running).rejects.toThrow(KILLED_AFTER_INTERRUPT)
+    await expect(queued).rejects.toThrow(KILLED_AFTER_INTERRUPT)
+    expect(Date.now() - started).toBeLessThan(800)
+    expect(kernel.info()).toMatchObject({ status: 'dead', error: KILLED_AFTER_INTERRUPT })
+    expect(states.at(-1)).toBe('dead')
+    await expect(kernel.execute('1', { store: false })).rejects.toThrow(KILLED_AFTER_INTERRUPT)
+  })
+
+  it('starts fresh afterwards, without the old variables', async () => {
+    await kernel.restart()
+    const r = await kernel.execute('kept', { store: true })
+    expect(r.outputs.at(-1)).toMatchObject({ type: 'error', ename: 'NameError' })
+    expect(kernel.info()).toMatchObject({ status: 'idle', error: null })
+  }, 20_000)
 })
