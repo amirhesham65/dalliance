@@ -52,7 +52,16 @@ Packaged builds register the scheme through `protocols` in the electron-builder 
 - `titleModel()` uses `openai/gpt-6-luna` through the same proxy.
 - `listModels()` lists the gateway's models through the proxy, without dollar prices, because the plan pays in credits.
 
-The proxy checks the plan before each call and records its cost afterwards. Refusals come back in the gateway's error shape with the type `dalliance_account`, so the AI SDK shows their message as written: signed out, no plan, or out of credits.
+The proxy checks the plan before each call and records its cost afterwards. Refusals come back in the gateway's error shape with the type `dalliance_account`: signed out, no plan, out of credits, or a model it doesn't offer. The gateway provider wraps that unknown type in a generic error, so `friendlyError()` reads the proxy's own response from the error's cause and shows its message as written, never as a rejected key.
+
+### Zero data retention
+
+Every model call through Dalliance Cloud runs with zero data retention. The proxy enforces it, not the app: it sets the gateway's `zeroDataRetention` flag on every call, overwriting whatever the app sent, and only offers models with a zero-data-retention provider. Its model list leaves the others out, and a call to one is refused with 403. So the app sends no flag of its own, and there's no setting for it.
+
+- `loadModels()` in the store moves a saved Cloud model the list doesn't offer, typed in or saved before the list changed, back to the default, and says so in a notice.
+- The own-key routes, AI Gateway and Anthropic, run on the user's own agreements with those providers. Their full model lists stay, and the provider line says: "With your own key, data retention depends on your agreement with the provider." `OWN_KEY_RETENTION` and `CLOUD_RETENTION` in `src/lib/keys.ts` hold the wording. Never let copy claim zero data retention for an own-key route.
+- On a direct Anthropic key, a model that needs data retention fails with a 400 when the key's organization has zero data retention. `friendlyError()` turns that into a message that says so.
+- Zero data retention is not a HIPAA business associate agreement. Don't word it as one.
 
 A settings file that chose `cloud`, opened by a build without it, reads as `gateway` with that provider's default model, and the choice comes back in a build that has it.
 

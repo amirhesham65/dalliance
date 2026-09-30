@@ -3,15 +3,15 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createAnthropic } from '@ai-sdk/anthropic'
-import { APICallError, RetryError } from 'ai'
+import { APICallError, RetryError, generateText } from 'ai'
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
 import { FakeKernel } from '../kernel/fake-kernel'
 import { createApproval } from './approval'
 import { type EventData, EventBus } from './events'
 import { installExtensions } from './extensions'
-import { agentProviderOptions } from './model'
+import { agentProviderOptions, cloudGateway } from './model'
 import { type HarnessDeps, friendlyError, runCell } from './run-cell'
 import { RUN_TIMEOUT_MS, duration } from './tools'
 
@@ -574,6 +574,35 @@ describe('friendlyError', () => {
   it('still reads a status the message spells out', () => {
     expect(friendlyError(new Error('Request failed with status code 401'))).toMatch(/rejected the API key/)
     expect(friendlyError(new Error('429 Too Many Requests'))).toMatch(/rate limiting/)
+  })
+
+  /** What a real call through Dalliance Cloud throws when the proxy answers with this status and message. */
+  async function cloudRefusal(status: number, message: string) {
+    const fetch = vi.fn(async () => Response.json({ error: { message, type: 'dalliance_account' } }, { status }))
+    vi.stubGlobal('fetch', fetch)
+    try {
+      const model = cloudGateway({ baseURL: 'https://cloud.test/api/ai', signedIn: () => true, token: async () => 'jwt' })('anthropic/claude-fable-5.1')
+      return await generateText({ model, prompt: 'Hi', maxRetries: 0 }).then(
+        () => null,
+        (err: unknown) => err,
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  }
+
+  it("shows Dalliance Cloud's refusals as written, not as a rejected key", async () => {
+    const offered = "This model doesn't run with zero data retention, so Dalliance Cloud doesn't offer it. Choose another model in Settings."
+    expect(friendlyError(await cloudRefusal(403, offered))).toBe(offered)
+    expect(friendlyError(await cloudRefusal(401, 'Sign in to Dalliance to run prompts.'))).toBe('Sign in to Dalliance to run prompts.')
+    expect(friendlyError(await cloudRefusal(402, "You've used this period's credits."))).toBe("You've used this period's credits.")
+  })
+
+  it("explains Anthropic's refusal of a model that needs data retention", () => {
+    const refused = apiError(400, 'invalid_request_error: your organization must have data retention enabled to use this model')
+    expect(friendlyError(refused)).toMatch(/^This model needs data retention, and your Anthropic organization has zero data retention/)
+    const viaGateway = new APICallError({ message: 'No zero data retention provider', url: 'https://ai-gateway.vercel.sh/v4/ai/language-model', requestBodyValues: {}, statusCode: 400 })
+    expect(friendlyError(viaGateway)).toBe('No zero data retention provider')
   })
 
   it('reads a failed fetch as no connection', () => {

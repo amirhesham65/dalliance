@@ -483,7 +483,19 @@ export const actions = {
   async loadModels(force = false) {
     const { models, settings } = get()
     if (!api || (!force && models && models.provider === settings?.provider && !models.error)) return
-    set({ models: await api.listModels().catch((err: unknown) => ({ provider: settings?.provider ?? 'gateway', models: [], error: String(err) })) })
+    const list = await api.listModels().catch((err: unknown) => ({ provider: settings?.provider ?? 'gateway', models: [], error: String(err) }))
+    set({ models: list })
+    // Dalliance Cloud only offers models with zero data retention. A saved model it doesn't offer goes back to the
+    // default (an empty model resets it), rather than failing every run
+    const current = get().settings
+    if (list.provider === 'cloud' && current?.provider === 'cloud' && !list.error && list.models.length && !list.models.some((m) => m.id === current.model)) {
+      try {
+        set({ settings: await api.updateSettings({ model: '' }) })
+        actions.notify(`${current.model} isn't offered on Dalliance Cloud, so the model is back to the default.`)
+      } catch (err) {
+        actions.notifyFailure("Couldn't reset the model", err)
+      }
+    }
   },
 
   async loadBrief() {

@@ -177,6 +177,8 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 
 `actions.notify(text, { undo, tone })` puts one message at the bottom of the window for 6 seconds. `NoticeToast` in `App.tsx` draws it. With `undo` it shows an Undo button, without it a Dismiss button. A newer notice replaces the one showing, and loading a notebook clears it. D D and M use it to offer Undo, which goes through the notebook's undo stack, see [Undo and redo](#undo-and-redo).
 
+Opening the model picker loads the model list. On Dalliance Cloud, a saved model the list doesn't offer goes back to the default with a notice, since the service only offers models with zero data retention.
+
 A bridge call the user started should never fail silently. `actions.notifyFailure(what, err)` shows "Couldn't save the notebook." and the reason, with the `Error invoking remote method` wrapper stripped by `errorText()`. Saving, writing the brief, refreshing the variables and restarting Python all report failures this way. A new notebook the main process can't write gets a dialog with the reason from there instead, and the window stays as it was. Background calls, like the variables refresh after each run, stay quiet.
 
 `ErrorBoundary` in `components/app/` wraps every cell, the open side pane and the overview. A throw while drawing one of them shows "This cell couldn't be shown." with the error and a Retry button in its place, and the rest of the window keeps working. The side pane's boundary is keyed by pane, so opening another pane starts fresh.
@@ -193,7 +195,7 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 
 | Section | Component | Holds |
 | --- | --- | --- |
-| Models | `ModelSettings` | Provider, key, model id, effort. With Dalliance Cloud chosen, `CloudStatus` stands in for the key: sign in, choose a plan, or the credits left |
+| Models | `ModelSettings` | Provider, key, model id, effort. With Dalliance Cloud chosen, `CloudStatus` stands in for the key: sign in, choose a plan, or the credits left. The provider's line says what it means for data retention, see [cloud.md](cloud.md#zero-data-retention) |
 | Agent | `AgentSettings` | Approvals (package installs, shell and network code), cell names, suggested next prompts |
 | Python | `PythonSettings` | The managed environment and a Python path |
 | Account | `AccountSettings` | The Dalliance account, the plan and its credits. Only in builds with Dalliance Cloud, when `settings.cloud` is true. See [cloud.md](cloud.md) |

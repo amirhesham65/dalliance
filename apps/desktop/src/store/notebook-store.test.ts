@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type PromptCell, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
-import { fakeApi, result } from '@/test/fake-api'
+import { fakeApi, fakeSettings, result } from '@/test/fake-api'
 import { actions, setApi, useNotebook } from './notebook-store'
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
@@ -444,5 +444,50 @@ describe('the environment view', () => {
     await flush()
     await actions.restart()
     expect(pending).toHaveLength(0)
+  })
+})
+
+describe('the model list', () => {
+  const cloudList = { provider: 'cloud' as const, models: [{ id: 'anthropic/claude-opus-5', name: 'Claude Opus 5', maker: 'Anthropic' }], error: null }
+
+  function onCloud(model: string) {
+    const { api } = fakeApi(() => result())
+    const updates: unknown[] = []
+    api.listModels = async () => cloudList
+    api.updateSettings = async (update) => {
+      updates.push(update)
+      return { ...fakeSettings(), provider: 'cloud', model: 'anthropic/claude-opus-5' }
+    }
+    setApi(api)
+    useNotebook.setState({ settings: { ...fakeSettings(), provider: 'cloud', model }, models: null, notice: null })
+    return updates
+  }
+
+  it("moves a saved Cloud model that Dalliance Cloud doesn't offer back to the default", async () => {
+    const updates = onCloud('anthropic/claude-fable-5.1')
+    await actions.loadModels()
+    expect(updates).toEqual([{ model: '' }])
+    expect(useNotebook.getState().settings?.model).toBe('anthropic/claude-opus-5')
+    expect(useNotebook.getState().notice?.text).toMatch(/claude-fable-5\.1 isn't offered on Dalliance Cloud/)
+  })
+
+  it('leaves an offered Cloud model alone', async () => {
+    const updates = onCloud('anthropic/claude-opus-5')
+    await actions.loadModels()
+    expect(updates).toEqual([])
+  })
+
+  it("leaves the model alone when the list didn't load", async () => {
+    const updates = onCloud('anthropic/claude-fable-5.1')
+    useNotebook.setState({ models: null })
+    const { api } = fakeApi(() => result())
+    api.listModels = async () => ({ provider: 'cloud', models: [], error: 'Sign in to Dalliance.' })
+    api.updateSettings = async (update) => {
+      updates.push(update)
+      return fakeSettings()
+    }
+    setApi(api)
+    await actions.loadModels()
+    expect(updates).toEqual([])
   })
 })

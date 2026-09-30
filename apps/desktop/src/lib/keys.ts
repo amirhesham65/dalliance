@@ -1,9 +1,16 @@
 import type { DallianceApi, KeyProvider, Provider, SettingsView } from '@dalliance/shared/ipc'
 
+/**
+ * Dalliance Cloud's proxy enforces zero data retention on every call. An own key runs on the user's own agreements,
+ * so nothing here may claim it for them. See docs/cloud.md.
+ */
+export const OWN_KEY_RETENTION = 'With your own key, data retention depends on your agreement with the provider.'
+export const CLOUD_RETENTION = 'Every model through Dalliance Cloud runs with zero data retention.'
+
 export const PROVIDERS: Record<KeyProvider, { label: string; blurb: string; keyLabel: string; placeholder: string; env: string; keysUrl: string; keysSite: string }> = {
   gateway: {
     label: 'Vercel AI Gateway',
-    blurb: 'One key for Claude, GPT, Gemini and others. Switch models any time.',
+    blurb: `One key for Claude, GPT, Gemini and others. Switch models any time. ${OWN_KEY_RETENTION}`,
     keyLabel: 'AI Gateway key',
     placeholder: 'vck_…',
     env: 'AI_GATEWAY_API_KEY',
@@ -13,7 +20,7 @@ export const PROVIDERS: Record<KeyProvider, { label: string; blurb: string; keyL
   },
   anthropic: {
     label: 'Anthropic API',
-    blurb: 'Claude models only, billed by Anthropic.',
+    blurb: `Claude models only, billed by Anthropic. ${OWN_KEY_RETENTION}`,
     keyLabel: 'Anthropic API key',
     placeholder: 'sk-ant-…',
     env: 'ANTHROPIC_API_KEY',
@@ -33,7 +40,7 @@ export function providerForKey(key: string): KeyProvider | null {
 /** Dalliance Cloud's entry in the provider list, in builds that have it. It runs on the account, not a key. */
 export const CLOUD = {
   label: 'Dalliance Cloud',
-  blurb: 'No key needed. Claude, GPT, Gemini and others on your Dalliance plan, paid for in credits.',
+  blurb: `No key needed. Claude, GPT, Gemini and others on your Dalliance plan, paid for in credits. ${CLOUD_RETENTION}`,
 }
 
 /** The provider's name, for menus and labels. */
