@@ -4,8 +4,9 @@ import { leakedList, splitLeaked } from '@dalliance/shared/leaked'
 import type { Output } from '@dalliance/shared/notebook'
 import type { ExecuteResult, Kernel } from '../kernel/kernel'
 import { approver } from './approval'
-import type { EventBus } from './events'
+import type { ApprovalRequest, EventBus } from './events'
 import { clip, formatVariables, outputsToText } from './format'
+import { type RunTrail, approvalKind, attemptError, noteApproval, noteReads, readPath } from './provenance'
 import { listFiles, readFileBounded } from './workspace'
 
 /** What the tools learn during a run. The harness reads it after the loop ends. */
@@ -13,6 +14,8 @@ export interface RunState {
   lastRun: { code: string; result: ExecuteResult } | null
   finished: { interpretation: string | null; answer: string | null; suggestions: string[] } | null
   attempts: number
+  /** What the cell's record keeps: each attempt, the files read and the approvals. See provenance.ts. */
+  trail: RunTrail
 }
 
 export interface ToolDeps {
@@ -38,6 +41,9 @@ export interface ToolDeps {
   runTimeoutMs?: number
 }
 
+/** What the user sees while the agent works. First in the schema, so models tend to write it before the code. */
+const summaryInput = z.string().describe("3 to 7 plain words for the user on what this step does, starting with an -ing verb, e.g. 'Counting patients per stage'. No code.")
+
 const MAX_EXPLORE_CHARS = 4000
 /** Exploration should take seconds. Anything slower is usually scanning something huge. */
 export const EXPLORE_TIMEOUT_MS = 20_000
@@ -62,7 +68,14 @@ export function duration(ms: number): string {
 export function createCellTools(deps: ToolDeps) {
   const { kernel, bus, state, cellId } = deps
 
-  const approve = approver(deps.needsApproval, deps.requestApproval)
+  const ask = approver(deps.needsApproval, deps.requestApproval)
+  // Every approval lands in the cell's record, with whether a person was asked
+  const approve = async (request: ApprovalRequest): Promise<boolean> => {
+    const asked = deps.needsApproval(request.keys)
+    const allowed = await ask(request)
+    noteApproval(state.trail, approvalKind(request.keys), request.detail, allowed ? (asked ? 'approved' : 'trusted') : 'declined')
+    return allowed
+  }
   /** run_cell calls still executing. finish waits for them, so it never judges a run that is about to change. */
   const running = new Set<Promise<unknown>>()
   const tracked = <T>(promise: Promise<T>): Promise<T> => {
@@ -75,6 +88,7 @@ export function createCellTools(deps: ToolDeps) {
   async function guarded<T>(toolName: string, input: unknown, run: () => Promise<T>): Promise<T | string> {
     const gate = await bus.emit('tool_call', { cellId, toolName, input, approve })
     if (gate.blocked) {
+      if (gate.secret != null) noteApproval(state.trail, 'secret', gate.secret, 'blocked')
       // Reported as a result too, so the log records how the call ended
       const output = `Blocked: ${gate.reason}`
       await bus.emit('tool_result', { cellId, toolName, input, output, ok: false, error: output })
@@ -106,9 +120,9 @@ WHEN TO USE: checking columns, dtypes, value counts, a few rows, or whether a va
 WHEN NOT TO USE: running the cell itself (use run_cell).
 DO NOT USE FOR: creating, changing or deleting variables, files or state. It shares the kernel's namespace.
 EXAMPLES: subs.head(3) | subs.plan.value_counts() | sorted(events.type.unique())`,
-      inputSchema: z.object({ code: z.string().describe('Python to evaluate. The last expression is returned.') }),
-      execute: ({ code }) =>
-        guarded('explore', { code }, async () => {
+      inputSchema: z.object({ summary: summaryInput, code: z.string().describe('Python to evaluate. The last expression is returned.') }),
+      execute: ({ summary, code }) =>
+        guarded('explore', { summary, code }, async () => {
           let timedOut = false
           const timer = setTimeout(() => {
             timedOut = true
@@ -116,6 +130,7 @@ EXAMPLES: subs.head(3) | subs.plan.value_counts() | sorted(events.type.unique())
           }, deps.exploreTimeoutMs ?? EXPLORE_TIMEOUT_MS)
           try {
             const result = await kernel.execute(code, { store: false })
+            noteReads(state.trail, result.filesRead)
             if (timedOut)
               return `Stopped after ${Math.round((deps.exploreTimeoutMs ?? EXPLORE_TIMEOUT_MS) / 1000)} seconds. Exploration must be quick: don't scan folders or large data. Look at a sample instead.`
             return clip(outputsToText(result.outputs, MAX_EXPLORE_CHARS), MAX_EXPLORE_CHARS)
@@ -144,7 +159,13 @@ DO NOT USE FOR: files outside the notebook's folder.`,
         limit: z.number().int().min(1).max(500).optional().describe('How many lines to read'),
       }),
       execute: ({ path, offset, limit }) =>
-        guarded('read_file', { path, offset, limit }, () => readFileBounded(deps.workspaceDir, path, offset, limit)),
+        guarded('read_file', { path, offset, limit }, async () => {
+          const text = await readFileBounded(deps.workspaceDir, path, offset, limit)
+          // Numbered lines mean it was read. A refusal, a folder or a binary file wasn't
+          const read = /^\d+: /.test(text) ? readPath(deps.workspaceDir, path) : null
+          if (read) noteReads(state.trail, { paths: [read], truncated: false })
+          return text
+        }),
     }),
 
     run_cell: tool({
@@ -152,10 +173,12 @@ DO NOT USE FOR: files outside the notebook's folder.`,
 WHEN TO USE: every time you have a full version of the cell's code, including after fixing an error.
 WHEN NOT TO USE: quick looks at data (use explore).
 USAGE: pass the whole cell, not a diff. Only the last successful run is kept. After it succeeds, call finish.`,
-      inputSchema: z.object({ code: z.string().describe('The complete Python code for the cell') }),
-      execute: ({ code }) =>
-        tracked(guarded('run_cell', { code }, async () => {
+      inputSchema: z.object({ summary: summaryInput, code: z.string().describe('The complete Python code for the cell') }),
+      execute: ({ summary, code }) =>
+        tracked(guarded('run_cell', { summary, code }, async () => {
           state.attempts += 1
+          const attempt: RunTrail['attempts'][number] = { code, error: null, filesRead: [] }
+          state.trail.attempts.push(attempt)
           deps.onAttempt(code)
           const limit = deps.runTimeoutMs ?? RUN_TIMEOUT_MS
           let timedOut = false
@@ -168,11 +191,17 @@ USAGE: pass the whole cell, not a diff. Only the last successful run is kept. Af
             result = await kernel.execute(code, { store: true, onOutput: deps.onOutput })
           } catch (err) {
             // A kernel that ignores the interrupt gets killed, and the run fails with it
-            if (!timedOut) throw err
+            if (!timedOut) {
+              attempt.error = err instanceof Error ? err.message : String(err)
+              throw err
+            }
             result = { ok: false, outputs: [], executionCount: null, durationMs: limit, assigned: [] }
           } finally {
             clearTimeout(timer)
           }
+          attempt.filesRead = result.filesRead?.paths ?? []
+          if (result.filesRead?.truncated) state.trail.readsTruncated = true
+          attempt.error = timedOut ? `Stopped after ${duration(limit)}` : attemptError(result)
           if (timedOut) {
             // Never a run finish can keep, whatever the kernel reported after the interrupt
             state.lastRun = { code, result: { ...result, ok: false } }

@@ -18,7 +18,7 @@ The client runs only in builds made with `DALLIANCE_CLOUD_URL` set to the servic
 | --- | --- | --- |
 | Config | `electron/cloud/config.ts` | The switch, `/api/config`, and reading sign-in links |
 | Account | `electron/cloud/account.ts` | Better Auth's Electron client, in the main process only. Sign-in, the session and the Convex token |
-| Billing | `electron/cloud/billing.ts` | A Convex client that follows the plan live |
+| Billing | `electron/cloud/billing.ts` | A Convex client that follows the plan live, and counts a run's credits for Show costs |
 | Models | `cloudGateway()` in `electron/harness/model.ts` | The gateway provider pointed at the service's model proxy |
 | Renderer | `src/components/cloud/CloudStatus.tsx`, `src/components/settings/AccountSettings.tsx`, `src/lib/cloud.ts` | The account line under the provider, and the Account section of Settings |
 
@@ -48,7 +48,7 @@ Packaged builds register the scheme through `protocols` in the electron-builder 
 `provider: 'cloud'` is a third provider beside `gateway` and `anthropic`. `KeyProvider` is the two that take a key. `SettingsStore.setCloud()` gives it a `CloudAccess`: the proxy's URL, whether someone is signed in, and the token fetcher.
 
 - `resolveModel()` builds the AI Gateway provider on `<cloud>/api/ai`, with a custom `fetch` that puts a fresh Convex JWT on every request. Signed out, it throws a `ModelSetupError` before the run starts, and the session shows its message.
-- `agentProviderOptions()` works as it does for the gateway, since Cloud models use gateway ids like `anthropic/claude-opus-5`.
+- `agentProviderOptions()` works as it does for the gateway, since Cloud models use gateway ids like `anthropic/claude-sonnet-5.5`. So, like the gateway, it sends no refusal fallback. See [agent-harness.md](agent-harness.md#models-and-providers).
 - `titleModel()` uses `openai/gpt-6-luna` through the same proxy.
 - `listModels()` lists the gateway's models through the proxy, without dollar prices, because the plan pays in credits.
 
@@ -61,13 +61,18 @@ Every model call through Dalliance Cloud runs with zero data retention. The prox
 - `loadModels()` in the store moves a saved Cloud model the list doesn't offer, typed in or saved before the list changed, back to the default, and says so in a notice.
 - The own-key routes, AI Gateway and Anthropic, run on the user's own agreements with those providers. Their full model lists stay, and the provider line says: "With your own key, data retention depends on your agreement with the provider." `OWN_KEY_RETENTION` and `CLOUD_RETENTION` in `src/lib/keys.ts` hold the wording. Never let copy claim zero data retention for an own-key route.
 - On a direct Anthropic key, a model that needs data retention fails with a 400 when the key's organization has zero data retention. `friendlyError()` turns that into a message that says so.
+- The agent sends no refusal fallback on Cloud. The gateway drops the option today, and the model Anthropic picks for `fallbacks: 'default'` isn't published, so it couldn't be held to the list. A fallback on Cloud would need an explicit list of models the proxy offers.
 - Zero data retention is not a HIPAA business associate agreement. Don't word it as one.
 
 A settings file that chose `cloud`, opened by a build without it, reads as `gateway` with that provider's default model, and the choice comes back in a build that has it.
 
+## Credits per run
+
+With Show costs on, the Activity pane shows the credits each run used on Dalliance Cloud, and never dollars, since the plan pays in credits. Each step of a run keeps the gateway's generation id, which the proxy passes through, and the run's cost names those ids. `countCredits()` asks `Billing.credits()`, which subscribes to the service's `usage:credits` query with them. The service answers for the signed-in user's own calls only. Each call's row lands a few seconds after the call, so the subscription stays open until every id is there, or 90 seconds pass, and then closes. See [agent-harness.md](agent-harness.md#costs).
+
 ## What the service promises
 
-The app relies on the service's pages, endpoints, deep links and Convex functions staying compatible, since released copies can't be updated. The service's repo lists them as its app contract. The shapes of `PlanOption`, `SubscriptionView` and `BillingView` in `packages/shared/src/ipc.ts` mirror what `billing:plans` and `billing:status` return.
+The app relies on the service's pages, endpoints, deep links and Convex functions staying compatible, since released copies can't be updated. The service's repo lists them as its app contract. The shapes of `PlanOption`, `SubscriptionView` and `BillingView` in `packages/shared/src/ipc.ts` mirror what `billing:plans` and `billing:status` return, and `Billing.credits()` reads `usage:credits` as a list of `{ generationId, credits }`.
 
 ## Security
 

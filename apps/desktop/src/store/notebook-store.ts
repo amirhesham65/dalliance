@@ -13,6 +13,7 @@ import type {
   PaneName,
   PythonState,
   RunCellRequest,
+  RunCost,
   RunEvent,
   SettingsView,
   TabsState,
@@ -50,7 +51,28 @@ export interface LogEntry {
   kind: 'wrote' | 'ran' | 'failed' | 'stopped' | 'restarted' | 'restored'
   text: string
   cellId?: string
+  /** What the run's model calls cost, with Show costs on. */
+  cost?: CostView
 }
+
+/** A run's cost as the Activity pane shows it. Credits are `counting` until Dalliance Cloud has them all. */
+export type CostView =
+  | { unit: 'usd'; usd: number; unpricedTokens: number }
+  | { unit: 'credits'; credits: number | null; tokens: number; counting: boolean }
+
+/**
+ * What the open notebook's model calls have cost since it was opened, cell names included. `unpricedTokens` are
+ * tokens with no known price, and Cloud calls whose credits never arrived. `counting` is how many runs' credits
+ * are still on their way.
+ */
+export interface Spend {
+  usd: number
+  credits: number
+  unpricedTokens: number
+  counting: number
+}
+
+export const NO_SPEND: Spend = { usd: 0, credits: 0, unpricedTokens: 0, counting: 0 }
 
 /** A short message at the bottom of the window, with an Undo when the change can be taken back. Not saved. */
 export interface Notice {
@@ -99,6 +121,8 @@ export interface NotebookState {
   focusId: string | null
   /** What happened in this session, newest first. */
   log: LogEntry[]
+  /** What this notebook's runs cost, when Show costs is on. Clearing the log keeps it. */
+  spend: Spend
   /** The cell that most recently finished running, which shows its suggested next prompts. */
   lastFinishedId: string | null
   pane: PaneKind | null
@@ -164,6 +188,7 @@ export const useNotebook = create<NotebookState>(() => ({
   python: null,
   focusId: null,
   log: [],
+  spend: NO_SPEND,
   lastFinishedId: null,
   pane: null,
   pinnedIds: [],
@@ -176,8 +201,46 @@ export const useNotebook = create<NotebookState>(() => ({
 const MAX_LOG = 60
 let logId = 0
 
-function addLog(entry: Omit<LogEntry, 'id' | 'at'>) {
-  set((s) => ({ log: [{ ...entry, id: ++logId, at: Date.now() }, ...s.log].slice(0, MAX_LOG) }))
+function addLog(entry: Omit<LogEntry, 'id' | 'at'>): number {
+  const id = ++logId
+  set((s) => ({ log: [{ ...entry, id, at: Date.now() }, ...s.log].slice(0, MAX_LOG) }))
+  return id
+}
+
+// Bumped when a notebook loads, so credits counted for the last one don't land in this one's total
+let spendEpoch = 0
+
+/**
+ * Add a cost to the notebook's total and, for a run, to its log entry. Dalliance Cloud's credits are counted by
+ * the service a few seconds after each call, so they're asked for here and show as counting until they arrive.
+ */
+function trackCost(cost: RunCost | undefined, entryId: number | null) {
+  if (!cost) return
+  if (cost.unit === 'usd') {
+    set((s) => ({ spend: { ...s.spend, usd: s.spend.usd + cost.usd, unpricedTokens: s.spend.unpricedTokens + cost.unpricedTokens } }))
+    return
+  }
+  const epoch = spendEpoch
+  set((s) => ({ spend: { ...s.spend, counting: s.spend.counting + 1 } }))
+  const counted = api && cost.generationIds.length ? api.countCredits(cost.generationIds).catch(() => null) : Promise.resolve(null)
+  void counted.then((credits) => {
+    if (epoch !== spendEpoch) return
+    set((s) => ({
+      spend: {
+        ...s.spend,
+        counting: s.spend.counting - 1,
+        credits: s.spend.credits + (credits ?? 0),
+        // Credits that never came: the tokens are all there is to show
+        unpricedTokens: s.spend.unpricedTokens + (credits == null ? cost.tokens : 0),
+      },
+      log: s.log.map((e) => (e.id === entryId && e.cost?.unit === 'credits' ? { ...e, cost: { ...e.cost, credits, counting: false } } : e)),
+    }))
+  })
+}
+
+function costView(cost: RunCost | undefined): CostView | undefined {
+  if (!cost) return undefined
+  return cost.unit === 'usd' ? cost : { unit: 'credits', credits: null, tokens: cost.tokens, counting: true }
 }
 
 const NOTICE_MS = 6000
@@ -396,6 +459,7 @@ export const actions = {
       void api?.interrupt().catch(() => {})
     }
     clearEdits()
+    spendEpoch++
     set({
       screen: 'notebook',
       canReturn: false,
@@ -408,6 +472,7 @@ export const actions = {
       messages: {},
       variables: [],
       log: [],
+      spend: NO_SPEND,
       lastFinishedId: null,
       pinnedIds: [],
       pane: get().pane === 'pinned' ? null : get().pane,
@@ -725,6 +790,8 @@ export const actions = {
       // The cell may be gone, deleted or left behind in another notebook
       if (!get().notebook.cells.some((c) => c.id === id)) return
       updateCell(id, (c) => (c.kind === 'prompt' ? { ...c, title: event.title, titleFrom: event.prompt } : c))
+      // Naming the cell counts toward the notebook's total, not the run's
+      trackCost(event.cost, null)
       return
     }
     set((s) => {
@@ -900,7 +967,8 @@ function finish(id: string, generate: boolean, result: CellRunResult, sent: Prom
     return
   }
   const stopped = result.error === 'Stopped.'
-  logRun(get().notebook.cells.find((c) => c.id === id), generate, result)
+  const entryId = logRun(get().notebook.cells.find((c) => c.id === id), generate, result)
+  trackCost(result.cost, entryId)
   set((s) => {
     const cells = s.notebook.cells
     const index = cells.findIndex((c) => c.id === id)
@@ -932,6 +1000,9 @@ function finish(id: string, generate: boolean, result: CellRunResult, sent: Prom
             interpretation: result.ok ? result.interpretation : cell.interpretation,
             answer: result.ok ? result.answer : null,
             suggestions: result.ok ? result.suggestions : [],
+            // The record follows the code: a generation writes a new one, even a failed one, since its code is kept.
+            // A plain run leaves it alone, so rerunning saved code keeps how the code was made
+            provenance: result.provenance ?? null,
           }
         : {}),
     }
@@ -974,17 +1045,18 @@ function remember(cell: PromptCell) {
   return [rev, ...cell.history].slice(0, MAX_REVISIONS)
 }
 
-function logRun(cell: Cell | undefined, generate: boolean, result: CellRunResult) {
-  if (!cell) return
+function logRun(cell: Cell | undefined, generate: boolean, result: CellRunResult): number | null {
+  if (!cell) return null
   const name = quoted(cell)
-  if (result.error === 'Stopped.') return addLog({ kind: 'stopped', text: `Stopped ${name}`, cellId: cell.id })
+  const cost = costView(result.cost)
+  if (result.error === 'Stopped.') return addLog({ kind: 'stopped', text: `Stopped ${name}`, cellId: cell.id, cost })
   if (!result.ok) {
     const err = result.outputs.find((o) => o.type === 'error')
     const clipped = (t: string) => (t.length > 140 ? `${t.slice(0, 139)}…` : t)
     const why = err?.type === 'error' ? clipped(`${err.ename}${err.evalue ? `: ${err.evalue}` : ''}`) : result.error ? clipped(result.error) : 'error'
-    return addLog({ kind: 'failed', text: `${name} failed: ${why}`, cellId: cell.id })
+    return addLog({ kind: 'failed', text: `${name} failed: ${why}`, cellId: cell.id, cost })
   }
-  addLog({ kind: generate ? 'wrote' : 'ran', text: `${generate ? 'Wrote' : 'Ran'} ${name}`, cellId: cell.id })
+  return addLog({ kind: generate ? 'wrote' : 'ran', text: `${generate ? 'Wrote' : 'Ran'} ${name}`, cellId: cell.id, cost })
 }
 
 function omit<T>(record: Record<string, T>, key: string): Record<string, T> {

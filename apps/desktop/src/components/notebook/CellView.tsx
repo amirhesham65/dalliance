@@ -3,16 +3,18 @@ import { type KeyboardEvent, type ReactNode, memo, useCallback, useEffect, useId
 import { IconButton } from '@/components/app/IconButton'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { answerBlocks, answerHtml, answerMarkdown, formatDuration, highlightPython, parseMarkdown } from '@/lib/notebook/text'
+import { answerBlocks, answerHtml, answerMarkdown, formatDuration, parseMarkdown } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
 import type { ActivityItem } from '@dalliance/shared/ipc'
 import { splitLeaked } from '@dalliance/shared/leaked'
 import { type Cell, type NoteCell, type PromptCell, needsGeneration, parseInterpretation, tablesOpen } from '@dalliance/shared/notebook'
 import { type CellRun, actions, useNotebook } from '@/store/notebook-store'
 import { HighlightedEditor } from './HighlightedEditor'
+import { HowItWasMade } from './HowItWasMade'
 import { InlineText } from './InlineText'
 import { MarkdownText } from './MarkdownText'
 import { OutputList } from './outputs/OutputView'
+import { PythonTokens } from './PythonTokens'
 import { RefText } from './RefText'
 
 interface CellViewProps {
@@ -144,6 +146,8 @@ function PromptCellView({ cell, selected }: { cell: PromptCell; selected: boolea
     [variables],
   )
   const keys = useMemo(() => editorKeys(id), [id])
+  // A question answered in words has no tabs, so its record folds out under the answer
+  const [showHow, setShowHow] = useState(false)
 
   return (
     <>
@@ -187,7 +191,14 @@ function PromptCellView({ cell, selected }: { cell: PromptCell; selected: boolea
           <span className="flex items-center gap-3 font-mono text-[11px] text-faint tabular-nums">
             {activity?.length ? <ActivityToggle items={activity} /> : null}
             {cell.durationMs != null && formatDuration(cell.durationMs)}
+            {cell.provenance && (
+              <button type="button" onClick={() => setShowHow((o) => !o)} aria-expanded={showHow} className="flex items-center gap-1 hover:text-muted-foreground">
+                <ChevronRight className={cn('size-3 transition-transform', showHow && 'rotate-90')} />
+                How this was made
+              </button>
+            )}
           </span>
+          {showHow && cell.provenance && <HowItWasMade cell={cell} record={cell.provenance} />}
           {suggest && cell.state === 'done' && <Suggestions cell={cell} />}
         </div>
       )}
@@ -202,6 +213,11 @@ function PromptCellView({ cell, selected }: { cell: PromptCell; selected: boolea
               <TabsTrigger value="code" className={tabTrigger}>
                 Code
               </TabsTrigger>
+              {cell.provenance && (
+                <TabsTrigger value="how" className={tabTrigger}>
+                  How this was made
+                </TabsTrigger>
+              )}
             </TabsList>
             {cell.codeEdited && <span className="text-xs text-faint">· your code</span>}
             <span className="ml-auto flex items-center gap-3 font-mono text-[11px] text-faint tabular-nums">
@@ -241,6 +257,11 @@ function PromptCellView({ cell, selected }: { cell: PromptCell; selected: boolea
               className="code rounded-lg bg-raised p-3 font-mono text-[12.5px] leading-[1.7]"
             />
           </TabsContent>
+          {cell.provenance && (
+            <TabsContent value="how">
+              <HowItWasMade cell={cell} record={cell.provenance} />
+            </TabsContent>
+          )}
         </Tabs>
       )}
     </>
@@ -361,22 +382,6 @@ function CreatedVariables({ cell }: { cell: PromptCell }) {
 const tabTrigger =
   'h-auto flex-none rounded-none border-0 px-0 py-0 text-xs font-normal text-faint after:hidden hover:text-muted-foreground data-active:bg-transparent data-active:text-foreground dark:data-active:border-transparent dark:data-active:bg-transparent'
 
-export function PythonTokens({ code }: { code: string }) {
-  return (
-    <>
-      {highlightPython(code).map((t, i) =>
-        t.type === 'plain' ? (
-          t.value
-        ) : (
-          <span key={i} className={t.type}>
-            {t.value}
-          </span>
-        ),
-      )}
-    </>
-  )
-}
-
 /** How the agent read the prompt. Assumptions are underlined; click one to correct it. */
 function Interpretation({ cell }: { cell: PromptCell }) {
   const [editing, setEditing] = useState<string | null>(null)
@@ -492,21 +497,43 @@ function ActivityList({ items }: { items: ActivityItem[] }) {
   return (
     <ol className="flex flex-col gap-1 text-[12.5px]">
       {items.map((a) => (
-        <li key={a.id} className="flex items-baseline gap-2">
-          <span className="w-3 shrink-0">
-            {a.status === 'running' ? (
-              <Loader2 className="size-3 animate-spin text-muted-foreground motion-reduce:animate-none" />
-            ) : a.status === 'error' ? (
-              <X className="size-3 text-destructive" />
-            ) : (
-              <Check className="size-3 text-go" />
-            )}
-          </span>
-          <span className={a.status === 'running' ? 'text-muted-foreground' : 'text-faint'}>{a.label}</span>
-          {a.detail && <span className="truncate font-mono text-[11.5px] text-faint">{a.detail}</span>}
-        </li>
+        <ActivityStep key={a.id} item={a} />
       ))}
     </ol>
+  )
+}
+
+/** One step. Its label is plain words; a step that ran code opens to show it. */
+function ActivityStep({ item: a }: { item: ActivityItem }) {
+  const [open, setOpen] = useState(false)
+  const tone = a.status === 'running' ? 'text-muted-foreground' : 'text-faint'
+  return (
+    <li className="flex flex-col gap-1">
+      <div className="flex items-baseline gap-2">
+        <span className="w-3 shrink-0">
+          {a.status === 'running' ? (
+            <Loader2 className="size-3 animate-spin text-muted-foreground motion-reduce:animate-none" />
+          ) : a.status === 'error' ? (
+            <X className="size-3 text-destructive" />
+          ) : (
+            <Check className="size-3 text-go" />
+          )}
+        </span>
+        {a.code ? (
+          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} title={open ? 'Hide the code' : 'Show the code'} className={cn('text-left hover:text-muted-foreground', tone)}>
+            {a.label}
+          </button>
+        ) : (
+          <span className={tone}>{a.label}</span>
+        )}
+        {a.detail && <span className="truncate font-mono text-[11.5px] text-faint">{a.detail}</span>}
+      </div>
+      {open && a.code && (
+        <pre className="code scrollbar-thin ml-5 max-h-48 overflow-auto rounded-md bg-raised px-2.5 py-2 font-mono text-[11.5px] leading-[1.6]">
+          <PythonTokens code={a.code} />
+        </pre>
+      )}
+    </li>
   )
 }
 

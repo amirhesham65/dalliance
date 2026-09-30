@@ -3,6 +3,8 @@ import { mkdtempSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { MockLanguageModelV4, simulateReadableStream } from 'ai/test'
+import type { WebContents } from 'electron'
 import { IPC, type KernelState } from '@dalliance/shared/ipc'
 import { FakeKernel } from './kernel/fake-kernel'
 import type { KernelInfo } from './kernel/kernel'
@@ -31,6 +33,13 @@ vi.mock('./kernel/python-kernel', async () => {
     },
   }
 })
+
+// The model a run gets, for the cost tests. Everything else in the module is real
+const agent = vi.hoisted(() => ({ model: null as unknown }))
+vi.mock('./harness/model', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./harness/model')>()),
+  resolveModel: () => ({ model: agent.model, providerOptions: undefined }),
+}))
 
 /** A kernel that remembers its folder and whether it was shut down. */
 class FolderKernel extends FakeKernel {
@@ -293,5 +302,60 @@ describe('base packages in an older managed environment', () => {
     await expect(start(s)).resolves.toBeDefined()
     await tick()
     expect(python.topUps).toHaveLength(1)
+  })
+})
+
+describe('what a run cost', () => {
+  // One model call that finishes the cell: 1,000 input tokens, 800 of them read from the cache, and 100 out
+  const finishing = () =>
+    new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: simulateReadableStream({
+          chunks: [
+            { type: 'stream-start', warnings: [] },
+            { type: 'tool-call', toolCallId: 'c', toolName: 'finish', input: JSON.stringify({ interpretation: '', answer: 'Nothing to run.' }) },
+            {
+              type: 'finish',
+              finishReason: { unified: 'tool-calls', raw: 'tool_use' },
+              usage: { inputTokens: { total: 1000, noCache: 200, cacheRead: 800, cacheWrite: 0 }, outputTokens: { total: 100, text: 100, reasoning: 0 } },
+            },
+          ] as never[],
+        }),
+      }),
+    })
+
+  const run = async (showCosts: boolean) => {
+    agent.model = finishing()
+    const s = new NotebookSession({
+      settings: {
+        workspaceDir: null,
+        setWorkspaceDir: () => {},
+        modelConfig: () => ({ provider: 'anthropic', model: 'claude-haiku-4-5', effort: 'medium', apiKey: 'k', cloud: null }),
+        showCosts,
+        autoTitles: false,
+        suggestNext: true,
+        approvalMode: 'interactive',
+      } as unknown as SettingsStore,
+      userData: mkdtempSync(path.join(tmpdir(), 'dalliance-session-')),
+      defaultWorkspace: mkdtempSync(path.join(tmpdir(), 'dalliance-ws-')),
+      send: () => {},
+      launchKernel: async (cwd) => new FolderKernel(cwd),
+    })
+    const contents = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+    return s.runCell({ cellId: 'c1', prompt: 'Nothing', code: '', generate: true, corrections: [], previousCells: [] }, contents)
+  }
+
+  it('prices the run with Show costs on', async () => {
+    const result = await run(true)
+    expect(result.steps[0].usage).toMatchObject({ inputTokens: 1000, cacheReadTokens: 800, outputTokens: 100 })
+    // Haiku 4.5: 200 fresh at $1, 800 cached at $0.10 and 100 out at $5 a million
+    expect(result.cost).toMatchObject({ unit: 'usd', unpricedTokens: 0 })
+    expect(result.cost?.unit === 'usd' && result.cost.usd).toBeCloseTo(0.0002 + 0.00008 + 0.0005, 10)
+  })
+
+  it('leaves the cost out with Show costs off', async () => {
+    const result = await run(false)
+    expect(result.ok).toBe(true)
+    expect(result).not.toHaveProperty('cost')
   })
 })

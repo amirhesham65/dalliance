@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -6,14 +7,16 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { APICallError, RetryError, generateText } from 'ai'
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test'
 import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import type { RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
+import { canonicalOutputs } from '@dalliance/shared/normalize'
 import { FakeKernel } from '../kernel/fake-kernel'
 import { createApproval } from './approval'
 import { type EventData, EventBus } from './events'
 import { installExtensions } from './extensions'
 import { agentProviderOptions, cloudGateway } from './model'
-import { type HarnessDeps, friendlyError, runCell } from './run-cell'
-import { RUN_TIMEOUT_MS, duration } from './tools'
+import { type HarnessDeps, describeCall, describeResult, friendlyError, runCell, servedByFallback } from './run-cell'
+import { RUN_TIMEOUT_MS, type ToolDeps, createCellTools, duration } from './tools'
 
 type Step = { tool: string; input: Record<string, unknown>; thinking?: string } | { text: string }
 
@@ -90,7 +93,7 @@ const table = { type: 'table' as const, columns: ['month', 'aov'], index: ['0'],
 describe('runCell with generation', () => {
   it('asks for no suggested next prompts when they are off, and drops any the model writes anyway', async () => {
     const steps = [
-      { tool: 'run_cell', input: { code: 'orders.total.mean()' } },
+      { tool: 'run_cell', input: { summary: 'Looking at the orders', code: 'orders.total.mean()' } },
       { tool: 'finish', input: { interpretation: '', answer: 'The mean is **41.2**.', next: ['Plot totals by month'] } },
     ]
     const kernel = () => new FakeKernel(() => ({ ok: true, outputs: [table] }))
@@ -117,8 +120,8 @@ describe('runCell with generation', () => {
     )
     const { model } = scriptedModel([
       { tool: 'list_variables', input: {} },
-      { tool: 'run_cell', input: { code: 'orders.groupby("month").bad.mean()' } },
-      { tool: 'run_cell', input: { code: 'orders.groupby("month").total.mean()' } },
+      { tool: 'run_cell', input: { summary: 'Averaging order value by month', code: 'orders.groupby("month").bad.mean()' } },
+      { tool: 'run_cell', input: { summary: 'Averaging the order totals by month', code: 'orders.groupby("month").total.mean()' } },
       { tool: 'finish', input: { interpretation: 'Order value is [[total including tax]].', answer: 'August averaged $41.20.', next: ['"Plot it by month"', ' ', 'Median order value'] } },
     ])
     const { deps, events } = harness(model, kernel)
@@ -139,8 +142,8 @@ describe('runCell with generation', () => {
     expect(events.filter((e) => e.type === 'attempt')).toHaveLength(2)
     expect(result.activity.map((a) => [a.label, a.status])).toEqual([
       ['Checked variables', 'done'],
-      ['Ran the cell', 'error'],
-      ['Ran the cell', 'done'],
+      ['Averaging order value by month', 'error'],
+      ['Averaging the order totals by month', 'done'],
       ['Finished', 'done'],
     ])
   })
@@ -172,7 +175,7 @@ describe('runCell with generation', () => {
   it('refuses to finish before a successful run', async () => {
     const { model } = scriptedModel([
       { tool: 'finish', input: { interpretation: '', answer: '' } },
-      { tool: 'run_cell', input: { code: 'x = 1\nx' } },
+      { tool: 'run_cell', input: { summary: 'Looking at the orders', code: 'x = 1\nx' } },
       { tool: 'finish', input: { interpretation: '', answer: '' } },
     ])
     const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })))
@@ -219,7 +222,7 @@ describe('runCell with generation', () => {
   it('asks before code uses the network, through the same approval as installs', async () => {
     const approvals: [string, string, string[]][] = []
     const kernel = new FakeKernel()
-    const { model, prompts } = scriptedModel([{ tool: 'run_cell', input: { code: 'import requests\nrates = requests.get(URL).json()' } }, { text: 'Okay.' }])
+    const { model, prompts } = scriptedModel([{ tool: 'run_cell', input: { summary: 'Looking at the orders', code: 'import requests\nrates = requests.get(URL).json()' } }, { text: 'Okay.' }])
     const { deps } = harness(model, kernel, {
       requestApproval: async (...args) => {
         approvals.push(args)
@@ -237,7 +240,7 @@ describe('runCell with generation', () => {
   it('runs network code without asking in background mode', async () => {
     let asked = false
     const kernel = new FakeKernel()
-    const { model } = scriptedModel([{ tool: 'explore', input: { code: 'import requests' } }, { text: 'Okay.' }])
+    const { model } = scriptedModel([{ tool: 'explore', input: { summary: 'Looking at the orders', code: 'import requests' } }, { text: 'Okay.' }])
     const { deps } = harness(model, kernel, {
       needsApproval: createApproval({ mode: 'background' }),
       requestApproval: async () => (asked = true),
@@ -260,7 +263,7 @@ describe('runCell with generation', () => {
 
 describe('observability', () => {
   it('reports every step with its model, finish reason, duration and token usage', async () => {
-    const { model } = scriptedModel([{ tool: 'run_cell', input: { code: 'x = 1\nx' } }, { tool: 'finish', input: { interpretation: '', answer: '' } }])
+    const { model } = scriptedModel([{ tool: 'run_cell', input: { summary: 'Looking at the orders', code: 'x = 1\nx' } }, { tool: 'finish', input: { interpretation: '', answer: '' } }])
     const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })))
     const order: string[] = []
     const steps: EventData[] = []
@@ -275,6 +278,7 @@ describe('observability', () => {
       cellId: 'c1',
       step: 1,
       modelId: 'mock-model-id',
+      fallback: false,
       finishReason: 'tool-calls',
       durationMs: expect.any(Number),
       reasoning: null,
@@ -284,20 +288,42 @@ describe('observability', () => {
 
   it("keeps each step's reasoning summary, and null for a step without one", async () => {
     const { model } = scriptedModel([
-      { tool: 'explore', input: { code: 'orders.head()' }, thinking: 'Look at the columns first.' },
-      { tool: 'run_cell', input: { code: 'x = 1\nx' } },
+      { tool: 'explore', input: { summary: 'Looking at the orders', code: 'orders.head()' }, thinking: 'Look at the columns first.' },
+      { tool: 'run_cell', input: { summary: 'Looking at the orders', code: 'x = 1\nx' } },
       { tool: 'finish', input: { interpretation: '', answer: '' }, thinking: 'It ran, so finish.' },
     ])
     const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })))
     const logged: (string | null | undefined)[] = []
     deps.bus.on('step', (data) => void logged.push(data.reasoning))
     const result = await runCell(request(), deps)
-    expect(result.steps).toEqual([
-      { step: 1, modelId: 'mock-model-id', reasoning: 'Look at the columns first.' },
-      { step: 2, modelId: 'mock-model-id', reasoning: null },
-      { step: 3, modelId: 'mock-model-id', reasoning: 'It ran, so finish.' },
+    expect(result.steps).toMatchObject([
+      { step: 1, modelId: 'mock-model-id', fallback: false, reasoning: 'Look at the columns first.' },
+      { step: 2, modelId: 'mock-model-id', fallback: false, reasoning: null },
+      { step: 3, modelId: 'mock-model-id', fallback: false, reasoning: 'It ran, so finish.' },
     ])
     expect(logged).toEqual(['Look at the columns first.', null, 'It ran, so finish.'])
+  })
+
+  it("keeps each step's tokens and the gateway's generation id, for what the run cost", async () => {
+    const step = (id: string, call: { toolName: string; input: unknown }, metadata?: Record<string, Record<string, string>>) => [
+      { type: 'stream-start' as const, warnings: [] },
+      { type: 'tool-call' as const, toolCallId: id, toolName: call.toolName, input: JSON.stringify(call.input) },
+      { type: 'finish' as const, finishReason: { unified: 'tool-calls' as const, raw: 'tool_use' }, usage, providerMetadata: metadata },
+    ]
+    const replies = [
+      step('call-1', { toolName: 'run_cell', input: { code: 'x = 1\nx' } }, { gateway: { generationId: 'gen_01ABC' } }),
+      step('call-2', { toolName: 'finish', input: { interpretation: '', answer: '' } }),
+    ]
+    let calls = 0
+    const model = new MockLanguageModelV4({ doStream: async () => ({ stream: simulateReadableStream({ chunks: replies[calls++] as never[] }) }) })
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })))
+    const result = await runCell(request(), deps)
+    // The reasoning is inside the output tokens, never added on top
+    const tokens = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 5, cacheWriteTokens: 1, reasoningTokens: 2 }
+    expect(result.steps).toMatchObject([
+      { step: 1, usage: tokens, generationId: 'gen_01ABC' },
+      { step: 2, usage: tokens, generationId: null },
+    ])
   })
 
   it('writes the steps to agent.jsonl through the built-in log', async () => {
@@ -309,7 +335,102 @@ describe('observability', () => {
     await log.idle()
     const events = readFileSync(log.file, 'utf-8').trim().split('\n').map((l) => JSON.parse(l))
     expect(events.map((e) => e.event)).toEqual(['run_start', 'tool_call', 'tool_result', 'step', 'run_end'])
-    expect(events[3]).toMatchObject({ step: 1, finishReason: 'tool-calls', reasoning: null, usage: { cacheReadTokens: 5, cacheWriteTokens: 1 } })
+    expect(events[3]).toMatchObject({ step: 1, fallback: false, finishReason: 'tool-calls', reasoning: null, usage: { cacheReadTokens: 5, cacheWriteTokens: 1 } })
+  })
+})
+
+describe('the record of how a cell was made', () => {
+  const sha256 = (s: string) => `sha256:${createHash('sha256').update(s).digest('hex')}`
+  const keyError = { type: 'error' as const, ename: 'KeyError', evalue: "'amount'", traceback: ['KeyError'] }
+
+  it('keeps the prompt, models, rationale, attempts, files read, approvals and hashes', async () => {
+    const good = 'import seaborn\norders = pd.read_csv("orders.csv")\nplans = pd.read_csv("plans.csv")\norders.total.mean()'
+    const bad = 'import seaborn\norders = pd.read_csv("orders.csv")\norders.amount.mean()'
+    const kernel = new FakeKernel((code) =>
+      code === bad
+        ? { ok: false, outputs: [keyError], filesRead: ['orders.csv'] }
+        : code === good
+          ? { ok: true, outputs: [table], filesRead: ['orders.csv', 'plans.csv'] }
+          : { ok: true, outputs: [{ type: 'text', text: '3' }], filesRead: ['notes/readme.txt'] },
+    )
+    const { model } = scriptedModel([
+      { tool: 'read_file', input: { path: './orders.csv' }, thinking: 'Check the header first.' },
+      { tool: 'install_packages', input: { packages: ['seaborn'] } },
+      { tool: 'run_cell', input: { summary: 'Averaging order value', code: bad } },
+      { tool: 'run_cell', input: { summary: 'Averaging order value', code: good }, thinking: 'The column is total, not amount.' },
+      { tool: 'explore', input: { summary: 'Averaging order value', code: 'len(open("notes/readme.txt").readlines())' } },
+      { tool: 'finish', input: { interpretation: 'Order value is [[total including tax]].', answer: 'The mean is 41.2.' } },
+    ])
+    const { deps } = harness(model, kernel, { modelId: 'anthropic/claude-sonnet-5.5', effort: 'medium', requestApproval: async () => true })
+    writeFileSync(path.join(deps.workspaceDir, 'orders.csv'), 'plan,total\npro,40\n')
+    const corrections = [{ from: 'total', to: 'total including tax' }]
+
+    const result = await runCell(request({ corrections }), deps)
+
+    expect(result.ok).toBe(true)
+    expect(result.provenance).toEqual({
+      prompt: 'Average order value by month',
+      corrections,
+      madeAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
+      model: 'anthropic/claude-sonnet-5.5',
+      effort: 'medium',
+      steps: [1, 2, 3, 4, 5, 6].map((step) => ({ step, model: 'mock-model-id', fallback: false })),
+      rationale: { from: 'summaries', text: ['Check the header first.', 'The column is total, not amount.'] },
+      attemptCount: 2,
+      attempts: [
+        { code: bad, error: "KeyError: 'amount'", changed: null },
+        { code: good, error: null, changed: '- orders.amount.mean()\n+ plans = pd.read_csv("plans.csv")\n+ orders.total.mean()' },
+      ],
+      // The final code's reads come first. The agent's own reads follow, once each
+      filesRead: [
+        { path: 'orders.csv', by: 'code' },
+        { path: 'plans.csv', by: 'code' },
+        { path: 'notes/readme.txt', by: 'agent' },
+      ],
+      filesReadTruncated: false,
+      approvals: [{ kind: 'packages', detail: 'pip install seaborn', outcome: 'approved' }],
+      codeHash: sha256(good),
+      outputsHash: sha256(canonicalOutputs([table])),
+    })
+  })
+
+  it('falls back to the interpretation and answer when no step has a reasoning summary', async () => {
+    const { model } = scriptedModel([
+      { tool: 'run_cell', input: { summary: 'Averaging order value', code: 'orders.total.mean()' } },
+      { tool: 'finish', input: { interpretation: 'Order value is [[total including tax]].', answer: 'August averaged $41.20.' } },
+    ])
+    const result = await runCell(request(), harness(model, new FakeKernel(() => ({ ok: true, outputs: [table] }))).deps)
+    expect(result.provenance?.rationale).toEqual({ from: 'interpretation', text: ['Order value is [[total including tax]].', 'August averaged $41.20.'] })
+  })
+
+  it('records secret files the agent was kept from, and code allowed without asking', async () => {
+    const code = 'import requests\nrates = requests.get(URL).json()'
+    const { model } = scriptedModel([
+      { tool: 'read_file', input: { path: '.env' } },
+      { tool: 'run_cell', input: { summary: 'Fetching exchange rates', code } },
+      { tool: 'run_cell', input: { summary: 'Fetching exchange rates', code } },
+      { tool: 'finish', input: { interpretation: '', answer: '' } },
+    ])
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [] })), { needsApproval: createApproval({ mode: 'background' }) })
+    installExtensions(deps.bus, { logDir: mkdtempSync(path.join(tmpdir(), 'dalliance-log-')) })
+    const result = await runCell(request(), deps)
+    expect(result.provenance).toMatchObject({
+      // The same approval twice is kept once
+      approvals: [
+        { kind: 'secret', detail: '.env', outcome: 'blocked' },
+        { kind: 'network', detail: 'import requests', outcome: 'trusted' },
+      ],
+      attempts: [{ code, changed: null }, { code, changed: '' }],
+      filesRead: [],
+      rationale: { from: 'none', text: [] },
+    })
+  })
+
+  it('records a failed generation too, since the cell keeps its code', async () => {
+    const { model } = scriptedModel([{ tool: 'run_cell', input: { summary: 'Averaging order value', code: 'orders.amount.mean()' } }, { text: 'I could not fix it.' }])
+    const result = await runCell(request(), harness(model, new FakeKernel(() => ({ ok: false, outputs: [keyError] }))).deps)
+    expect(result.ok).toBe(false)
+    expect(result.provenance).toMatchObject({ attemptCount: 1, attempts: [{ code: 'orders.amount.mean()', error: "KeyError: 'amount'" }], codeHash: sha256('orders.amount.mean()') })
   })
 })
 
@@ -322,6 +443,8 @@ describe('runCell without generation', () => {
     expect(calls()).toBe(0)
     expect(result).toMatchObject({ ok: true, generated: false, code: '6 * 7', executionCount: 1 })
     expect(events).toContainEqual({ type: 'output', output: { type: 'text', text: '42' } })
+    // A plain run makes no record, so the cell keeps the one from when its code was written
+    expect(result.provenance).toBeUndefined()
   })
 })
 
@@ -329,7 +452,7 @@ describe('parallel tool calls', () => {
   it('makes finish wait for a run_cell sent in the same step', async () => {
     const chunks = [
       { type: 'stream-start' as const, warnings: [] },
-      { type: 'tool-call' as const, toolCallId: 'call-1', toolName: 'run_cell', input: JSON.stringify({ code: 'total = orders.total.sum()\ntotal' }) },
+      { type: 'tool-call' as const, toolCallId: 'call-1', toolName: 'run_cell', input: JSON.stringify({ summary: 'Adding up order totals', code: 'total = orders.total.sum()\ntotal' }) },
       { type: 'tool-call' as const, toolCallId: 'call-2', toolName: 'finish', input: JSON.stringify({ interpretation: '', answer: '' }) },
       { type: 'finish' as const, finishReason: { unified: 'tool-calls' as const, raw: 'tool_use' }, usage },
     ]
@@ -352,8 +475,125 @@ describe('parallel tool calls', () => {
     const { deps } = harness(model, kernel)
     const result = await runCell(request(), deps)
     expect(result).toMatchObject({ ok: true, code: 'total = orders.total.sum()\ntotal', outputs: [{ type: 'text', text: '42' }], error: null })
-    expect(result.activity.map((a) => a.label)).toEqual(['Ran the cell', 'Finished'])
+    expect(result.activity.map((a) => a.label)).toEqual(['Adding up order totals', 'Finished'])
     expect(calls).toBe(1)
+  })
+})
+
+describe('step labels', () => {
+  const finishStep = { type: 'finish' as const, finishReason: { unified: 'tool-calls' as const, raw: 'tool_use' }, usage }
+  const done = [
+    { type: 'stream-start' as const, warnings: [] },
+    { type: 'tool-call' as const, toolCallId: 'end', toolName: 'finish', input: JSON.stringify({ interpretation: '', answer: '' }) },
+    finishStep,
+  ]
+
+  /** One tool call whose input streams in the pieces given, the way providers send it. */
+  function streamedCall(toolName: string, pieces: string[], opts: { complete?: boolean } = {}) {
+    const id = 'call-1'
+    return [
+      { type: 'stream-start' as const, warnings: [] },
+      { type: 'tool-input-start' as const, id, toolName },
+      ...pieces.map((delta) => ({ type: 'tool-input-delta' as const, id, delta })),
+      ...(opts.complete === false ? [] : [{ type: 'tool-input-end' as const, id }, { type: 'tool-call' as const, toolCallId: id, toolName, input: pieces.join('') }]),
+      finishStep,
+    ]
+  }
+
+  function playback(...steps: object[][]) {
+    let call = 0
+    return new MockLanguageModelV4({ doStream: async () => ({ stream: simulateReadableStream({ chunks: steps[Math.min(call++, steps.length - 1)] as never[] }) }) })
+  }
+
+  const code = "patients.groupby('stage').size()"
+
+  it('shows the summary as soon as it has streamed, before the code has', async () => {
+    const pieces = ['{"summ', 'ary": "Counting pat', 'ients per stage", "co', `de": "${code.slice(0, 10)}`, `${code.slice(10)}"}`]
+    const kernel = new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: 'III 12' }] }))
+    const { deps, events } = harness(playback(streamedCall('run_cell', pieces), done), kernel)
+    const result = await runCell(request(), deps)
+
+    const steps = events.flatMap((e, at) => (e.type === 'activity' && e.item.id === 'call-1' ? [{ at, ...e.item }] : []))
+    expect(steps.map((s) => s.label)).toEqual(['Running the cell', 'Counting patients per stage', 'Counting patients per stage', 'Counting patients per stage'])
+    // The summary lands from the stream, then the whole call confirms it and brings the code
+    expect(steps[1].code).toBeUndefined()
+    expect(steps[2].code).toBe(code)
+    const status = events.findIndex((e) => e.type === 'status' && e.text === 'Counting patients per stage')
+    expect(status).toBeGreaterThan(-1)
+    expect(status).toBeLessThan(steps[2].at)
+    expect(result.activity[0]).toMatchObject({ label: 'Counting patients per stage', detail: 'Ran in 5 ms', code, status: 'done' })
+  })
+
+  it("shows the summary once the call is whole when the code came first, and never a summary that's still streaming", async () => {
+    const pieces = [`{"code": "${code}", "summary": "Look`, 'ing at stages"}']
+    const { deps, events } = harness(playback(streamedCall('explore', pieces), done), new FakeKernel())
+    await runCell(request(), deps)
+    const labels = events.flatMap((e) => (e.type === 'activity' && e.item.id === 'call-1' ? [e.item.label] : []))
+    expect(labels).toEqual(['Exploring the data', 'Looking at stages', 'Looking at stages', 'Looking at stages'])
+  })
+
+  it('falls back to a generic label when the summary is empty', async () => {
+    const { model } = scriptedModel([
+      { tool: 'explore', input: { summary: '  ', code } },
+      { tool: 'run_cell', input: { summary: '', code } },
+      { tool: 'finish', input: { interpretation: '', answer: '' } },
+    ])
+    const { deps, events } = harness(model, new FakeKernel())
+    const result = await runCell(request(), deps)
+    const running = events.flatMap((e) => (e.type === 'activity' && e.item.status === 'running' ? [e.item.label] : []))
+    expect(running).toEqual(['Exploring the data', 'Running the cell', 'Finishing'])
+    expect(result.activity.map((a) => a.label)).toEqual(['Explored the data', 'Ran the cell', 'Finished'])
+  })
+
+  it('never puts code in a label or detail, even when a call leaves out its summary', async () => {
+    const failing = "orders.merge(customers, on='id').bad_column"
+    const kernel = new FakeKernel((c) =>
+      c === failing
+        ? { ok: false, outputs: [{ type: 'stream', name: 'stderr', text: 'FutureWarning: a pandas warning' }, { type: 'error', ename: 'AttributeError', evalue: "no attribute 'bad_column'", traceback: [`----> 1 ${failing}\n`] }] }
+        : { ok: true, outputs: [] },
+    )
+    const { model } = scriptedModel([
+      { tool: 'explore', input: { code: 'secret_first_line()' } },
+      { tool: 'run_cell', input: { summary: 'Joining orders to customers', code: failing } },
+      { tool: 'finish', input: { interpretation: '', answer: '' } },
+      { text: 'Stuck.' },
+    ])
+    const { deps, events } = harness(model, kernel)
+    const result = await runCell(request(), deps)
+
+    const shown = events.flatMap((e) => (e.type === 'activity' ? [e.item.label, e.item.detail ?? ''] : e.type === 'status' ? [e.text] : []))
+    for (const text of shown) {
+      expect(text).not.toContain('secret_first_line')
+      expect(text).not.toContain('orders.merge')
+      expect(text).not.toContain('---->')
+    }
+    expect(result.activity[0]).toMatchObject({ label: 'Exploring the data', detail: 'The call was malformed and went back to the model', status: 'error' })
+    expect(result.activity[1]).toMatchObject({ label: 'Joining orders to customers', detail: "AttributeError: no attribute 'bad_column'", code: failing, status: 'error' })
+  })
+
+  it("doesn't leave a call spinning when the stream ends before its input does", async () => {
+    const cutOff = streamedCall('run_cell', ['{"summary": "Counting patients", "code": "x'], { complete: false })
+    const { deps } = harness(playback(cutOff), new FakeKernel())
+    const result = await runCell(request(), deps)
+    expect(result.activity).toEqual([{ id: 'call-1', label: 'Counting patients', status: 'error' }])
+  })
+
+  it('makes the summary a required first field of explore and run_cell', () => {
+    const tools = createCellTools({ cellId: 'c1', state: { lastRun: null, finished: null, attempts: 0 } } as unknown as ToolDeps)
+    for (const name of ['explore', 'run_cell'] as const) {
+      const schema = z.toJSONSchema(tools[name].inputSchema as z.ZodType) as { properties: Record<string, unknown>; required: string[] }
+      expect(Object.keys(schema.properties)[0]).toBe('summary')
+      expect(schema.required).toContain('summary')
+      expect((tools[name].inputSchema as z.ZodType).safeParse({ code: 'x' }).success).toBe(false)
+    }
+  })
+
+  it('describes results in words', () => {
+    const traceback = 'The cell failed.\n[stderr]\nUserWarning: careful\nKeyError: \'amount\'\n----> 1 orders["amount"].sum()'
+    expect(describeResult('run_cell', traceback, { summary: 'Totalling amounts' })).toEqual({ label: undefined, detail: "KeyError: 'amount'", failed: true })
+    expect(describeResult('run_cell', 'The cell failed.\n(no output)', { summary: '' })).toEqual({ label: 'Ran the cell', detail: 'The cell failed', failed: true })
+    expect(describeResult('explore', 'Unnamed: 0\nx = frame.bad', { summary: 'Looking' })).toEqual({ label: undefined, detail: undefined })
+    expect(describeCall('explore', { summary: 'Counting patients per stage.', code })).toBe('Counting patients per stage')
   })
 })
 
@@ -366,7 +606,7 @@ describe('safety limits', () => {
       if (code.includes('glob')) await new Promise<void>((r) => (kernel.interrupt = () => ((interrupted = true), r())))
       return { ok: !code.includes('glob'), outputs: [], executionCount: null, durationMs: 1, assigned: [] }
     }
-    const { model, prompts } = scriptedModel([{ tool: 'explore', input: { code: 'glob.glob("**/*.csv", recursive=True)' } }, { text: 'ok' }])
+    const { model, prompts } = scriptedModel([{ tool: 'explore', input: { summary: 'Looking at the orders', code: 'glob.glob("**/*.csv", recursive=True)' } }, { text: 'ok' }])
     const { deps } = harness(model, kernel)
     await runCell(request(), { ...deps, exploreTimeoutMs: 50 } as HarnessDeps)
     expect(interrupted).toBe(true)
@@ -396,7 +636,7 @@ describe('the run_cell time limit', () => {
   it.each(['returns', 'throws'] as const)('interrupts a run that takes too long and tells the model, when the kernel %s', async (onInterrupt) => {
     const { kernel, interrupts } = stuckKernel(onInterrupt)
     const { model, prompts } = scriptedModel([
-      { tool: 'run_cell', input: { code: 'slow_model.fit(everything)' } },
+      { tool: 'run_cell', input: { summary: '', code: 'slow_model.fit(everything)' } },
       { tool: 'finish', input: { interpretation: '', answer: '' } },
       { text: 'It is too slow.' },
     ])
@@ -415,7 +655,7 @@ describe('the run_cell time limit', () => {
 
   it('leaves runs inside the limit alone', async () => {
     const { kernel, interrupts } = stuckKernel('returns')
-    const { model } = scriptedModel([{ tool: 'run_cell', input: { code: 'x = 1\nx' } }, { tool: 'finish', input: { interpretation: '', answer: '' } }])
+    const { model } = scriptedModel([{ tool: 'run_cell', input: { summary: 'Looking at the orders', code: 'x = 1\nx' } }, { tool: 'finish', input: { interpretation: '', answer: '' } }])
     const { deps } = harness(model, kernel, { runTimeoutMs: 200 })
     const result = await runCell(request(), deps)
     expect(result.ok).toBe(true)
@@ -433,10 +673,10 @@ describe('the run_cell time limit', () => {
 
 describe('history', () => {
   it('only ever appends to what the model saw before, even over a long run with thinking', async () => {
-    const explore = Array.from({ length: 16 }, (_, i) => ({ tool: 'explore', input: { code: `orders.iloc[${i}]` }, thinking: `Look at row ${i}.` }))
+    const explore = Array.from({ length: 16 }, (_, i) => ({ tool: 'explore', input: { summary: 'Looking at the orders', code: `orders.iloc[${i}]` }, thinking: `Look at row ${i}.` }))
     const { model, prompts } = scriptedModel([
       ...explore,
-      { tool: 'run_cell', input: { code: 'orders.total.sum()' }, thinking: 'Now the real cell.' },
+      { tool: 'run_cell', input: { summary: 'Adding up order totals', code: 'orders.total.sum()' }, thinking: 'Now the real cell.' },
       { tool: 'finish', input: { interpretation: '', answer: '' } },
     ])
     const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })))
@@ -482,14 +722,34 @@ describe('questions answered in words', () => {
   })
 })
 
-/** One Anthropic Messages stream that ends in a single tool call, as server-sent events. */
-function anthropicToolStream(id: string, name: string, input: Record<string, unknown>): string {
+/**
+ * One Anthropic Messages stream that ends in a single tool call, as server-sent events. With `fallbackTo`, `model`
+ * declines first and that model answers, as the API reports a server-side fallback.
+ */
+function anthropicToolStream(
+  id: string,
+  name: string,
+  input: Record<string, unknown>,
+  { model = 'claude-opus-5', fallbackTo }: { model?: string; fallbackTo?: string } = {},
+): string {
+  const iterations = fallbackTo
+    ? [
+        { type: 'message', model, input_tokens: 10, output_tokens: 0 },
+        { type: 'fallback_message', model: fallbackTo, input_tokens: 10, output_tokens: 5 },
+      ]
+    : undefined
+  const blocks: unknown[] = fallbackTo ? [{ type: 'fallback' }] : []
+  const at = blocks.length
   const events: [string, unknown][] = [
-    ['message_start', { type: 'message_start', message: { id: `msg_${id}`, model: 'claude-opus-5', role: 'assistant', content: [], usage: { input_tokens: 10 } } }],
-    ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: `toolu_${id}`, name, input: {} } }],
-    ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(input) } }],
-    ['content_block_stop', { type: 'content_block_stop', index: 0 }],
-    ['message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { output_tokens: 5 } }],
+    ['message_start', { type: 'message_start', message: { id: `msg_${id}`, model, role: 'assistant', content: [], usage: { input_tokens: 10 } } }],
+    ...blocks.flatMap((block, index): [string, unknown][] => [
+      ['content_block_start', { type: 'content_block_start', index, content_block: block }],
+      ['content_block_stop', { type: 'content_block_stop', index }],
+    ]),
+    ['content_block_start', { type: 'content_block_start', index: at, content_block: { type: 'tool_use', id: `toolu_${id}`, name, input: {} } }],
+    ['content_block_delta', { type: 'content_block_delta', index: at, delta: { type: 'input_json_delta', partial_json: JSON.stringify(input) } }],
+    ['content_block_stop', { type: 'content_block_stop', index: at }],
+    ['message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { output_tokens: 5, ...(iterations ? { iterations } : {}) } }],
     ['message_stop', { type: 'message_stop' }],
   ]
   return events.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join('')
@@ -501,7 +761,7 @@ describe('caching', () => {
   it('asks for automatic caching on every step and marks no message but the system prompt', async () => {
     const { model, prompts, providerOptions } = scriptedModel([
       { tool: 'list_variables', input: {} },
-      { tool: 'run_cell', input: { code: 'x = 1\nx' } },
+      { tool: 'run_cell', input: { summary: 'Looking at the orders', code: 'x = 1\nx' } },
       { tool: 'finish', input: { interpretation: '', answer: '' } },
     ])
     const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })), { providerOptions: anthropicOptions })
@@ -537,6 +797,56 @@ describe('caching', () => {
     const [first, second] = bodies.map((b) => b.messages as unknown[])
     expect(second.slice(0, first.length)).toEqual(first)
     expect(second.length).toBeGreaterThan(first.length)
+  })
+})
+
+describe('the refusal fallback', () => {
+  it('asks the Anthropic API for it on every step, and logs the model that answered when it ran', async () => {
+    const sent: { body: Record<string, unknown>; beta: string | null }[] = []
+    const replies = [
+      anthropicToolStream('1', 'list_variables', {}, { model: 'claude-sonnet-5-5' }),
+      anthropicToolStream('2', 'finish', { interpretation: '', answer: 'Nothing to compute.' }, { model: 'claude-sonnet-5-5', fallbackTo: 'claude-opus-4-8' }),
+    ]
+    const fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+      sent.push({ body: JSON.parse(String(init?.body)), beta: new Headers(init?.headers).get('anthropic-beta') })
+      return new Response(replies[sent.length - 1], { headers: { 'content-type': 'text/event-stream' } })
+    }
+    const model = createAnthropic({ apiKey: 'test-key', fetch })('claude-sonnet-5-5')
+    const providerOptions = agentProviderOptions({ provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'medium' })
+    const { deps } = harness(model as unknown as MockLanguageModelV4, new FakeKernel(), { providerOptions, modelId: 'claude-sonnet-5-5' })
+    const logged: EventData[] = []
+    deps.bus.on('step', (data) => void logged.push(data))
+
+    const result = await runCell(request({ prompt: 'What could we model here?' }), deps)
+
+    expect(result).toMatchObject({ ok: true, answer: 'Nothing to compute.' })
+    // The same options on every step, so the prompt cache holds
+    expect(sent).toHaveLength(2)
+    for (const { body, beta } of sent) {
+      expect(body.fallbacks).toBe('default')
+      expect(beta).toContain('server-side-fallback-2026-07-01')
+    }
+    expect(result.steps.map(({ modelId, fallback }) => ({ modelId, fallback }))).toEqual([
+      { modelId: 'claude-sonnet-5-5', fallback: false },
+      { modelId: 'claude-opus-4-8', fallback: true },
+    ])
+    expect(logged.map(({ modelId, fallback }) => ({ modelId, fallback }))).toEqual([
+      { modelId: 'claude-sonnet-5-5', fallback: false },
+      { modelId: 'claude-opus-4-8', fallback: true },
+    ])
+  })
+
+  it('reads a fallback from the usage iterations, the last one being the model that served', () => {
+    const iterations = [
+      { type: 'message', model: 'claude-fable-5-1', inputTokens: 1, outputTokens: 0 },
+      { type: 'fallback_message', model: 'claude-opus-5', inputTokens: 1, outputTokens: 0 },
+      { type: 'fallback_message', model: 'claude-opus-4-8', inputTokens: 1, outputTokens: 4 },
+    ]
+    expect(servedByFallback({ anthropic: { iterations } })).toEqual({ fallback: true, model: 'claude-opus-4-8' })
+    expect(servedByFallback({ anthropic: { iterations: [{ type: 'fallback_message', inputTokens: 1, outputTokens: 4 }] } })).toEqual({ fallback: true, model: null })
+    expect(servedByFallback({ anthropic: { iterations: [{ type: 'compaction', inputTokens: 1, outputTokens: 1 }] } })).toEqual({ fallback: false, model: null })
+    expect(servedByFallback({ anthropic: { iterations: null } })).toEqual({ fallback: false, model: null })
+    expect(servedByFallback(undefined)).toEqual({ fallback: false, model: null })
   })
 })
 

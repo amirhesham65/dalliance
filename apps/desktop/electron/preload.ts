@@ -63,6 +63,7 @@ const api: DallianceApi = {
   startCheckout: (plan) => ipcRenderer.invoke(IPC.startCheckout, plan),
   openBillingPortal: () => ipcRenderer.invoke(IPC.openBillingPortal),
   onBilling: (listener) => subscribe(IPC.billingChanged, listener),
+  countCredits: (generationIds) => ipcRenderer.invoke(IPC.countCredits, generationIds),
 }
 
 contextBridge.exposeInMainWorld('dalliance', api)

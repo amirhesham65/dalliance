@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline'
 import type { Readable } from 'node:stream'
 import type { Output } from '@dalliance/shared/notebook'
 import { ENV_KEYS } from '../env-keys'
-import type { ExecuteOptions, ExecuteResult, Kernel, KernelInfo, KernelStatus, VariableInfo } from './kernel'
+import type { ExecuteOptions, ExecuteResult, FilesRead, Kernel, KernelInfo, KernelStatus, VariableInfo } from './kernel'
 import kernelSource from './dalliance_kernel.py?raw'
 
 interface Pending {
@@ -24,6 +24,11 @@ export interface PythonKernelOptions {
   onStatus?: (info: KernelInfo) => void
   /** How long a run may keep going after interrupt() before the process is killed. */
   interruptGraceMs?: number
+}
+
+function filesRead(v: unknown): FilesRead {
+  const o = (v ?? {}) as { paths?: unknown; truncated?: unknown }
+  return { paths: Array.isArray(o.paths) ? o.paths.filter((p): p is string => typeof p === 'string') : [], truncated: o.truncated === true }
 }
 
 /** What a request that was still running gets when interrupt() had to kill the kernel. */
@@ -160,6 +165,7 @@ export class PythonKernel implements Kernel {
         executionCount: typeof msg.executionCount === 'number' ? msg.executionCount : null,
         durationMs: Number(msg.durationMs ?? 0),
         assigned: (msg.assigned as VariableInfo[] | undefined) ?? [],
+        filesRead: filesRead(msg.filesRead),
       }
     } finally {
       if (this.status === 'busy') this.setStatus('idle')

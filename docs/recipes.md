@@ -10,7 +10,7 @@ Checklists for the changes that touch several files. Each one ends with the test
    - Wrap the body in `guarded('<name>', input, async () => ...)`.
    - Bound the output. Use `clip()` from `format.ts` or return a fixed-size summary.
 2. Add the name to `TOOL_NAMES` in `run-cell.ts`. The order there is the order the model sees.
-3. Add a label to `describeCall()`, and an outcome to `describeResult()` if the default is wrong. These are what the user sees in the cell's activity list.
+3. Add a label to `describeCall()`, and an outcome to `describeResult()` if the default is wrong. These are what the user sees in the cell's activity list. Write them in plain words, never code. A tool that runs code takes a `summary` first in its schema, like `explore` and `run_cell`, and goes in `SUMMARIZED` so the label streams in early (see [Step labels](agent-harness.md#step-labels)).
 4. If the tool needs something from Electron, add it to `ToolDeps` and `HarnessDeps` and pass it in from `NotebookSession.runCell()`. Don't import Electron into the harness.
 5. Mention the tool in the system prompt only if the model needs a rule about it. The tool list is already there.
 6. Test it in `run-cell.test.ts` with a scripted model that calls it.

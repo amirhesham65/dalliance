@@ -19,7 +19,7 @@ describe('the .env guard', () => {
   it.each(['.env', '.ENV', '.env.local', 'config/.env', 'config\\.env', 'C:\\work\\.Env.production', '/abs/path/.env.test'])('blocks %s', async (p) => {
     expect(isSecretPath(p)).toBe(true)
     const { bus } = setup()
-    expect(await bus.emit('tool_call', { cellId: 'c1', toolName: 'read_file', input: { path: p } })).toEqual({ blocked: true, reason: `${p} may hold secrets, so it is off limits.` })
+    expect(await bus.emit('tool_call', { cellId: 'c1', toolName: 'read_file', input: { path: p } })).toEqual({ blocked: true, reason: `${p} may hold secrets, so it is off limits.`, secret: p })
   })
 
   it.each(['env', '.envrc', 'data/.environment', 'notes.env', 'orders.csv', 'my.env/data.csv', 'environment.csv'])('allows %s', async (p) => {

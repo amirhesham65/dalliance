@@ -40,7 +40,8 @@ Saved with the notebook: `notebook`. Everything else is session state:
 | `runs` | `CellRun` per queued or running cell: status text, activity, live outputs, live code, a pending question or approval |
 | `activity` | Each cell's activity from its last generation |
 | `messages` | Non-Python errors per cell |
-| `log` | The Activity pane's entries, newest first, at most 60 |
+| `log` | The Activity pane's entries, newest first, at most 60. With Show costs on, a run's entry has its `cost` |
+| `spend` | What the notebook's runs and cell names have cost since it loaded, and how many runs' credits are still counting. Clear keeps it, `load()` starts it again |
 | `lastFinishedId` | The cell that shows its suggestions |
 | `pane`, `pinnedIds` | The open side pane and pinned cells |
 | `brief`, `models`, `variables`, `settings`, `python`, `kernel` | Data from the main process |
@@ -133,11 +134,13 @@ Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the bu
 
 1. The prompt editor, with `@name` references coloured by `RefText`.
 2. The interpretation, when it has `[[assumptions]]`. Click one to correct it.
-3. Run progress: the activity list, a status line, and a question card or install bar.
+3. Run progress: the activity list, a status line, and a question card or install bar. Each step's label is plain words. A step that ran code, an `explore` or a `run_cell`, is a button that opens its code underneath. After the run, the list folds into the "N steps" toggle by the duration.
 4. A message for non-Python errors.
-5. Result and Code tabs. A question answered in words shows only the answer, without tabs.
+5. Result and Code tabs, and a How this was made tab once the agent has written the code. A question answered in words shows only the answer, without tabs, and folds its How this was made out under the answer from a toggle beside the duration.
 
 Under Result: the answer, the outputs, the variables the run created, and suggestions. Suggestions show only on the cell that just finished or the selected one, and not at all when `settings.suggestNext` is off, including ones a cell saved earlier.
+
+How this was made is `HowItWasMade` in `notebook/HowItWasMade.tsx`, drawn from the cell's `provenance` (see [notebook-model.md](notebook-model.md#how-a-cell-was-made)). In plain words, top to bottom: who wrote the code, when, with which model and effort, and each model by step range when a fallback switched it; the prompt and any corrections; the stated rationale, with a line saying whether it is the model's reasoning summaries or the interpretation and answer standing in for them; the attempts with each error and the lines that changed; the files read; what was allowed, refused or blocked; the SHA-256 fingerprints; and the code the agent wrote behind a Show the code toggle. It says when the cell's code has changed since, and when the earlier attempts are only in the agent log. Call it the agent's stated rationale in the UI, never its reasoning.
 
 Between two cells, `CellInserter` in `NotebookView.tsx` draws a 1px line in `foreground/10`, so it's clear where one ends. It sits in the cells' column, right of the 44 px gutter that holds the run count, and stops 12 px short of each side, so it's a little narrower than the cells. There is none after the last cell. Hovering the gap raises the line to `foreground/20` and shows the Prompt and Note buttons centred on it. They sit on the page background, so the line breaks around them.
 
@@ -176,7 +179,13 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 | History | The selected cell's revisions. Restore brings one back without calling the model |
 | Files | Workspace files, reloaded after every run. Clicking a data file adds a prompt cell to load it |
 | Pinned | Result cards for pinned cells, in pin order |
-| Activity | The session log. Click an entry to jump to its cell |
+| Activity | The session log. Click an entry to jump to its cell. With `settings.showCosts` on, each run says what it cost and the top shows the notebook's total. See [Costs](#costs) |
+
+### Costs
+
+Show costs is off by default, and with it off the Activity pane shows nothing about cost, even for entries that have one. The main process prices a run only while it's on, see [agent-harness.md](agent-harness.md#costs). `finish()` puts the run's `RunCost` on its log entry and adds it to `spend` through `trackCost()`. A cell name's cost comes on the `title` event and goes to `spend` only.
+
+`lib/cost.ts` words them. On an own key it's dollars, "About $0.042, estimated", to three places under a dollar. Tokens with no known price show as "12,345 tokens, no price known", never as an amount. On Dalliance Cloud it's credits, never dollars: the entry says "Counting credits" until `countCredits()` answers, then "4.2 credits", or the tokens if none were counted. A notebook loaded while credits are counting drops them when they arrive, so they never reach the new notebook's total.
 
 ## Notices and errors
 
@@ -212,7 +221,7 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 
 | Section | Component | Holds |
 | --- | --- | --- |
-| Models | `ModelSettings` | Provider, key, model id, effort. With Dalliance Cloud chosen, `CloudStatus` stands in for the key: sign in, choose a plan, or the credits left. The provider's line says what it means for data retention, see [cloud.md](cloud.md#zero-data-retention) |
+| Models | `ModelSettings` | Provider, key, model id, effort, Show costs. With Dalliance Cloud chosen, `CloudStatus` stands in for the key: sign in, choose a plan, or the credits left. The provider's line says what it means for data retention, see [cloud.md](cloud.md#zero-data-retention) |
 | Agent | `AgentSettings` | Approvals (package installs, shell and network code), cell names, suggested next prompts |
 | Python | `PythonSettings` | The managed environment and a Python path |
 | Account | `AccountSettings` | The Dalliance account, the plan and its credits. Only in builds with Dalliance Cloud, when `settings.cloud` is true. See [cloud.md](cloud.md) |

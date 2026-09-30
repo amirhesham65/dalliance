@@ -4,7 +4,7 @@ import path from 'node:path'
 import { safeStorage } from 'electron'
 import type { Effort, KeyProvider, KeyStorage, Provider, SettingsUpdate, SettingsView } from '@dalliance/shared/ipc'
 import { writeFileAtomicSync } from './atomic-write'
-import { type CloudAccess, DEFAULT_MODELS, type ModelConfig } from './harness/model'
+import { type CloudAccess, DEFAULT_MODELS, type ModelConfig, PREVIOUS_DEFAULT_MODELS } from './harness/model'
 
 interface Stored {
   provider: Provider
@@ -14,6 +14,8 @@ interface Stored {
   approvalMode: 'interactive' | 'background'
   autoTitles: boolean
   suggestNext: boolean
+  /** Whether the Activity pane shows what runs cost. Off until the user turns it on. */
+  showCosts: boolean
   onboarded: boolean
   /** The folder in use: where new notebooks go, and where the kernel and the agent work. Null for the default one. */
   workspaceDir: string | null
@@ -41,6 +43,7 @@ const DEFAULTS: Stored = {
   approvalMode: 'interactive',
   autoTitles: true,
   suggestNext: true,
+  showCosts: false,
   onboarded: false,
   workspaceDir: null,
   keys: {},
@@ -72,6 +75,8 @@ export class SettingsStore {
       }
       // Settings from before the first-run setup existed: anyone who has opened a notebook is past it
       this.data = { ...structuredClone(DEFAULTS), onboarded: (stored.recent?.length ?? 0) > 0, ...stored }
+      // A model left at an earlier version's default follows the default. One picked by hand stays
+      if (PREVIOUS_DEFAULT_MODELS[this.data.provider]?.includes(this.data.model)) this.data.model = DEFAULT_MODELS[this.data.provider]
     }
   }
 
@@ -182,6 +187,10 @@ export class SettingsStore {
     return this.data.suggestNext
   }
 
+  get showCosts() {
+    return this.data.showCosts
+  }
+
   /** The folder last worked in, if it is still there. */
   get workspaceDir() {
     const dir = this.data.workspaceDir
@@ -217,6 +226,7 @@ export class SettingsStore {
       approvalMode: this.data.approvalMode,
       autoTitles: this.data.autoTitles,
       suggestNext: this.data.suggestNext,
+      showCosts: this.data.showCosts,
       onboarded: this.data.onboarded,
       keySource: this.apiKey(this.provider).source,
       hasKey: { gateway: this.apiKey('gateway').key != null, anthropic: this.apiKey('anthropic').key != null },
@@ -240,6 +250,7 @@ export class SettingsStore {
     if (update.approvalMode) this.data.approvalMode = update.approvalMode
     if (update.autoTitles !== undefined) this.data.autoTitles = update.autoTitles
     if (update.suggestNext !== undefined) this.data.suggestNext = update.suggestNext
+    if (update.showCosts !== undefined) this.data.showCosts = update.showCosts
     if (update.onboarded !== undefined) this.data.onboarded = update.onboarded
     if (update.apiKey) {
       const { provider, key } = update.apiKey

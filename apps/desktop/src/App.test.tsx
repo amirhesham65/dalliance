@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import type { CellRunResult, DallianceApi, SettingsView } from '@dalliance/shared/ipc'
 import { type PromptCell, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
-import { fakeApi, fakeSettings, result } from '@/test/fake-api'
+import { fakeApi, fakeSettings, provenance, result } from '@/test/fake-api'
 import App from './App'
 
 // These tests type and run whole cells, which takes longer than the 5s default on a loaded machine
@@ -45,6 +46,58 @@ describe('App', () => {
 
     await user.click(screen.getByRole('tab', { name: 'Code' }))
     expect(screen.getByRole('textbox', { name: 'Code' })).toHaveValue('orders.total.mean()')
+  })
+
+  it("labels the agent's steps in words and keeps each step's code one click away", async () => {
+    const user = userEvent.setup()
+    const code = "patients.groupby('stage').size()"
+    const { api } = fakeApi(() =>
+      result({
+        code,
+        activity: [
+          { id: 'a', label: 'Checked variables', status: 'done' },
+          { id: 'b', label: 'Counting patients per stage', detail: 'Ran in 12 ms', code, status: 'done' },
+        ],
+      }),
+    )
+    setApi(api)
+    render(<App />)
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Patients per stage')
+    await user.keyboard('{Meta>}{Enter}{/Meta}')
+
+    await user.click(await screen.findByRole('button', { name: '2 steps' }))
+    expect(screen.queryByRole('button', { name: 'Checked variables' })).not.toBeInTheDocument()
+    const step = screen.getByRole('button', { name: 'Counting patients per stage' })
+    expect(screen.queryByText(code)).not.toBeInTheDocument()
+    await user.click(step)
+    expect(step).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText((_, el) => el?.tagName === 'PRE' && el.textContent === code)).toBeInTheDocument()
+  })
+
+  it('shows how a cell was made in its own tab, and keeps it through a plain rerun', async () => {
+    const user = userEvent.setup()
+    const { api, requests } = fakeApi((req) =>
+      req.generate ? result({ code: 'orders.total.mean()', provenance: provenance() }) : result({ generated: false, code: req.code }),
+    )
+    setApi(api)
+    render(<App />)
+    // A cell made before the record existed has no tab for it
+    expect(screen.queryByRole('tab', { name: 'How this was made' })).not.toBeInTheDocument()
+
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Average order value')
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
+    await user.click(await screen.findByRole('tab', { name: 'How this was made' }))
+    const view = screen.getByRole('region', { name: 'How this was made' })
+    expect(within(view).getByRole('heading', { name: 'Stated rationale' })).toBeInTheDocument()
+    expect(view).toHaveTextContent('The column is total, not amount.')
+    await user.click(within(view).getByRole('button', { name: 'Show the code' }))
+    expect(within(view).getByLabelText('Code the agent wrote')).toHaveTextContent('orders.total.mean()')
+
+    // Running the saved code again doesn't ask the agent, and the record stays
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
+    await waitFor(() => expect(requests).toHaveLength(2))
+    expect(requests[1].generate).toBe(false)
+    expect(await screen.findByRole('tab', { name: 'How this was made' })).toBeInTheDocument()
   })
 
   it('asks the question the agent raises and sends back the answer', async () => {
@@ -256,6 +309,22 @@ describe('question cells', () => {
     expect(await screen.findByText('Predict returns.')).toBeInTheDocument()
     expect(screen.getByText('target: returned').closest('li')).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Code' })).not.toBeInTheDocument()
+  })
+
+  it('folds out how a written answer was made under it', async () => {
+    const user = userEvent.setup()
+    const record = provenance({ attempts: [], attemptCount: 0, rationale: { from: 'interpretation', text: ['A question about modelling, answered in words.'] } })
+    setApi(fakeApi(() => result({ code: '', outputs: [], executionCount: null, answer: 'Predict returns.', provenance: record })).api)
+    render(<App />)
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'What model could we build?')
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
+    const toggle = await screen.findByRole('button', { name: 'How this was made' })
+    expect(screen.queryByRole('region', { name: 'How this was made' })).not.toBeInTheDocument()
+    await user.click(toggle)
+    const view = screen.getByRole('region', { name: 'How this was made' })
+    expect(view).toHaveTextContent(/^The agent answered this on/)
+    expect(view).toHaveTextContent('so this is its interpretation of the prompt and its answer.')
+    expect(within(view).queryByRole('button', { name: 'Show the code' })).not.toBeInTheDocument()
   })
 
   it('runs a suggested next prompt as a new cell', async () => {
@@ -613,7 +682,7 @@ describe('question cells', () => {
     setApi(api)
     render(<App />)
 
-    await user.click(await screen.findByRole('button', { name: /Opus 5/ }))
+    await user.click(await screen.findByRole('button', { name: /Sonnet 5\.5/ }))
     await user.type(await screen.findByPlaceholderText('Search models'), 'gemini')
     await user.click(await screen.findByRole('option', { name: /Gemini 3 Pro/ }))
     expect(updates).toContainEqual({ model: 'google/gemini-3-pro' })
@@ -629,7 +698,7 @@ describe('question cells', () => {
     // The banner for a missing key goes straight to Models
     await user.click(await screen.findByRole('button', { name: 'Open Settings' }))
     expect(screen.getByRole('tab', { name: 'Models' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('textbox', { name: 'Model' })).toHaveValue('anthropic/claude-opus-5')
+    expect(screen.getByRole('textbox', { name: 'Model' })).toHaveValue('anthropic/claude-sonnet-5.5')
 
     await user.click(screen.getByRole('tab', { name: 'Python' }))
     expect(screen.getByRole('button', { name: 'Set up' })).toBeInTheDocument()
@@ -994,5 +1063,59 @@ describe('accessibility', () => {
     expect(await within(overview).findByRole('button', { name: 'Total sales by region, failed' })).toBeInTheDocument()
     expect(within(overview).getByRole('button', { name: 'Cell 1, Total sales by region: failed' })).toBeInTheDocument()
     expect(live).toHaveTextContent('Finished running. 0 of 1 cells up to date, 1 failed.')
+  })
+})
+
+describe('Show costs', () => {
+  /** Runs one cell with these settings, returning this cost, then opens the Activity pane. */
+  async function runWithCost(settings: Partial<SettingsView>, cost: CellRunResult['cost'], countCredits?: DallianceApi['countCredits']) {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result({ answer: 'Done.', cost }))
+    api.getSettings = async () => ({ ...fakeSettings(), ...settings })
+    if (countCredits) api.countCredits = countCredits
+    setApi(api)
+    render(<App />)
+    await waitFor(() => expect(useNotebook.getState().settings).not.toBeNull())
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Revenue by month')
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
+    expect(await screen.findByText('Done.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Activity/ }))
+    return screen.getByRole('list', { name: 'Run log' })
+  }
+
+  it('shows each run and the notebook total as an estimate on an own key', async () => {
+    const log = await runWithCost({ showCosts: true }, { unit: 'usd', usd: 0.0421, unpricedTokens: 0 })
+    expect(log).toHaveTextContent('Wrote “Revenue by month”About $0.042, estimated')
+    expect(screen.getByLabelText("This notebook's cost")).toHaveTextContent('This notebook: about $0.042, estimated')
+  })
+
+  it('shows tokens for a model with no known price', async () => {
+    const log = await runWithCost({ showCosts: true }, { unit: 'usd', usd: 0, unpricedTokens: 12_345 })
+    expect(log).toHaveTextContent('12,345 tokens, no price known')
+    expect(log).not.toHaveTextContent('$')
+  })
+
+  it('counts credits on Dalliance Cloud, never dollars', async () => {
+    let arrive!: (credits: number) => void
+    const asked: string[][] = []
+    const countCredits = (ids: string[]) => {
+      asked.push(ids)
+      return new Promise<number | null>((resolve) => (arrive = resolve))
+    }
+    const log = await runWithCost({ showCosts: true, provider: 'cloud' }, { unit: 'credits', generationIds: ['gen_1', 'gen_2'], tokens: 900 }, countCredits)
+    expect(asked).toEqual([['gen_1', 'gen_2']])
+    expect(log).toHaveTextContent('Counting credits')
+    expect(screen.getByLabelText("This notebook's cost")).toHaveTextContent('This notebook: counting credits')
+    await act(async () => arrive(4.24))
+    expect(within(log).getByText('4.2 credits')).toBeInTheDocument()
+    expect(screen.getByLabelText("This notebook's cost")).toHaveTextContent('This notebook: 4.2 credits')
+    expect(log).not.toHaveTextContent('$')
+  })
+
+  it('shows nothing about cost with the setting off', async () => {
+    const log = await runWithCost({ showCosts: false }, { unit: 'usd', usd: 0.0421, unpricedTokens: 0 })
+    expect(log).toHaveTextContent('Wrote “Revenue by month”')
+    expect(log).not.toHaveTextContent(/\$|estimated|tokens|credits/)
+    expect(screen.queryByLabelText("This notebook's cost")).not.toBeInTheDocument()
   })
 })

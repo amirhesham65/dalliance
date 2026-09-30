@@ -8,10 +8,10 @@ On macOS this is `~/Library/Application Support/Dalliance/`. The code gets it wi
 
 | Path | Written by | Holds |
 | --- | --- | --- |
-| `settings.json` | `SettingsStore`, `electron/settings.ts` | Provider, model, effort, Python path, approval mode, titles on or off, suggested next prompts on or off, onboarded, the folder in use, encrypted keys, recent notebooks. Mode `0600` |
+| `settings.json` | `SettingsStore`, `electron/settings.ts` | Provider, model, effort, Python path, approval mode, titles on or off, suggested next prompts on or off, Show costs on or off, onboarded, the folder in use, encrypted keys, recent notebooks. Mode `0600` |
 | `account.json` | The Better Auth Electron client, `electron/cloud/account.ts` | The Dalliance account's session, each value encrypted with `safeStorage`. Without a keychain the session stays in memory. Only in builds with Dalliance Cloud. Mode `0600` |
 | `session.json` | `DraftStore`, `electron/draft.ts` | The open tabs in order and the one showing. For each, its notebook's path, whether it's dirty, and its contents when dirty |
-| `logs/agent.jsonl` | `createRunLog()` and `logRuns()`, `electron/harness/extensions.ts` | One line per `run_start`, `tool_call`, `tool_result`, `step` (one per model call, with its reasoning summary) and `run_end`, strings clipped to 2,000 characters except the reasoning summaries, each with `tab`, the tab's id, since tabs running at once share the file. At 5 MB it moves to `agent.jsonl.1`, replacing the old backup |
+| `logs/agent.jsonl` | `createRunLog()` and `logRuns()`, `electron/harness/extensions.ts` | One line per `run_start`, `tool_call`, `tool_result`, `step` (one per model call, with its reasoning summary) and `run_end`, strings clipped to 2,000 characters except the reasoning summaries, each with `tab`, the tab's id, since tabs running at once share the file. At 5 MB it moves to `agent.jsonl.1`, replacing the old backup. It holds the full trail behind each cell's record of how it was made. The notebook keeps only the final attempt |
 | `python-env/` | `setupManagedEnv()`, `electron/kernel/python-env.ts` | The managed virtual environment |
 | `kernel/dalliance_kernel.py` | `PythonKernel.start()` | The kernel script, rewritten on every start |
 
@@ -40,7 +40,7 @@ Before the first-run setup is done, `useShellKeys()` also switches to the other 
 
 The renderer saves a key with `saveKey()` in `src/lib/keys.ts`, from both the setup and Settings. It picks the provider from the prefix (`vck_` for the gateway, `sk-ant-` for Anthropic), checks the key with `checkKey()`, and only saves it when the provider doesn't reject it. Typing or pasting a key with a known prefix switches the provider straight away.
 
-Switching provider resets the model to the new provider's default, but only if the old one was still the default.
+Switching provider resets the model to the new provider's default, but only if the old one was still the default. The same goes for a new default: when settings load, a model that is still an earlier version's default (`PREVIOUS_DEFAULT_MODELS` in `harness/model.ts`, today Opus 5) moves to the current one. A model picked by hand stays, though someone who picked the old default on purpose moves too.
 
 ## Session and drafts
 

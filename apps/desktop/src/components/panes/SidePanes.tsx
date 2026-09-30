@@ -2,12 +2,13 @@ import { Activity, CircleAlert, File, FolderOpen, History, LocateFixed, Pencil, 
 import { type ReactNode, useEffect, useState } from 'react'
 import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { IconButton } from '@/components/app/IconButton'
-import { PythonTokens } from '@/components/notebook/CellView'
+import { PythonTokens } from '@/components/notebook/PythonTokens'
 import { InlineText } from '@/components/notebook/InlineText'
 import { OutputList } from '@/components/notebook/outputs/OutputView'
 import { RefText } from '@/components/notebook/RefText'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { costText, spendText } from '@/lib/cost'
 import { ago, cellTitle } from '@/lib/notebook/text'
 import { useNow } from '@/lib/use-now'
 import { cn } from '@/lib/utils'
@@ -357,10 +358,15 @@ const LOG_ICON: Record<LogEntry['kind'], ReactNode> = {
   restored: <History className="text-faint" />,
 }
 
-/** What happened in this session, newest first. Click an entry to jump to its cell. */
+/**
+ * What happened in this session, newest first. Click an entry to jump to its cell. With Show costs on, each run
+ * says what it cost, and the top says what the notebook has cost so far.
+ */
 function ActivityPane() {
   const log = useNotebook((s) => s.log)
   const cells = useNotebook((s) => s.notebook.cells)
+  const showCosts = useNotebook((s) => s.settings?.showCosts === true)
+  const total = useNotebook((s) => (showCosts ? spendText(s.spend) : null))
   const now = useNow()
   return (
     <Pane
@@ -375,6 +381,11 @@ function ActivityPane() {
         )
       }
     >
+      {total && (
+        <p aria-label="This notebook's cost" className="mx-4 mb-2 border-b pb-2 text-xs leading-[1.5] text-muted-foreground tabular-nums">
+          This notebook: {total}
+        </p>
+      )}
       {!log.length ? (
         <Empty>Runs, failures, restarts and restores show up here as they happen.</Empty>
       ) : (
@@ -390,7 +401,10 @@ function ActivityPane() {
                   className="flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13px] leading-[1.45] enabled:hover:bg-hover"
                 >
                   <span className="flex h-[1.45em] shrink-0 items-center [&_svg]:size-3.5">{LOG_ICON[e.kind]}</span>
-                  <span className={cn('min-w-0 flex-1', e.kind === 'failed' ? 'text-foreground' : 'text-muted-foreground')}>{e.text}</span>
+                  <span className={cn('min-w-0 flex-1', e.kind === 'failed' ? 'text-foreground' : 'text-muted-foreground')}>
+                    {e.text}
+                    {showCosts && e.cost && <span className="block text-xs text-faint tabular-nums">{costText(e.cost)}</span>}
+                  </span>
                   <span className="shrink-0 text-xs leading-[1.45rem] text-faint tabular-nums">{ago(e.at, now)}</span>
                 </button>
               </li>

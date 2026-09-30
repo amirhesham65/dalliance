@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type PromptCell, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
-import { fakeApi, fakeSettings, result } from '@/test/fake-api'
+import { fakeApi, fakeSettings, provenance, result } from '@/test/fake-api'
 import { actions, setApi, useNotebook } from './notebook-store'
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
@@ -47,6 +47,27 @@ describe('running cells', () => {
     actions.run(cell(0).id)
     await flush()
     expect(requests[1].generate).toBe(true)
+  })
+
+  it('keeps the record of how the code was made through a plain rerun, and replaces it on the next generation', async () => {
+    const made = provenance()
+    const { api } = fakeApi((req) =>
+      req.generate ? result({ code: 'orders.total.mean()', provenance: req.prompt === 'Mean' ? made : provenance({ prompt: req.prompt }) }) : result({ generated: false, code: req.code }),
+    )
+    setApi(api)
+    load(newPromptCell('Mean'))
+    actions.run(cell(0).id)
+    await flush()
+    expect(cell(0).provenance).toEqual(made)
+
+    actions.run(cell(0).id)
+    await flush()
+    expect(cell(0).provenance).toBe(made)
+
+    actions.setPrompt(cell(0).id, 'Median')
+    actions.run(cell(0).id)
+    await flush()
+    expect(cell(0).provenance?.prompt).toBe('Median')
   })
 
   it('runs queued cells one at a time, in order, with earlier cells as context', async () => {
@@ -498,5 +519,50 @@ describe('the model list', () => {
     setApi(api)
     await actions.loadModels()
     expect(updates).toEqual([])
+  })
+})
+
+describe("the notebook's costs", () => {
+  it('adds up runs and cell names, keeps the total through Clear, and starts again for another notebook', async () => {
+    setApi(fakeApi(() => result({ cost: { unit: 'usd', usd: 0.02, unpricedTokens: 0 } })).api)
+    load(newPromptCell('What is x?'))
+    actions.run(cell(0).id)
+    await flush()
+    actions.applyRunEvent(cell(0).id, { type: 'title', title: 'X', prompt: 'What is x?', cost: { unit: 'usd', usd: 0.001, unpricedTokens: 40 } })
+
+    const { log, spend } = useNotebook.getState()
+    expect(log[0].cost).toEqual({ unit: 'usd', usd: 0.02, unpricedTokens: 0 })
+    expect(spend.usd).toBeCloseTo(0.021)
+    expect(spend.unpricedTokens).toBe(40)
+    actions.clearLog()
+    expect(useNotebook.getState().spend.usd).toBeCloseTo(0.021)
+    // A cell name for a cell that isn't there counts for nothing
+    actions.applyRunEvent('no-such-cell', { type: 'title', title: 'Ghost', prompt: 'a', cost: { unit: 'usd', usd: 5, unpricedTokens: 0 } })
+    expect(useNotebook.getState().spend.usd).toBeCloseTo(0.021)
+
+    load(newPromptCell('Another'))
+    expect(useNotebook.getState().spend).toEqual({ usd: 0, credits: 0, unpricedTokens: 0, counting: 0 })
+  })
+
+  it("drops credits that arrive after the notebook changed, and shows tokens for credits that never came", async () => {
+    let arrive!: (credits: number | null) => void
+    const { api } = fakeApi(() => result({ cost: { unit: 'credits', generationIds: ['gen_1'], tokens: 700 } }))
+    api.countCredits = () => new Promise((resolve) => (arrive = resolve))
+    setApi(api)
+    load(newPromptCell('What is x?'))
+    actions.run(cell(0).id)
+    await flush()
+    expect(useNotebook.getState().spend.counting).toBe(1)
+    arrive(null)
+    await flush()
+    expect(useNotebook.getState().spend).toEqual({ usd: 0, credits: 0, unpricedTokens: 700, counting: 0 })
+    expect(useNotebook.getState().log[0].cost).toEqual({ unit: 'credits', credits: null, tokens: 700, counting: false })
+
+    actions.run(cell(0).id)
+    await flush()
+    load(newPromptCell('Another'))
+    arrive(3)
+    await flush()
+    expect(useNotebook.getState().spend).toEqual({ usd: 0, credits: 0, unpricedTokens: 0, counting: 0 })
   })
 })

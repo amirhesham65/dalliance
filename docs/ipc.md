@@ -51,6 +51,7 @@ The wrappers then hand the listener the tab whose page sent the call, not the ev
 | `getBilling()` | invoke | `billing.current` | The plan as a `BillingView`. `available` is false in builds without Dalliance Cloud |
 | `startCheckout(plan)` | invoke | `billing.checkout` | Opens checkout for the plan in the browser. Only takes `pro` |
 | `openBillingPortal()` | invoke | `billing.portal` | Opens the billing portal in the browser |
+| `countCredits(generationIds)` | invoke | `billing.credits` | The credits Dalliance Cloud counted for a run's calls, once they've all landed or after 90 seconds. Null when none were, and in builds without Dalliance Cloud. See [agent-harness.md](agent-harness.md#costs) |
 | `setDocumentState({ path, dirty, running })` | send | `tabs.report` | The tab's name, unsaved changes and whether a cell is queued or running, for the tab strip. For the tab showing, also the window title and the macOS edited dot |
 | `listTabs()` | invoke | `tabs.info` | The window's tabs as a `TabsState`: each `TabInfo` in order, `activeId`, and `selfId`, the tab asking |
 | `newTab()` | invoke | `openTab` | A tab on the start page, at the end of the strip, shown |
@@ -80,12 +81,12 @@ Each `on*` method subscribes and returns an unsubscribe function.
 | `type` | Meaning | Renderer effect |
 | --- | --- | --- |
 | `status` | Short text like "Reading the notebook" | The spinner line |
-| `activity` | A tool call started or finished, keyed by id | The live activity list |
+| `activity` | A tool call started, got its label, or finished, keyed by id. `explore` and `run_cell` steps carry their `code` | The live activity list |
 | `attempt` | A new `run_cell` attempt | Clears live outputs, shows the attempt's code |
 | `output` | One output from the running attempt | Appended to live outputs |
 | `question` | `ask_user` is waiting | The question card |
 | `approval` | An install is waiting | The Install / Don't install bar |
-| `title` | A short name arrived | Written straight onto the cell, even after the run |
+| `title` | A short name arrived, with what it cost when Show costs is on | Written straight onto the cell, even after the run. The cost goes to the notebook's total |
 
 ## Menu actions
 

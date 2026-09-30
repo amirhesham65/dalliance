@@ -9,10 +9,12 @@ The agent lives in `apps/desktop/electron/harness/`. It follows Vercel's [Build 
 | `prompt.ts` | `buildSystemPrompt()` and `buildCellPrompt()` |
 | `model.ts` | Provider setup, effort options, the model list for the picker |
 | `title.ts` | The small model that names cells |
+| `cost.ts` | What a run cost, for the Show costs setting |
 | `approval.ts` | Whether an install, or code that runs commands or uses the network, needs a person |
 | `events.ts` | The event bus extensions hook into |
 | `extensions.ts` | The built-in extensions: the `.env` block, the code policy and the run log |
 | `code-policy.ts` | `inspectCode()`, which finds secret files, shell commands and network use in Python |
+| `provenance.ts` | `buildProvenance()`, the record of how a cell was made, and the `RunTrail` the tools fill for it |
 | `format.ts` | `clip()`, `outputsToText()`, `formatVariables()` |
 | `workspace.ts` | File listing and reading inside the notebook's folder |
 
@@ -26,8 +28,8 @@ The agent lives in `apps/desktop/electron/harness/`. It follows Vercel's [Build 
 2. Reads the kernel's variables and lists up to 80 files in the workspace.
 3. Builds the tools with `createCellTools()` and a `ToolLoopAgent` with the system prompt as `instructions`.
 4. Streams with `stopWhen: [stepCountIs(24), () => state.finished != null]`.
-5. Turns stream parts into activity items and status text for the renderer, and emits `step` at the end of every model call.
-6. Emits `run_end` and builds a `CellRunResult` from `state.lastRun` and `state.finished`.
+5. Turns stream parts into activity items and status text for the renderer (see [Step labels](#step-labels)), and emits `step` at the end of every model call.
+6. Emits `run_end` and builds a `CellRunResult` from `state.lastRun` and `state.finished`, with the record of how the cell was made from `state.trail`. See [The record of a run](#the-record-of-a-run).
 
 The tools write to a shared `RunState`:
 
@@ -36,6 +38,7 @@ interface RunState {
   lastRun: { code; result } | null  // the last run_cell, successful or not
   finished: { interpretation; answer; suggestions } | null
   attempts: number
+  trail: RunTrail  // each attempt, the files read and the approvals, for the cell's record
 }
 ```
 
@@ -45,6 +48,18 @@ If the model answers in plain text instead of calling `finish`, and the last run
 
 With `suggestNext: false` in `HarnessDeps`, from the setting of the same name, the result's `suggestions` is always empty, even if the model wrote some anyway.
 
+### The record of a run
+
+The tools fill `state.trail` as they go, and `buildProvenance()` in `provenance.ts` turns it into `CellRunResult.provenance` when the run ends. What the record holds and how it's saved is in [notebook-model.md](notebook-model.md#how-a-cell-was-made). Where each part comes from:
+
+- **Attempts.** `run_cell` records every call before it runs: the code, then the error in one line from `attemptError()`, `Stopped after 10 minutes` on a timeout, or the kernel's own error when `execute()` throws. `describeChange()` diffs each attempt's lines against the one before.
+- **Files read.** `run_cell` keeps the `filesRead` the kernel reports for each attempt (see [kernel.md](kernel.md#files-read)). `explore` adds its reads to the agent's, and so does a `read_file` that returned lines, with its path made relative the way the kernel reports paths. The final code's reads count as `code`, everything else as `agent`.
+- **Approvals.** The `approve` that `guarded()` hands to `tool_call` handlers, and that `install_packages` calls, records each answer, and whether a person was asked (`needsApproval()` before the call). A handler that blocks a call for touching secrets returns `secret` with its block, the file or the line, and `guarded()` records it as `blocked`. `blockSecretFiles()` and `codePolicy()` both do.
+- **Steps.** The model of each step comes from `steps`, and the stated rationale from their reasoning summaries, falling back to the interpretation and answer when there are none. See `statedRationale()`.
+- **Hashes.** SHA-256 of the final code, and of `canonicalOutputs()` of its outputs, from `packages/shared/src/normalize.ts`.
+
+A plain run of saved code builds no record, so the cell keeps the one it has.
+
 ## Tools
 
 Every tool's description follows the course's format: WHEN TO USE, WHEN NOT TO USE, and DO NOT USE FOR where it helps. The description is how the model chooses, so keep it accurate when you change behaviour.
@@ -52,10 +67,10 @@ Every tool's description follows the course's format: WHEN TO USE, WHEN NOT TO U
 | Tool | Does | Bounds |
 | --- | --- | --- |
 | `list_variables` | Lists kernel variables with type, shape and DataFrame columns | 40 variables, 300 characters of detail each |
-| `explore` | Runs a snippet with `store: false`. No execution count, no `_` | 4,000 characters. Interrupted after 20 s |
+| `explore` | Runs a snippet with `store: false`. No execution count, no `_`. Takes a `summary` and the `code` | 4,000 characters. Interrupted after 20 s |
 | `list_files` | Lists the workspace, 4 folders deep, skipping dotfiles and `node_modules`, `.venv` and similar | 200 files |
 | `read_file` | Numbered lines of a text file in the workspace | 500 lines, 500 characters a line, 20,000 characters in all. Refuses binaries |
-| `run_cell` | Runs the complete cell with `store: true` and records it as `lastRun` | 5,000 characters. Tables show 15 rows to the model. Interrupted after 10 minutes |
+| `run_cell` | Runs the complete cell with `store: true` and records it as `lastRun`. Takes a `summary` and the `code` | 5,000 characters. Tables show 15 rows to the model. Interrupted after 10 minutes |
 | `install_packages` | `pip install` into the kernel's interpreter | 1 to 5 packages. Last 1,500 characters of the log |
 | `ask_user` | A multiple-choice question in the cell | 2 to 4 options |
 | `finish` | Ends the cell with interpretation, answer and `next` | Up to 3 suggestions. None when `suggestNext` is off |
@@ -65,6 +80,18 @@ Every tool's description follows the course's format: WHEN TO USE, WHEN NOT TO U
 `run_cell` has a time limit, `runTimeoutMs` in `HarnessDeps`, 10 minutes by default (`RUN_TIMEOUT_MS`). Past it the tool calls `kernel.interrupt()`, like `explore` does after 20 seconds. The kernel escalates to a kill if the interrupt doesn't land; if `execute()` then rejects, the tool still answers. The model gets a fixed, short result, `The cell timed out after 10 minutes and was stopped.` with advice to work on a sample, never the partial output. The run is recorded as `lastRun` with `ok: false`, so `finish` refuses it, and the activity shows "Stopped after 10 minutes". Plain runs of saved code have no limit; the user can stop those.
 
 A model can ask for several tools in one step, and the AI SDK runs them at the same time. Anthropic models are told not to (see [Models and providers](#models-and-providers)), but other makers may still send `run_cell` and `finish` together. So `finish` first waits for every `run_cell` still executing, and judges the run they leave behind, never the one before.
+
+### Step labels
+
+Each tool call is a line in the cell's activity list, and its label doubles as the status text. `describeCall()` writes it, and `describeResult()` updates it when the call ends. Labels are plain words, never code.
+
+`explore` and `run_cell` take a required `summary`, "3 to 7 plain words for the user", like "Counting patients per stage". It is the first field in both schemas, so models tend to write it before the code. The label shows as early as the stream allows:
+
+1. `tool-input-start`: the step appears with a generic label, "Exploring the data" or "Running the cell".
+2. `tool-input-delta`: the harness collects the input's JSON per call id and reads it with `parsePartialJson()`. Once the summary is complete, which means a later field has started or the input is whole, it becomes the label. A summary still being written never shows.
+3. `tool-call`: the whole input confirms the label, and the call's code, clipped to 4,000 characters, goes on the item as `code`. The user opens the step to see it.
+
+An empty summary falls back to the generic label, and to "Explored the data" or "Ran the cell" when the call ends. A call without one fails the schema and goes back to the model; its step says the call was malformed, since the SDK's error quotes the whole input. A step's detail is the run's duration, "Ran in 84 ms", or the error's `Name: message` line, never the traceback around it. A step still running when the stream ends, cut off by a stop or an error, is marked failed.
 
 ### guarded()
 
@@ -121,9 +148,11 @@ Two constraints shape the loop.
 
 | Provider | Setting | Default model | Key |
 | --- | --- | --- | --- |
-| Vercel AI Gateway | `gateway` | `anthropic/claude-opus-5` | `AI_GATEWAY_API_KEY` |
-| Anthropic API | `anthropic` | `claude-opus-5` | `ANTHROPIC_API_KEY` |
-| Dalliance Cloud | `cloud` | `anthropic/claude-opus-5` | None: the Dalliance account's Convex token |
+| Vercel AI Gateway | `gateway` | `anthropic/claude-sonnet-5.5` | `AI_GATEWAY_API_KEY` |
+| Anthropic API | `anthropic` | `claude-sonnet-5-5` | `ANTHROPIC_API_KEY` |
+| Dalliance Cloud | `cloud` | `anthropic/claude-sonnet-5.5` | None: the Dalliance account's Convex token |
+
+The default effort is `medium`. Settings from a version with another default move to this one, see [storage.md](storage.md#settings-and-keys).
 
 `resolveModel()` throws `MissingKeyError` without a key, and a `ModelSetupError` for Dalliance Cloud when signed out or not in this build. `MissingKeyError` is a `ModelSetupError` too, and the session shows either's message as the run's error. Effort maps per maker:
 
@@ -131,12 +160,14 @@ Two constraints shape the loop.
 
   | Models | Thinking | Effort |
   | --- | --- | --- |
-  | Opus 4.7 and later, Sonnet 5 and later, Fable, and any Claude id it doesn't know | Adaptive | All five levels |
+  | Opus 4.7 and later, Sonnet 5 and later, Fable, and any Claude id it doesn't know | Adaptive | All five levels. Sonnet 5.5 is one it doesn't know; a live call through the gateway showed it takes `xhigh`, which Opus 4.6 turns down there |
   | Opus 4.6, Sonnet 4.6 | Adaptive | `low` to `max`, no `xhigh`. `xhigh` becomes `high` |
   | Opus 4.5 | None | `low` to `high`. Anything above becomes `high` |
   | Sonnet 4.5, Haiku 4.5, Opus 4.1, Opus 4, Sonnet 4, Claude 3 | None | None. The API rejects `effort` on these, and they don't take adaptive thinking |
 
   An effort a model doesn't take steps down to the nearest level it does. Every Anthropic model also gets `disableParallelToolUse: true`, which the provider sends as `tool_choice: { type: 'auto', disable_parallel_tool_use: true }`: one tool call per step, so the loop stays a sequence of run, look, fix.
+
+  On the Anthropic API, the models in the first row also get `fallbacks: 'default'`. Their safety classifiers can decline a request; with this the API retries it on the model Anthropic recommends for that kind of refusal, inside the same call, instead of ending the step with a refusal. The provider adds the `server-side-fallback-2026-07-01` beta header. The option is the same on every step, so the prompt cache holds. It isn't sent through the gateway or Dalliance Cloud: the gateway drops it. A live call through the gateway with a fallback model that doesn't exist, or with a value that isn't a valid mode, was answered normally, where a bad `effort` is turned down. So on those routes a declined request still ends the step. A fallback shows in the run log, see [The event bus](#the-event-bus).
 - `openai/*` models get `reasoningEffort`, and `reasoningSummary: 'auto'` for the same per-step summaries. `high`, `xhigh` and `max` all map to `high`. OpenAI leaves out a summary when there was little reasoning, even with some reasoning tokens.
 - Every other maker runs with its defaults.
 
@@ -156,6 +187,24 @@ Two constraints shape the loop.
 | Anthropic | `claude-haiku-4-5` |
 
 The call has a 10 second timeout, one retry and 1,024 output tokens, since reasoning counts toward output. `cleanTitle()` keeps the first line, strips quotes, prefixes like `Title:`, trailing punctuation and `@`, and caps it at 6 words. Any failure returns `null`, and the cell keeps showing its prompt. The session starts the title request alongside the run and never waits on it. Settings can turn titles off with `autoTitles`.
+
+## Costs
+
+With Show costs on, `showCosts` in Settings and off by default, `NotebookSession` prices each run and each cell name, and hands the renderer a `RunCost`. The math is in `cost.ts`. With the setting off nothing is priced, and a pricing failure never fails the run.
+
+`stepUsage()` reads the AI SDK's usage. Its `inputTokens` already counts cache reads and writes, and `outputTokens` already counts reasoning, so `callCost()` charges the input left after the cache tokens at the input rate, cache reads and writes at their own rates, and the output at the output rate. Reasoning tokens are never added on top. On a real cache write call and a cache read call this matched the cost the gateway reported for each.
+
+| Provider | Priced with | Shows |
+| --- | --- | --- |
+| AI Gateway key | The gateway's model list pricing: `input`, `output`, `cachedInputTokens` and `cacheCreationInputTokens`, per token. Read with `getAvailableModels()` and cached for ten minutes per key | Dollars, labelled an estimate |
+| Anthropic key | `ANTHROPIC_PRICES` in `cost.ts`, a small table of current Claude models with the date it was taken. Update it when prices change or a model comes out | Dollars, labelled an estimate |
+| Dalliance Cloud | Nothing in the app. The service records each call's cost by generation id | Credits, never dollars |
+
+A call is priced by the model the run asked for, or the title model, not the id the provider answered with, which can be a dated one the price list doesn't know. A step a refusal fallback answered, which only happens on the Anthropic API, is priced as the fallback model. A model with no known price, or a call that used the cache on a model with no cache rate, goes into `unpricedTokens` and shows as tokens, never as a guessed amount.
+
+On Dalliance Cloud the cost is `{ unit: 'credits', generationIds, tokens }`. The renderer calls `countCredits(generationIds)`, and `Billing.credits()` follows the service's `usage:credits` query live until every call has its row, or 90 seconds pass. Rows land a few seconds after each call, so the Activity pane shows the run as counting until then. Credits that never arrive show as the run's tokens. See [cloud.md](cloud.md#credits-per-run).
+
+`generateTitle()` reports the title call's tokens through `onCall`, and its cost rides on the `title` event. It counts toward the notebook's total rather than the run's, since it can land after the run ends.
 
 ## Approvals
 
@@ -183,7 +232,8 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 | Field | Holds |
 | --- | --- |
 | `step` | Which model call of the run, from 1 |
-| `modelId` | The model that answered, as the provider reports it |
+| `modelId` | The model that answered, as the provider reports it. After a refusal fallback, the fallback model |
+| `fallback` | Whether the chosen model declined the call and a fallback model answered it. `servedByFallback()` reads it from the `fallback_message` entries Anthropic puts in its usage iterations |
 | `finishReason` | `tool-calls`, `stop`, `length` and so on |
 | `durationMs` | Wall time from the request to the end of the step's tool calls |
 | `reasoning` | The model's reasoning summary for the call, from the stream's `reasoning-delta` parts. `null` when it returned none, never left out, so a missing summary can't pass for lost data |
@@ -191,7 +241,7 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 
 `cacheReadTokens` is the quickest check that [caching](#context-and-caching) works: after the first step of a cell it should be most of `inputTokens`.
 
-`generateCell()` also returns every step's `{ step, modelId, reasoning }` as `steps` on `CellRunResult`, so the record of how a cell was made has the model and the stated reasoning of each call. A plain run of saved code has none. The request options, summaries included, are the same for every step of a run, so the prompt cache holds.
+`generateCell()` also returns every step's `{ step, modelId, fallback, reasoning, usage, generationId }` as `steps` on `CellRunResult`, and the cell's record takes the model of each step and its stated rationale from them. `usage` is the same counts as a `StepUsage`, with 0 where the provider doesn't say, and `generationId` is the gateway's id for the call, null from the Anthropic API. [Costs](#costs) prices them. A plain run of saved code has none. The request options, summaries included, are the same for every step of a run, so the prompt cache holds.
 
 `installExtensions()` in `extensions.ts` registers the built-in ones. Each tab's `NotebookSession` calls it once, on its own bus, passing the one `RunLog` every tab shares and its tab id:
 
@@ -201,7 +251,7 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 
 The log comes from `createRunLog()`. Each event is turned into its line at once, then written through one promise chain, so lines land in the order the events happened even when writes are slow. A failed write drops that line and the next one tries again. When the next line would take the file past 5 MB (`MAX_LOG_BYTES`), `agent.jsonl` is renamed to `agent.jsonl.1`, replacing the old backup, and a new file starts. So the log never takes more than about 10 MB. The size is read from disk once and then counted, so rotation costs no extra `stat` per line. That count is why the tabs share one log rather than open one each: two logs on one file would each miss the other's bytes, and their lines could land out of order.
 
-Add new policy here rather than inside a tool. A `tool_call` handler that needs a person calls `data.approve({ title, detail, keys })`, which runs the approval flow above.
+Add new policy here rather than inside a tool. A `tool_call` handler that needs a person calls `data.approve({ title, detail, keys })`, which runs the approval flow above and lands in the cell's record. A handler that blocks a call because it touches secrets returns `{ block: true, reason, secret }`, with `secret` naming the file or the line, so the record lists it.
 
 ### The code policy
 
