@@ -86,6 +86,7 @@ A few actions set these fields on purpose:
 
 `finish()` in `src/store/notebook-store.ts` applies a `CellRunResult`:
 
+- A result for a cell that was deleted while it ran, or whose notebook was replaced by another, is dropped. No cell changes, even one Undo brought back. See [renderer.md](renderer.md#the-run-queue).
 - If nothing ran at all, meaning no execution count, no outputs and not ok, the cell stays as it was and the error shows as a message. That's the path for a missing key, a missing Python, or Stop before any code ran.
 - Otherwise the cell takes the result's code, outputs, count and duration, and its state becomes `done` or `error`.
 - A successful run pushes a revision unless the top one has the same prompt and code.

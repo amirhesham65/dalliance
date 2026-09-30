@@ -18,6 +18,7 @@ src/
   lib/notebook/text.ts        Markdown, answers, @refs, Python highlighting, titles, durations
   lib/notebook/samples.ts     starter prompts and the sample notebook
   lib/makers.ts               model maker logos
+  hooks/                      useMediaQuery, and shadcn's useIsMobile
   dev/demo.ts                 the fake bridge behind ?demo
   test/                       jsdom setup and fakeApi
 ```
@@ -45,6 +46,22 @@ Saved with the notebook: `notebook`. Everything else is session state:
 
 `getApi()` and `setApi()` wrap `window.dalliance`, so tests and the demo can swap in a fake.
 
+### Undo and redo
+
+`actions.undo()` and `actions.redo()` take back and redo notebook edits: insert, delete, move, the note or prompt switch, an assumption correction and a restored revision. Each action records an operation on one cell in a module-level stack, not a snapshot of the notebook:
+
+| Edit | Records | Undo |
+| --- | --- | --- |
+| `insert` | The cell and its index | Removes it, keeping what was typed so Redo brings it back |
+| `delete` | The cell and its index | Puts it back at that index |
+| `move` | The cell and the direction | Moves it the other way |
+| `swap` | The whole cell before and after M or Y | Switches back, carrying over text typed since |
+| `fields` | Only the fields a correction or restore changed | Puts those fields back |
+
+Because nothing else is recorded, undo never touches other cells, and it never rolls back a run: a `swap` or `fields` edit whose cell has run since, so its outputs or fields no longer match, is dropped instead of applied, and the next one down is undone. The stack holds 100 edits, a new edit clears the redo side, and `load()` clears both. Text typed into a field isn't on it; fields keep their native undo.
+
+The notices for D D and M offer Undo through the same stack. Their button undoes only while that edit is still the last one, and a newer edit or a Cmd+Z retires the notice.
+
 ### The run queue
 
 `queue` and `pump()` live at module level. `actions.run(id)` pushes an id unless it's already queued or running. `pump()` runs one cell at a time: it builds the request, awaits `api.runCell()`, and calls `finish()`. Events for the running cell arrive through `applyRunEvent()`. When the queue empties, the store refreshes variables.
@@ -52,6 +69,8 @@ Saved with the notebook: `notebook`. Everything else is session state:
 `pump()` passes the cell as it was sent to `finish()`. The user can keep typing while the agent works. If the prompt or the code changed during the run, their edits stay, `generatedFrom` is the prompt that was sent, and the cell ends `edited` instead of `done`. The next run then regenerates for the new prompt, or runs their code. History keeps the version that ran.
 
 `interrupt()` empties the queue and drops queued runs, then calls the bridge. `deleteCell()` interrupts the cell if it's running. `restart()` interrupts, restarts the kernel, and marks every cell that has run `stale` with no execution count.
+
+A result must land only in the cell and notebook that asked for it. `load()`, which New, Open, a recent file, the start page and session restore all go through, clears the queue and interrupts a running cell before it swaps the notebook in. That cell's id goes into `abandoned`, as does a running cell that is deleted, and `finish()` drops an abandoned result without touching any cell, even one with the same id: reopening the same file, or Undo after a delete, brings the id back. `finish()` also ignores a cell that no longer exists, and a `title` event for a missing cell changes nothing and leaves `dirty` alone.
 
 What `finish()` does to a cell is in [notebook-model.md](notebook-model.md#after-a-run).
 
@@ -68,6 +87,8 @@ What `finish()` does to a cell is in [notebook-model.md](notebook-model.md#after
 
 The overview sits in its own outer group, so opening a side pane never changes its width. Both groups use `preserve-pixel-size`. Widths persist through `useDefaultLayout` in `localStorage` under `dalliance-overview` and `dalliance-panes`. Whether the overview is open is `dalliance-sidebar`. Every column is a `Pane` from `components/panes/Pane.tsx`: a rounded card on the canvas.
 
+Below 1200 px wide, `NARROW_WINDOW` in `App.tsx`, there is no room for a side pane column without squeezing the notebook to its minimum. `PaneOverlay` then draws the side pane over the notebook's left edge, 400 px wide at most, with a light scrim over the rest. Esc closes it and puts focus back where it was. A click on the scrim closes it and leaves focus with the notebook. Esc inside a text field, menu or dialog stays with that control. `useMediaQuery()` in `hooks/use-media-query.ts` follows the width.
+
 A banner above the workspace asks for a key, a Python or missing packages when the settings or Python state say so.
 
 ## Keyboard
@@ -77,6 +98,7 @@ The main process menu owns the global shortcuts. The renderer owns the rest.
 | Keys | Where | Does |
 | --- | --- | --- |
 | Cmd+N, Cmd+O, Cmd+S, Shift+Cmd+S | Menu | New, Open, Save, Save As |
+| Cmd+Z, Shift+Cmd+Z | Menu, and command mode | Undo, Redo. In a text field, the field's own undo. Elsewhere, notebook edits. See [Undo and redo](#undo-and-redo) |
 | Cmd+, | Menu | Settings |
 | Shift+Cmd+Enter | Menu | Run all |
 | Cmd+. | Menu | Interrupt |
@@ -85,15 +107,18 @@ The main process menu owns the global shortcuts. The renderer owns the rest.
 | Shift+Enter | Editor or command mode | Run and move to the next cell, adding one at the end |
 | Cmd+Enter | Editor or command mode | Run in place |
 | Alt+Enter | Editor | Run and insert a cell below |
-| Esc | Editor | Leave the editor for command mode |
-| Enter | Command mode | Edit the selected cell |
+| Esc | Editor | Leave the editor for command mode. A note's preview takes focus back |
+| Esc | Side pane over the notebook | Close it |
+| Enter | Command mode, or a note's preview | Edit the selected cell |
 | A, B | Command mode | Insert a prompt cell above, below |
 | M, Y | Command mode | Make the cell a note, a prompt. A note keeps only the prompt, so M on a cell with code, outputs or history offers Undo |
 | T | Command mode | Fold or unfold tables |
 | D D | Command mode | Delete, with a 6 second Undo notice |
 | Up, Down, J, K | Command mode | Move the selection |
 
-Command mode is `useCommandMode()` in `App.tsx`, on when no text field, dialog or listbox has focus. Editor keys are `editorKeys()` in `CellView.tsx`. `useScopedSelectAll()` makes Cmd+A select only the text field, answer or output that holds the selection, like a desktop app.
+Command mode is `useCommandMode()` in `App.tsx`. It listens only while focus is inside the notebook column, marked `data-command-scope` on `NotebookView`'s `<main>`, or on nothing at all, the body. Keys pressed on a button in the overview, a side pane or the top bar never act on the selected cell, so D D there deletes nothing. Inside the notebook it still stays off while a text field, dialog or listbox has focus, and it skips a key another handler already took with `preventDefault()`. Editor keys are `editorKeys()` in `CellView.tsx`. `useScopedSelectAll()` makes Cmd+A select only the text field, answer or output that holds the selection, like a desktop app.
+
+Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the built-in undo and redo roles with items that send `'undo'` and `'redo'` menu actions; cut, copy, paste and select all keep their roles. `editFromMenu()` in `App.tsx` runs `document.execCommand('undo')` or `'redo'` when a text field has focus, since the role no longer does it, and notebook undo otherwise. Command mode also handles Cmd+Z and Shift+Cmd+Z, or Ctrl, itself, for the browser preview and for platforms where the page sees the key before the menu. `notebookEdit()` ignores the second of a menu action and a keydown for the same key press within 150 ms, so one press never undoes twice. `MenuAction` in `packages/shared/src/ipc.ts` doesn't list `'undo'` and `'redo'` yet, so both sides compare them as strings.
 
 ## Cells
 
@@ -111,6 +136,26 @@ Under Result: the answer, the outputs, the variables the run created, and sugges
 
 `OutputList` in `outputs/OutputView.tsx` merges adjacent `stream` chunks, and folds printed text away when the cell has a real result. Tables fold when the cell has an answer or a chart. `tablesOpen()` in the shared model decides, and the user's choice in `showTables` overrides it.
 
+A note shows as its rendered Markdown. The preview takes keyboard focus, and Enter or a double-click opens the editor. It has no button role, so its headings stay headings to a screen reader.
+
+### Rendering cost
+
+A notebook can hold dozens of cells with 100-row tables, and every keystroke replaces the cells array. What keeps typing cheap:
+
+- `CellView` is `memo`. The store keeps unchanged cells as the same objects, so only the cell whose object changed redraws. Its props are the cell, its number and whether it's selected; keep them that way, and don't pass fresh callbacks to it. It calls `actions` directly instead.
+- Each cell subscribes to its own run with `useNotebook((s) => s.runs[id])`, so status ticks and streamed output from one running cell redraw only that cell. `RunButton` subscribes to the run's status alone.
+- Selectors that many cells share return a yes or no for this cell, `s.focusId === id`, never the raw value, so a change for one cell doesn't wake all of them.
+- `OutputList` and `RowsView` are `memo`, and the merged output list and the table's column types are `useMemo` on the outputs. `PromptCellView` passes them `useCallback` handlers, so typing a prompt doesn't redraw its own tables.
+- The overview reads run statuses through `useShallow`, so it redraws when a status changes, not on every status line.
+
+With 40 cells each showing a 100 × 10 table, one keystroke took about 2.7 s in jsdom before this and about 50 ms after.
+
+### Accessibility
+
+- Each run button is named after its cell, "Run cell 2", counting prompt cells as the overview's summary does. The `[n]` it shows is its description, "Execution count 3", "Running", "Queued" or "Not run yet". Each prompt cell's article is "Prompt cell 2".
+- The overview's status dots are `aria-hidden` and the cell's button carries the status in words, ", failed". Each progress bar segment is labelled "Cell 2, Revenue by month: out of date" and shows the same as a tooltip.
+- The summary under the progress bar updates on screen with every status, but its `aria-live` twin announces only the end of a run: "Finished running." and where the notebook stands.
+
 ## Side panes
 
 All in `components/panes/`. One is open at a time, set by `actions.openPane()` or `togglePane()`.
@@ -126,7 +171,7 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 
 ## Notices and errors
 
-`actions.notify(text, { undo, tone })` puts one message at the bottom of the window for 6 seconds. `NoticeToast` in `App.tsx` draws it. With `undo` it shows an Undo button, without it a Dismiss button. A newer notice replaces the one showing, and loading a notebook clears it. D D and M use it to offer Undo.
+`actions.notify(text, { undo, tone })` puts one message at the bottom of the window for 6 seconds. `NoticeToast` in `App.tsx` draws it. With `undo` it shows an Undo button, without it a Dismiss button. A newer notice replaces the one showing, and loading a notebook clears it. D D and M use it to offer Undo, which goes through the notebook's undo stack, see [Undo and redo](#undo-and-redo).
 
 A bridge call the user started should never fail silently. `actions.notifyFailure(what, err)` shows "Couldn't save the notebook." and the reason, with the `Error invoking remote method` wrapper stripped by `errorText()`. Saving, writing the brief, refreshing the variables, restarting Python and the fresh kernel for a new notebook all report failures this way. A new notebook still opens when its kernel fails to restart. Background calls, like the variables refresh after each run, stay quiet.
 
