@@ -12,6 +12,7 @@ import type { Kernel, KernelInfo } from './kernel/kernel'
 import { installPackages, pythonStatus, setupManagedEnv } from './kernel/python-env'
 import { PythonKernel } from './kernel/python-kernel'
 import { isBroadFolder, listFiles } from './harness/workspace'
+import { folderForNewNotebook } from './notebook-files'
 import type { SettingsStore } from './settings'
 
 interface SessionOptions {
@@ -45,7 +46,8 @@ export class NotebookSession {
 
   constructor(options: SessionOptions) {
     this.options = options
-    this.workspace = options.settings.workspaceDir ?? options.defaultWorkspace
+    // A remembered Documents or home folder came from a notebook kept there. Without that notebook, start in the default.
+    this.workspace = folderForNewNotebook(options.settings.workspaceDir ?? options.defaultWorkspace, options.defaultWorkspace)
     this.lastKernelState = { status: 'dead', python: null, cwd: this.workspace, error: null }
 
     // Keep .env files private, and log every run to logs/agent.jsonl

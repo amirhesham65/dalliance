@@ -1,12 +1,21 @@
 import { existsSync, statSync } from 'node:fs'
 import { rename } from 'node:fs/promises'
 import path from 'node:path'
+import { isBroadFolder } from './harness/workspace'
 
 /** A name for a new notebook in `dir` that nothing has: "Untitled.ipynb", then "Untitled 2.ipynb", "Untitled 3.ipynb". */
 export function newNotebookPath(dir: string, name = 'Untitled'): string {
   let file = path.join(dir, `${name}.ipynb`)
   for (let n = 2; existsSync(file); n++) file = path.join(dir, `${name} ${n}.ipynb`)
   return file
+}
+
+/**
+ * Where a new notebook goes: the folder in use, unless that is a broad one like Documents or the home folder, which
+ * it becomes after opening a notebook kept there. New notebooks then go to `fallback`, so they never run in all of it.
+ */
+export function folderForNewNotebook(inUse: string, fallback: string): string {
+  return isBroadFolder(inUse) ? fallback : inUse
 }
 
 const RESERVED = /[\\/:*?"<>|]/

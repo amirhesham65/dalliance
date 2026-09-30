@@ -10,7 +10,7 @@ import { checkKey, listModels } from './harness/model'
 import { DraftStore } from './draft'
 import { type AppPage, isTrustedSender } from './ipc-sender'
 import { buildMenu } from './menu'
-import { newNotebookPath, notebookPathIn, renameNotebookFile } from './notebook-files'
+import { folderForNewNotebook, newNotebookPath, notebookPathIn, renameNotebookFile } from './notebook-files'
 import { OpenQueue, notebookFromArgv } from './open-files'
 import { NotebookSession } from './session'
 import { ENV_KEYS, SettingsStore } from './settings'
@@ -283,7 +283,8 @@ function registerIpc() {
     return openFile(filePaths[0])
   })
 
-  handle(IPC.newNotebook, (_e, notebook: Notebook) => createNotebook(session.dir, notebook))
+  // A notebook opened straight from Documents makes it the folder in use, but new ones still never land there
+  handle(IPC.newNotebook, (_e, notebook: Notebook) => createNotebook(folderForNewNotebook(session.dir, defaultWorkspace), notebook))
 
   handle(IPC.openFolder, async (_e, notebook: Notebook) => {
     if (!win) return null
@@ -367,10 +368,11 @@ function registerIpc() {
         }
         return { path: renamed.path, saved: false }
       }
-      // A notebook that was never a file is written under its new name, in the folder in use.
+      // A notebook that was never a file is written under its new name, where a new notebook would go.
       // wx: a file that appeared under that name since the check is never overwritten.
-      await mkdir(session.dir, { recursive: true })
-      const target = notebookPathIn(session.dir, name)
+      const dir = folderForNewNotebook(session.dir, defaultWorkspace)
+      await mkdir(dir, { recursive: true })
+      const target = notebookPathIn(dir, name)
       if ('error' in target) return target
       try {
         await writeFile(target.path, ipynbText(notebook), { flag: 'wx' })
@@ -378,6 +380,7 @@ function registerIpc() {
         if ((err as NodeJS.ErrnoException).code === 'EEXIST') return { error: `There is already a notebook called "${path.basename(target.path, '.ipynb')}" in this folder.` }
         throw err
       }
+      await session.moveWorkspace(dir)
       app.addRecentDocument(target.path)
       settings.addRecent(target.path)
       drafts.update({ path: target.path, dirty: false, notebook })

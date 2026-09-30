@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { cleanNotebookName, newNotebookPath, notebookPathIn, renameNotebookFile } from './notebook-files'
+import { cleanNotebookName, folderForNewNotebook, newNotebookPath, notebookPathIn, renameNotebookFile } from './notebook-files'
 
 describe('new notebook names', () => {
   it('takes Untitled first, then counts up past the names that are taken', () => {
@@ -13,6 +13,17 @@ describe('new notebook names', () => {
     expect(newNotebookPath(dir)).toBe(path.join(dir, 'Untitled 2.ipynb'))
     writeFileSync(path.join(dir, 'Untitled 2.ipynb'), '{}')
     expect(newNotebookPath(dir)).toBe(path.join(dir, 'Untitled 3.ipynb'))
+  })
+})
+
+describe('the folder for a new notebook', () => {
+  it('is the folder in use, unless that is a broad one like Documents, where the default folder takes over', () => {
+    const fallback = path.join(homedir(), 'Documents', 'Dalliance Notebooks')
+    const project = path.join(homedir(), 'Documents', 'trials')
+    expect(folderForNewNotebook(project, fallback)).toBe(project)
+    for (const broad of [homedir(), path.join(homedir(), 'Documents'), path.join(homedir(), 'Desktop'), path.join(homedir(), 'Downloads')]) {
+      expect(folderForNewNotebook(broad, fallback)).toBe(fallback)
+    }
   })
 })
 

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { IPC, type KernelState } from '@dalliance/shared/ipc'
@@ -36,11 +36,11 @@ function slowLauncher() {
   return { starts, launchKernel }
 }
 
-function session(launchKernel: (cwd: string, onStatus: (info: KernelInfo) => void) => Promise<FolderKernel>) {
+function session(launchKernel: (cwd: string, onStatus: (info: KernelInfo) => void) => Promise<FolderKernel>, workspaceDir: string | null = null) {
   const sent: KernelState[] = []
   const s = new NotebookSession({
     // Only what the session reads and writes about the folder in use
-    settings: { workspaceDir: null, setWorkspaceDir: () => {} } as unknown as SettingsStore,
+    settings: { workspaceDir, setWorkspaceDir: () => {} } as unknown as SettingsStore,
     userData: mkdtempSync(path.join(tmpdir(), 'dalliance-session-')),
     defaultWorkspace: '/default',
     send: (channel, state) => {
@@ -52,6 +52,17 @@ function session(launchKernel: (cwd: string, onStatus: (info: KernelInfo) => voi
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+describe('NotebookSession folder in use', () => {
+  it('starts in the remembered folder, but in the default one when that is Documents or another broad folder', async () => {
+    const { starts, launchKernel } = slowLauncher()
+    session(launchKernel, '/notebooks/sales').s.warmUp()
+    session(launchKernel, path.join(homedir(), 'Documents')).s.warmUp()
+    session(launchKernel, homedir()).s.warmUp()
+    await tick()
+    expect(starts.map((x) => x.cwd)).toEqual(['/notebooks/sales', '/default', '/default'])
+  })
+})
 
 describe('NotebookSession kernel lifecycle', () => {
   it('starts the kernel in the opened notebook’s folder even while the launch warm-up is still starting', async () => {
