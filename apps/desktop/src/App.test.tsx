@@ -446,6 +446,24 @@ describe('question cells', () => {
     expect(screen.getByText('Python is missing pandas. Cells that need them will fail.')).toBeInTheDocument()
   })
 
+  it('forgets a dismissal once the notice shows something else', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    setApi(api)
+    render(<App />)
+    await waitFor(() => expect(useNotebook.getState().python).not.toBeNull())
+    const python = useNotebook.getState().python!
+    const missing = (pkg: string) => act(() => useNotebook.setState({ python: { ...python, missingPackages: [pkg] } }))
+
+    missing('pandas')
+    await user.click(screen.getByRole('button', { name: 'Dismiss notice' }))
+    // Another problem replaces it, then the first comes back: that is a change, so it shows
+    missing('numpy')
+    expect(screen.getByText('Python is missing numpy. Cells that need them will fail.')).toBeInTheDocument()
+    missing('pandas')
+    expect(screen.getByText('Python is missing pandas. Cells that need them will fail.')).toBeInTheDocument()
+  })
+
   it('shows the pane shortcuts in the overview tooltips', async () => {
     const user = userEvent.setup()
     setApi(fakeApi(() => result()).api)

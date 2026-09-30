@@ -156,9 +156,10 @@ export default function App() {
         ? 'Python is not set up yet.'
         : `Python is missing ${python.missingPackages.join(', ')}. Cells that need them will fail.`
       : kernel.error
-  // A dismissed notice stays gone until its message changes. Once the problem is fixed, forget the dismissal so the
-  // banner shows again if it comes back. Resetting during render, not in an effect, avoids an extra commit
-  if (!banner && dismissedBanner != null) setDismissedBanner(null)
+  // A dismissed notice stays gone until its message changes. Once it shows something else, or nothing, forget the
+  // dismissal so the banner shows again if that message comes back. Resetting during render, not in an effect,
+  // avoids an extra commit
+  if (dismissedBanner != null && banner !== dismissedBanner) setDismissedBanner(null)
 
   return (
     <TooltipProvider delayDuration={400}>
