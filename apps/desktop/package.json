@@ -68,6 +68,15 @@
       "dist-electron/**",
       "!node_modules/**"
     ],
+    "fileAssociations": [
+      {
+        "ext": "ipynb",
+        "name": "Jupyter Notebook",
+        "description": "Jupyter Notebook",
+        "mimeType": "application/x-ipynb+json",
+        "role": "Editor"
+      }
+    ],
     "mac": {
       "target": [
         {

@@ -21,6 +21,7 @@ electron-builder reads its config from the `build` key in `apps/desktop/package.
 | `mac.icon` | `build/icon.png` | 1024 by 1024, drawn from the site's mark |
 | `artifactName` | `${productName}.${ext}` | A stable name, so the download link never changes |
 | `extendInfo` | `NSDocumentsFolderUsageDescription` | macOS asks before the app creates `Documents/Dalliance Notebooks` |
+| `fileAssociations` | `.ipynb`, named "Jupyter Notebook", role `Editor` | Finder lists Dalliance under Open With for notebooks. The main process handles the `open-file` event |
 
 ## Publish a release
 
