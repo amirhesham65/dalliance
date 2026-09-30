@@ -74,19 +74,23 @@ describe('App', () => {
     expect(screen.getByText((_, el) => el?.tagName === 'PRE' && el.textContent === code)).toBeInTheDocument()
   })
 
-  it('shows how a cell was made in its own tab, and keeps it through a plain rerun', async () => {
+  it('shows how a cell was made only when asked, and keeps it through a plain rerun', async () => {
     const user = userEvent.setup()
     const { api, requests } = fakeApi((req) =>
       req.generate ? result({ code: 'orders.total.mean()', provenance: provenance() }) : result({ generated: false, code: req.code }),
     )
     setApi(api)
     render(<App />)
-    // A cell made before the record existed has no tab for it
-    expect(screen.queryByRole('tab', { name: 'How this was made' })).not.toBeInTheDocument()
+    // A cell made before the record existed has no button for it
+    expect(screen.queryByRole('button', { name: 'How this was made' })).not.toBeInTheDocument()
 
     await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Average order value')
     await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
-    await user.click(await screen.findByRole('tab', { name: 'How this was made' }))
+    const toggle = await screen.findByRole('button', { name: 'How this was made' })
+    // Hidden until asked for, and never a tab beside Result and Code
+    expect(screen.queryByRole('region', { name: 'How this was made' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'How this was made' })).not.toBeInTheDocument()
+    await user.click(toggle)
     const view = screen.getByRole('region', { name: 'How this was made' })
     expect(within(view).getByRole('heading', { name: 'Stated rationale' })).toBeInTheDocument()
     expect(view).toHaveTextContent('The column is total, not amount.')
@@ -97,7 +101,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
     await waitFor(() => expect(requests).toHaveLength(2))
     expect(requests[1].generate).toBe(false)
-    expect(await screen.findByRole('tab', { name: 'How this was made' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'How this was made' })).toBeInTheDocument()
   })
 
   it('asks the question the agent raises and sends back the answer', async () => {
@@ -311,7 +315,7 @@ describe('question cells', () => {
     expect(screen.queryByRole('tab', { name: 'Code' })).not.toBeInTheDocument()
   })
 
-  it('folds out how a written answer was made under it', async () => {
+  it('shows how a written answer was made when asked', async () => {
     const user = userEvent.setup()
     const record = provenance({ attempts: [], attemptCount: 0, rationale: { from: 'interpretation', text: ['A question about modelling, answered in words.'] } })
     setApi(fakeApi(() => result({ code: '', outputs: [], executionCount: null, answer: 'Predict returns.', provenance: record })).api)

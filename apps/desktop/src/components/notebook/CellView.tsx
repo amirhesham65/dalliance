@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowRight, ArrowUp, Check, ChevronRight, Copy, Loader2, Pin, PinOff, Play, RefreshCw, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowRight, ArrowUp, Check, ChevronRight, Copy, Loader2, Pin, PinOff, Play, RefreshCw, ScrollText, Trash2, X } from 'lucide-react'
 import { type KeyboardEvent, type ReactNode, memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { IconButton } from '@/components/app/IconButton'
 import { Button } from '@/components/ui/button'
@@ -165,6 +165,12 @@ function PromptCellView({ cell, selected }: { cell: PromptCell; selected: boolea
         <div className="flex shrink-0 items-center gap-2 pt-0.5 text-xs">
           <StatusText cell={cell} run={run} />
           <CellActions cell={cell}>
+            {/* Out of the way until asked for: it's the record, not the result */}
+            {cell.provenance && !run && (
+              <IconButton label="How this was made" size="icon-xs" aria-pressed={showHow} className={cn(showHow && 'text-ink')} onClick={() => setShowHow((o) => !o)}>
+                <ScrollText />
+              </IconButton>
+            )}
             {cell.code && !run && (
               <IconButton label="Rewrite the code from the prompt" size="icon-xs" onClick={() => actions.regenerate(cell.id)}>
                 <RefreshCw />
@@ -191,14 +197,7 @@ function PromptCellView({ cell, selected }: { cell: PromptCell; selected: boolea
           <span className="flex items-center gap-3 font-mono text-[11px] text-faint tabular-nums">
             {activity?.length ? <ActivityToggle items={activity} /> : null}
             {cell.durationMs != null && formatDuration(cell.durationMs)}
-            {cell.provenance && (
-              <button type="button" onClick={() => setShowHow((o) => !o)} aria-expanded={showHow} className="flex items-center gap-1 hover:text-muted-foreground">
-                <ChevronRight className={cn('size-3 transition-transform', showHow && 'rotate-90')} />
-                How this was made
-              </button>
-            )}
           </span>
-          {showHow && cell.provenance && <HowItWasMade cell={cell} record={cell.provenance} />}
           {suggest && cell.state === 'done' && <Suggestions cell={cell} />}
         </div>
       )}
@@ -213,11 +212,6 @@ function PromptCellView({ cell, selected }: { cell: PromptCell; selected: boolea
               <TabsTrigger value="code" className={tabTrigger}>
                 Code
               </TabsTrigger>
-              {cell.provenance && (
-                <TabsTrigger value="how" className={tabTrigger}>
-                  How this was made
-                </TabsTrigger>
-              )}
             </TabsList>
             {cell.codeEdited && <span className="text-xs text-faint">· your code</span>}
             <span className="ml-auto flex items-center gap-3 font-mono text-[11px] text-faint tabular-nums">
@@ -257,12 +251,13 @@ function PromptCellView({ cell, selected }: { cell: PromptCell; selected: boolea
               className="code rounded-lg bg-raised p-3 font-mono text-[12.5px] leading-[1.7]"
             />
           </TabsContent>
-          {cell.provenance && (
-            <TabsContent value="how">
-              <HowItWasMade cell={cell} record={cell.provenance} />
-            </TabsContent>
-          )}
         </Tabs>
+      )}
+
+      {showHow && cell.provenance && !running && (
+        <div className="mt-4 border-t border-border pt-3">
+          <HowItWasMade cell={cell} record={cell.provenance} />
+        </div>
       )}
     </>
   )

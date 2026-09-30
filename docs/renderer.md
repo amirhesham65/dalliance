@@ -131,7 +131,7 @@ Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the bu
 2. The interpretation, when it has `[[assumptions]]`. Click one to correct it.
 3. Run progress: the activity list, a status line, and a question card or install bar. Each step's label is plain words. A step that ran code, an `explore` or a `run_cell`, is a button that opens its code underneath. After the run, the list folds into the "N steps" toggle by the duration.
 4. A message for non-Python errors.
-5. Result and Code tabs, and a How this was made tab once the agent has written the code. A question answered in words shows only the answer, without tabs, and folds its How this was made out under the answer from a toggle beside the duration.
+5. Result and Code tabs. A question answered in words shows only the answer, without tabs. How this was made stays out of sight: a hover-only button among the cell's actions, beside Rewrite, opens it under the cell and closes it again. It only shows once the cell has a record.
 
 Under Result: the answer, the outputs, the variables the run created, and suggestions. Suggestions show only on the cell that just finished or the selected one, and not at all when `settings.suggestNext` is off, including ones a cell saved earlier.
 
