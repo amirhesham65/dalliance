@@ -7,12 +7,13 @@ import { InlineText } from '@/components/notebook/InlineText'
 import { OutputList } from '@/components/notebook/outputs/OutputView'
 import { RefText } from '@/components/notebook/RefText'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ago, cellTitle } from '@/lib/notebook/text'
 import { useNow } from '@/lib/use-now'
 import { cn } from '@/lib/utils'
-import type { FileEntry } from '@dalliance/shared/ipc'
+import type { EnvironmentView as EnvironmentInfo, FileEntry } from '@dalliance/shared/ipc'
 import type { PromptCell, Revision } from '@dalliance/shared/notebook'
-import { type LogEntry, actions, getApi, useNotebook } from '@/store/notebook-store'
+import { type LogEntry, type VariablesView, actions, getApi, useNotebook } from '@/store/notebook-store'
 import { BriefPane } from './BriefPane'
 import { Pane } from './Pane'
 
@@ -41,36 +42,104 @@ function Empty({ children }: { children: string }) {
   return <p className="px-4 py-2 text-[13px] leading-[1.6] text-faint">{children}</p>
 }
 
+/** What is in memory, and what the Python has installed. One pane, two views. */
 function VariablesPane() {
   const variables = useNotebook((s) => s.variables)
+  const environment = useNotebook((s) => s.environment)
+  const loading = useNotebook((s) => s.environmentLoading)
+  const stale = useNotebook((s) => s.environmentStale)
+  const view = useNotebook((s) => s.variablesView)
+  // Read the libraries when the view is first shown, and again when a run or a restart may have changed them
+  useEffect(() => {
+    if (view === 'environment' && (!useNotebook.getState().environment || stale)) void actions.loadEnvironment()
+  }, [view, stale])
   return (
     <Pane
-      title="Variables"
+      title="Variables & Environment"
       icon={<Variable />}
       onClose={close}
       actions={
-        <IconButton label="Refresh" size="icon-xs" onClick={() => void actions.refreshVariables().catch((err: unknown) => actions.notifyFailure("Couldn't list the variables", err))}>
-          <RefreshCw />
+        <IconButton
+          label="Refresh"
+          size="icon-xs"
+          onClick={() =>
+            void (view === 'variables'
+              ? actions.refreshVariables().catch((err: unknown) => actions.notifyFailure("Couldn't list the variables", err))
+              : actions.loadEnvironment())
+          }
+        >
+          <RefreshCw className={cn(view === 'environment' && loading && 'animate-spin')} />
         </IconButton>
       }
     >
-      {variables.length ? (
-        <ul className="flex flex-col px-2 pb-3">
-          {variables.map((v) => (
-            <li key={v.name} className="rounded-lg px-2 py-2 hover:bg-hover" title={v.detail || v.type}>
-              <div className="flex items-baseline gap-2">
-                <span className="truncate font-mono text-[12.5px] text-ref">{v.name}</span>
-                <span className="text-xs text-faint">{v.type}</span>
-                <span className="ml-auto shrink-0 font-mono text-[11.5px] text-muted-foreground tabular-nums">{v.shape}</span>
-              </div>
-              {v.detail && <p className="mt-0.5 truncate font-mono text-[11px] text-faint">{v.detail}</p>}
+      <Tabs value={view} onValueChange={(v) => actions.showVariablesView(v as VariablesView)} className="gap-0">
+        <TabsList aria-label="View" className="mx-4 mb-2 flex h-8 w-auto bg-hover">
+          <TabsTrigger value="variables" className="text-xs font-normal">
+            Variables
+          </TabsTrigger>
+          <TabsTrigger value="environment" className="text-xs font-normal">
+            Environment
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="variables">
+          {variables.length ? (
+            <ul className="flex flex-col px-2 pb-3">
+              {variables.map((v) => (
+                <li key={v.name} className="rounded-lg px-2 py-2 hover:bg-hover" title={v.detail || v.type}>
+                  <div className="flex items-baseline gap-2">
+                    <span className="truncate font-mono text-[12.5px] text-ref">{v.name}</span>
+                    <span className="text-xs text-faint">{v.type}</span>
+                    <span className="ml-auto shrink-0 font-mono text-[11.5px] text-muted-foreground tabular-nums">{v.shape}</span>
+                  </div>
+                  {v.detail && <p className="mt-0.5 truncate font-mono text-[11px] text-faint">{v.detail}</p>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <Empty>Nothing in memory yet. Variables appear here as cells run, and later cells can use them with @name.</Empty>
+          )}
+        </TabsContent>
+        <TabsContent value="environment">
+          <EnvironmentView environment={environment} loading={loading} />
+        </TabsContent>
+      </Tabs>
+    </Pane>
+  )
+}
+
+/** The Python in use and the libraries it has, with versions, searchable. */
+function EnvironmentView({ environment, loading }: { environment: EnvironmentInfo | null; loading: boolean }) {
+  const [query, setQuery] = useState('')
+  if (!environment) return <Empty>{loading ? 'Reading the environment…' : 'Nothing to show yet.'}</Empty>
+  if (environment.error) return <p className="px-4 py-2 text-[13px] leading-[1.6] text-destructive">{environment.error}</p>
+  const q = query.trim().toLowerCase()
+  const shown = q ? environment.packages.filter((p) => p.name.toLowerCase().includes(q)) : environment.packages
+  return (
+    <div className="flex flex-col pb-3">
+      <p className="px-4 pb-2 text-[12.5px] text-muted-foreground" title={environment.python ?? undefined}>
+        Python {environment.version ?? ''}
+        <span className="text-faint"> · {environment.packages.length} libraries</span>
+      </p>
+      <input
+        aria-label="Search libraries"
+        placeholder="Search libraries"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        className="mx-4 mb-1 h-8 rounded-lg border bg-transparent px-2.5 text-[13px] outline-none placeholder:text-faint focus-visible:border-ring"
+      />
+      {shown.length ? (
+        <ul aria-label="Libraries" className="flex flex-col px-2">
+          {shown.map((p) => (
+            <li key={p.name} className="flex items-baseline gap-2 rounded-lg px-2 py-1.5 hover:bg-hover">
+              <span className="truncate font-mono text-[12.5px] text-ref">{p.name}</span>
+              <span className="ml-auto shrink-0 font-mono text-[11.5px] text-muted-foreground tabular-nums">{p.version}</span>
             </li>
           ))}
         </ul>
       ) : (
-        <Empty>Nothing in memory yet. Variables appear here as cells run, and later cells can use them with @name.</Empty>
+        <Empty>{q ? 'No library matches.' : 'This Python has no libraries yet.'}</Empty>
       )}
-    </Pane>
+    </div>
   )
 }
 

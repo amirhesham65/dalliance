@@ -132,6 +132,25 @@ describe('App', () => {
     expect(useNotebook.getState().dirty).toBe(false)
   })
 
+  it('shows a notebook that fails to open, and keeps the one that was open', async () => {
+    const { api } = fakeApi(() => result())
+    let menu!: (action: 'open') => void
+    api.onMenu = (l) => {
+      menu = l
+      return () => {}
+    }
+    api.openNotebook = async () => {
+      throw new Error("Error invoking remote method 'open-notebook': Error: Unexpected token in JSON at position 12")
+    }
+    setApi(api)
+    render(<App />)
+    const before = useNotebook.getState().notebook
+    await waitFor(() => expect(menu).toBeDefined())
+    menu('open')
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't open the notebook. Unexpected token in JSON at position 12")
+    expect(useNotebook.getState().notebook).toBe(before)
+  })
+
   it('keeps the notebook up when one cell fails to draw, and Retry draws it again', async () => {
     const user = userEvent.setup()
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -262,6 +281,251 @@ describe('question cells', () => {
     expect(screen.getByRole('list', { name: 'Run log' })).toHaveTextContent('Wrote “Plot revenue by month”')
   })
 
+  it('shows the Python and its libraries next to the variables, and searches them', async () => {
+    const user = userEvent.setup()
+    // The store outlives a test, so the pane and the libraries start clean
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })
+    setApi(fakeApi(() => result()).api)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    expect(screen.getByRole('tab', { name: 'Variables', selected: true })).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Environment' }))
+    const list = await screen.findByRole('list', { name: 'Libraries' })
+    expect(within(list).getByText('numpy')).toBeInTheDocument()
+    expect(within(list).getByText('2.2.3')).toBeInTheDocument()
+    expect(screen.getByText(/Python 3.12.0/)).toBeInTheDocument()
+
+    await user.type(screen.getByRole('textbox', { name: 'Search libraries' }), 'pand')
+    expect(within(list).queryByText('numpy')).not.toBeInTheDocument()
+    expect(within(list).getByText('pandas')).toBeInTheDocument()
+    await user.type(screen.getByRole('textbox', { name: 'Search libraries' }), 'zzz')
+    expect(screen.getByText('No library matches.')).toBeInTheDocument()
+  })
+
+  it('says why the libraries could not be listed', async () => {
+    const user = userEvent.setup()
+    // The store outlives a test, so the pane and the libraries start clean
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })
+    const { api } = fakeApi(() => result())
+    api.listPackages = async () => ({ python: null, version: null, packages: [], error: 'No Python found. Open Settings to set up a Python environment.' })
+    setApi(api)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    await user.click(screen.getByRole('tab', { name: 'Environment' }))
+    expect(await screen.findByText(/No Python found/)).toBeInTheDocument()
+  })
+
+  it('shows an error, not a blank pane, when reading the libraries throws', async () => {
+    const user = userEvent.setup()
+    // The store outlives a test, so the pane and the libraries start clean
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })
+    const { api } = fakeApi(() => result())
+    api.listPackages = async () => {
+      throw new Error('spawn failed')
+    }
+    setApi(api)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    await user.click(screen.getByRole('tab', { name: 'Environment' }))
+    expect(await screen.findByText(/Couldn't list the libraries: spawn failed/)).toBeInTheDocument()
+  })
+
+  it('switches views with the arrow keys, and keeps the view when the pane reopens', async () => {
+    const user = userEvent.setup()
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })
+    setApi(fakeApi(() => result()).api)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    const tabs = screen.getByRole('tablist', { name: 'View' })
+    within(tabs).getByRole('tab', { name: 'Variables' }).focus()
+    await user.keyboard('{ArrowRight}')
+    expect(within(tabs).getByRole('tab', { name: 'Environment', selected: true })).toHaveFocus()
+    expect(await screen.findByRole('list', { name: 'Libraries' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    expect(screen.getByRole('tab', { name: 'Environment', selected: true })).toBeInTheDocument()
+  })
+
+  it('reads the libraries again when shown after a run, and not while hidden', async () => {
+    const user = userEvent.setup()
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })
+    const { api } = fakeApi(() => result())
+    let reads = 0
+    api.listPackages = async () => {
+      reads++
+      return { python: '/usr/bin/python3', version: '3.12.0', packages: [{ name: `lib${reads}`, version: '1.0' }], error: null }
+    }
+    setApi(api)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    await user.click(screen.getByRole('tab', { name: 'Environment' }))
+    expect(await screen.findByText('lib1')).toBeInTheDocument()
+
+    // Back on the variables, a run doesn't spawn a Python to read the libraries
+    await user.click(screen.getByRole('tab', { name: 'Variables' }))
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Install seaborn')
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
+    await waitFor(() => expect(useNotebook.getState().runs).toEqual({}))
+    await waitFor(() => expect(useNotebook.getState().environmentStale).toBe(true))
+    expect(reads).toBe(1)
+
+    // Showing them reads them again, since the run may have installed something
+    await user.click(screen.getByRole('tab', { name: 'Environment' }))
+    expect(await screen.findByText('lib2')).toBeInTheDocument()
+    expect(reads).toBe(2)
+  })
+
+  it('hides the suggested next prompts, even ones a cell already has, when Settings turns them off', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result({ answer: 'August led.', suggestions: ['Plot revenue by month'] }))
+    let settings = fakeSettings()
+    const updates: unknown[] = []
+    api.getSettings = async () => settings
+    api.updateSettings = async (u) => {
+      updates.push(u)
+      settings = { ...settings, ...u } as typeof settings
+      return settings
+    }
+    setApi(api)
+    render(<App />)
+
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Revenue by month')
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
+    expect(await screen.findByRole('list', { name: 'Suggested next prompts' })).toBeInTheDocument()
+
+    act(() => actions.openSettings('agent'))
+    const select = await screen.findByRole('combobox', { name: 'Suggested next prompts' })
+    expect(select).toHaveTextContent('Show them')
+    // Radix's select opens from the keyboard in jsdom, which has no pointer capture
+    select.focus()
+    await user.keyboard('{Enter}')
+    await screen.findByRole('option', { name: "Don't show them" })
+    await user.keyboard('{ArrowDown}{Enter}')
+    expect(updates).toContainEqual({ suggestNext: false })
+    act(() => actions.closeSettings())
+
+    expect(screen.getByText('August led.')).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Suggested next prompts' })).not.toBeInTheDocument()
+  })
+
+  it('renames the notebook from its name at the top of the overview', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    const calls: unknown[][] = []
+    api.renameNotebook = async (current, name) => {
+      calls.push([current, name])
+      return { path: `/work/${name}.ipynb`, saved: false }
+    }
+    setApi(api)
+    actions.load({ cells: [newPromptCell('Total sales')] }, '/work/Untitled.ipynb')
+    render(<App />)
+
+    // Only the heading of the overview renames. The tab in the top bar keeps opening the recent notebooks
+    expect(screen.getAllByRole('button', { name: /Notebook name/ })).toHaveLength(1)
+    await user.click(screen.getByRole('button', { name: /Notebook name: Untitled/ }))
+    const field = screen.getByRole('textbox', { name: 'Notebook name' })
+    expect(field).toHaveValue('Untitled')
+    await user.clear(field)
+    await user.type(field, 'Survival readout.ipynb{Enter}')
+
+    expect(calls).toEqual([['/work/Untitled.ipynb', 'Survival readout']])
+    expect(await screen.findByRole('button', { name: /Notebook name: Survival readout/ })).toBeInTheDocument()
+    expect(useNotebook.getState().path).toBe('/work/Survival readout.ipynb')
+  })
+
+  it('keeps the name field open with the reason when a name is refused, and Esc puts the old name back', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    api.renameNotebook = async (_c, name) => ({ error: `There is already a notebook called "${name}" in this folder.` })
+    setApi(api)
+    actions.load({ cells: [newPromptCell('Total sales')] }, '/work/Untitled.ipynb')
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Notebook name: Untitled/ }))
+    await user.clear(screen.getByRole('textbox', { name: 'Notebook name' }))
+    await user.type(screen.getByRole('textbox', { name: 'Notebook name' }), 'Taken{Enter}')
+    expect(await screen.findByRole('alert')).toHaveTextContent('There is already a notebook called "Taken"')
+    expect(screen.getByRole('textbox', { name: 'Notebook name' })).toHaveValue('Taken')
+    // The field kept focus through the call, so Esc reaches it
+    expect(screen.getByRole('textbox', { name: 'Notebook name' })).toHaveFocus()
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('textbox', { name: 'Notebook name' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Notebook name: Untitled/ })).toBeInTheDocument()
+    expect(useNotebook.getState().path).toBe('/work/Untitled.ipynb')
+  })
+
+  it('keeps the name field focused and read-only while a rename is in flight', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    let answer: (r: { error: string }) => void = () => {}
+    api.renameNotebook = () => new Promise((resolve) => (answer = resolve))
+    setApi(api)
+    actions.load({ cells: [newPromptCell('Total sales')] }, '/work/Untitled.ipynb')
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Notebook name: Untitled/ }))
+    const field = screen.getByRole('textbox', { name: 'Notebook name' })
+    await user.type(field, '{Control>}a{/Control}Taken{Enter}')
+    expect(field).toHaveAttribute('readonly')
+    expect(field).not.toBeDisabled()
+    expect(field).toHaveFocus()
+
+    await act(async () => answer({ error: 'There is already a notebook called "Taken" in this folder.' }))
+    expect(field).not.toHaveAttribute('readonly')
+    expect(field).toHaveFocus()
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('button', { name: /Notebook name: Untitled/ })).toBeInTheDocument()
+  })
+
+  it('leaves the undo stack and the notice alone when the notebook is renamed', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    api.renameNotebook = async (_c, name) => ({ path: `/work/${name}.ipynb`, saved: true })
+    setApi(api)
+    render(<App />)
+
+    await user.click(screen.getByRole('heading', { name: 'Sales review' }))
+    await user.keyboard('dd')
+    expect(screen.queryByRole('heading', { name: 'Sales review' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Notebook name: Untitled/ }))
+    await user.type(screen.getByRole('textbox', { name: 'Notebook name' }), '{Control>}a{/Control}Q3 review{Enter}')
+    expect(await screen.findByRole('button', { name: /Notebook name: Q3 review/ })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(screen.getByRole('heading', { name: 'Sales review' })).toBeInTheDocument()
+    expect(useNotebook.getState().path).toBe('/work/Q3 review.ipynb')
+  })
+
+  it('shows an error when the rename call itself fails, and names an unsaved notebook by writing it', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    let fail = true
+    api.renameNotebook = async (current, name) => {
+      if (fail) throw new Error('ipc closed')
+      return { path: `/work/${name}.ipynb`, saved: current == null }
+    }
+    setApi(api)
+    actions.load({ cells: [newPromptCell('Total sales')] }, null)
+    useNotebook.setState({ dirty: true })
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Notebook name: Untitled/ }))
+    await user.type(screen.getByRole('textbox', { name: 'Notebook name' }), '{Control>}a{/Control}Trials{Enter}')
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't rename the notebook: ipc closed")
+
+    fail = false
+    await user.type(screen.getByRole('textbox', { name: 'Notebook name' }), '{Enter}')
+    await vi.waitFor(() => expect(useNotebook.getState()).toMatchObject({ path: '/work/Trials.ipynb', dirty: false }))
+  })
+
   it('keeps earlier versions of a cell and restores one', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi((req) => result({ code: req.prompt === 'Total sales' ? 'orders.total.sum()' : 'orders.total.mean()' }))
@@ -370,6 +634,12 @@ describe('question cells', () => {
     await user.click(screen.getByRole('tab', { name: 'Python' }))
     expect(screen.getByRole('button', { name: 'Set up' })).toBeInTheDocument()
 
+    // One approval setting covers installs and shell or network code
+    await user.click(screen.getByRole('tab', { name: 'Agent' }))
+    expect(screen.getByRole('combobox', { name: 'Approvals' })).toBeInTheDocument()
+    expect(screen.getByText(/runs shell commands or uses the network/)).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Python' }))
+
     // Notebook keys stay off while Settings is up
     const cells = screen.getAllByRole('article', { hidden: true }).length
     await user.keyboard('b')
@@ -382,6 +652,69 @@ describe('question cells', () => {
     // It reopens where it was left
     await user.click(screen.getByRole('button', { name: 'Settings' }))
     expect(screen.getByRole('tab', { name: 'Python' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('draws a thin line between cells, and none after the last one', async () => {
+    setApi(fakeApi(() => result()).api)
+    actions.load({ cells: [newPromptCell('One'), newPromptCell('Two'), newPromptCell('Three')] }, null)
+    const { container } = render(<App />)
+    await screen.findAllByRole('article', { name: /^Prompt cell/ })
+    expect(container.querySelectorAll('[data-slot="cell-divider"]')).toHaveLength(2)
+  })
+
+  it('lets the notice over the workspace be dismissed', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    api.getSettings = async () => ({ ...fakeSettings(), keySource: null })
+    setApi(api)
+    render(<App />)
+
+    expect(await screen.findByText('Add an API key to turn prompts into code.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Dismiss notice' }))
+    expect(screen.queryByText('Add an API key to turn prompts into code.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Open Settings' })).not.toBeInTheDocument()
+  })
+
+  it('shows the notice again when its message changes, or when the problem comes back', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    api.getSettings = async () => ({ ...fakeSettings(), keySource: null })
+    setApi(api)
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: 'Dismiss notice' }))
+    expect(screen.queryByText('Add an API key to turn prompts into code.')).not.toBeInTheDocument()
+
+    // A key gets added and Python turns out to be missing a package: a new message
+    await waitFor(() => expect(useNotebook.getState().python).not.toBeNull())
+    const python = useNotebook.getState().python!
+    act(() => useNotebook.setState({ settings: { ...fakeSettings(), keySource: 'settings' }, python: { ...python, missingPackages: ['pandas'] } }))
+    expect(screen.getByText('Python is missing pandas. Cells that need them will fail.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Dismiss notice' }))
+    expect(screen.queryByText(/Python is missing/)).not.toBeInTheDocument()
+
+    // Fixed, then back: the same message shows again
+    act(() => useNotebook.setState({ python: { ...python, missingPackages: [] } }))
+    act(() => useNotebook.setState({ python: { ...python, missingPackages: ['pandas'] } }))
+    expect(screen.getByText('Python is missing pandas. Cells that need them will fail.')).toBeInTheDocument()
+  })
+
+  it('forgets a dismissal once the notice shows something else', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    setApi(api)
+    render(<App />)
+    await waitFor(() => expect(useNotebook.getState().python).not.toBeNull())
+    const python = useNotebook.getState().python!
+    const missing = (pkg: string) => act(() => useNotebook.setState({ python: { ...python, missingPackages: [pkg] } }))
+
+    missing('pandas')
+    await user.click(screen.getByRole('button', { name: 'Dismiss notice' }))
+    // Another problem replaces it, then the first comes back: that is a change, so it shows
+    missing('numpy')
+    expect(screen.getByText('Python is missing numpy. Cells that need them will fail.')).toBeInTheDocument()
+    missing('pandas')
+    expect(screen.getByText('Python is missing pandas. Cells that need them will fail.')).toBeInTheDocument()
   })
 
   it('shows the pane shortcuts in the overview tooltips', async () => {
@@ -482,7 +815,7 @@ describe('command mode', () => {
     expect(screen.getByRole('button', { name: /^Variables/ })).toHaveFocus()
     await user.keyboard('dd')
     expect(count()).toBe(cells)
-    within(screen.getByRole('region', { name: 'Variables' })).getByRole('button', { name: 'Refresh' }).focus()
+    within(screen.getByRole('region', { name: 'Variables & Environment' })).getByRole('button', { name: 'Refresh' }).focus()
     await user.keyboard('dd')
     expect(count()).toBe(cells)
 
@@ -528,15 +861,15 @@ describe('narrow windows', () => {
       setApi(fakeApi(() => result()).api)
       render(<App />)
       await user.click(screen.getByRole('button', { name: /^Variables/ }))
-      expect(screen.getByRole('region', { name: 'Variables' })).toBeInTheDocument()
+      expect(screen.getByRole('region', { name: 'Variables & Environment' })).toBeInTheDocument()
       await user.keyboard('{Escape}')
-      expect(screen.queryByRole('region', { name: 'Variables' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: 'Variables & Environment' })).not.toBeInTheDocument()
       // Focus goes back to the button that opened it
       expect(screen.getByRole('button', { name: /^Variables/ })).toHaveFocus()
 
       await user.click(screen.getByRole('button', { name: /^Variables/ }))
       await user.click(screen.getByTestId('pane-scrim'))
-      expect(screen.queryByRole('region', { name: 'Variables' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: 'Variables & Environment' })).not.toBeInTheDocument()
       expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeInTheDocument()
     } finally {
       window.matchMedia = matchMedia

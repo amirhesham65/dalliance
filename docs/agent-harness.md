@@ -43,6 +43,8 @@ The result is `ok` when there was no error and either the last `run_cell` succee
 
 If the model answers in plain text instead of calling `finish`, and the last run succeeded, that text becomes the answer.
 
+With `suggestNext: false` in `HarnessDeps`, from the setting of the same name, the result's `suggestions` is always empty, even if the model wrote some anyway.
+
 ## Tools
 
 Every tool's description follows the course's format: WHEN TO USE, WHEN NOT TO USE, and DO NOT USE FOR where it helps. The description is how the model chooses, so keep it accurate when you change behaviour.
@@ -56,7 +58,7 @@ Every tool's description follows the course's format: WHEN TO USE, WHEN NOT TO U
 | `run_cell` | Runs the complete cell with `store: true` and records it as `lastRun` | 5,000 characters. Tables show 15 rows to the model. Interrupted after 10 minutes |
 | `install_packages` | `pip install` into the kernel's interpreter | 1 to 5 packages. Last 1,500 characters of the log |
 | `ask_user` | A multiple-choice question in the cell | 2 to 4 options |
-| `finish` | Ends the cell with interpretation, answer and `next` | Up to 3 suggestions |
+| `finish` | Ends the cell with interpretation, answer and `next` | Up to 3 suggestions. None when `suggestNext` is off |
 
 `finish` is the verification gate. It refuses when no code ran and there's no answer, or when the last `run_cell` failed. The refusal goes back to the model as the tool result, and the loop carries on.
 
@@ -92,7 +94,8 @@ Some models write the rest of a tool call into a text field, like `...the answer
 4. Files in the workspace.
 5. This cell's current code, when regenerating after a prompt change or a correction.
 6. The user's corrections.
-7. The prompt.
+7. When Settings turns the suggested next prompts off (`suggestNext`), a line telling the model to leave `next` empty in `finish`. It sits here rather than in the system prompt so switching it never breaks the cache.
+8. The prompt.
 
 Some rules in the system prompt shape the product, so change them knowingly:
 
@@ -168,7 +171,7 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 
 `createApproval()` answers whether a list of keys needs a person. A key is a package name for an install, or `code:shell` or `code:network` for code (see [The code policy](#the-code-policy)). `approver()` is the one flow both use: ask the policy, and call `requestApproval(title, detail, keys)` only when it says a person must decide. The approval shows in the cell as the title and a one-line detail, like `pip install seaborn` or the line of code. Once the user approves, the session trusts those keys, normalized to lowercase without version specifiers, until the app quits. So an approved package isn't asked about twice, and neither is network use once the user has allowed it.
 
-`installPackages()` in `kernel/python-env.ts` rejects names with characters outside letters, digits and version specifier punctuation before it calls pip.
+`installPackages()` in `kernel/python-env.ts` checks every name with `isPackageSpec()` before it calls pip. A name must start with a letter or digit, so pip never reads it as an option (`-e.`) or a local path (`.`), and can only contain letters, digits and version specifier punctuation. Archive file names such as `pkg.whl` or `pkg.tar.gz` are rejected too, since pip would install the local file. pip gets the names after `--`.
 
 ## The event bus
 

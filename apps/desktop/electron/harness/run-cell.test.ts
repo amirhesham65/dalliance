@@ -88,6 +88,27 @@ function harness(model: MockLanguageModelV4, kernel: FakeKernel, extra: Partial<
 const table = { type: 'table' as const, columns: ['month', 'aov'], index: ['0'], rows: [['2026-08', 41.2]], totalRows: 1 }
 
 describe('runCell with generation', () => {
+  it('asks for no suggested next prompts when they are off, and drops any the model writes anyway', async () => {
+    const steps = [
+      { tool: 'run_cell', input: { code: 'orders.total.mean()' } },
+      { tool: 'finish', input: { interpretation: '', answer: 'The mean is **41.2**.', next: ['Plot totals by month'] } },
+    ]
+    const kernel = () => new FakeKernel(() => ({ ok: true, outputs: [table] }))
+    const on = scriptedModel(steps)
+    const off = scriptedModel(steps)
+
+    expect(await runCell(request(), harness(on.model, kernel()).deps)).toMatchObject({ ok: true, suggestions: ['Plot totals by month'] })
+    const result = await runCell(request(), harness(off.model, kernel(), { suggestNext: false }).deps)
+    expect(result).toMatchObject({ ok: true, answer: 'The mean is **41.2**.', suggestions: [] })
+
+    const [systemOn, userOn] = on.prompts[0] as { role: string; content: unknown }[]
+    const [systemOff, userOff] = off.prompts[0] as { role: string; content: unknown }[]
+    expect(JSON.stringify(userOff)).toContain('Leave next empty in finish.')
+    expect(JSON.stringify(userOn)).not.toContain('Leave next empty')
+    // The rule goes in the cell prompt, so the cached system prompt is the same either way
+    expect(systemOff).toEqual(systemOn)
+  })
+
   it('retries after an error, then keeps the last working code', async () => {
     const kernel = new FakeKernel((code) =>
       code.includes('bad')

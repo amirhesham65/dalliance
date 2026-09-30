@@ -24,6 +24,7 @@ Every handler goes through `handle()` or `on()` in `main.ts`, never `ipcMain` di
 | `restartKernel()` | invoke | `session.restart` | Fresh kernel in the same folder. A kernel still starting is discarded |
 | `kernelState()` | invoke | `session.kernelState` | Last known `KernelState` |
 | `listVariables()` | invoke | `session.variables` | Variables for the side pane |
+| `listPackages()` | invoke | `session.environment` | The Python in use and its libraries with versions, an `EnvironmentView`. `installedPackages()` in `electron/kernel/python-packages.ts` reads the interpreter with `importlib.metadata` in its own process, so a running cell doesn't hold it up. It runs in userData, since `python -c` puts its working directory first on `sys.path` and a stray `json.py` there would shadow the standard library. A failure comes back as `error`, never a throw: no Python, a timeout after 20 seconds, or the last line Python wrote to stderr |
 | `getSettings()` | invoke | `settings.view` | `SettingsView`, never the keys themselves |
 | `updateSettings(update)` | invoke | `settings.update` | Returns the new view. Restarts the kernel if `pythonPath` changed |
 | `listModels()` | invoke | `listModels` | Models for the picker |
@@ -31,6 +32,9 @@ Every handler goes through `handle()` or `on()` in `main.ts`, never `ipcMain` di
 | `pythonState()` | invoke | `session.pythonState` | Which Python, which version, missing packages |
 | `setupPython()` | invoke | `session.setupPython` | Creates the managed venv, then restarts the kernel |
 | `openNotebook()` | invoke | dialog, `openFile` | Open dialog, parse, restart the kernel in that folder. A kernel still starting in the old folder shuts itself down. A file the OS asked to open takes the dialog's place, see [Opening files from the OS](#opening-files-from-the-os) |
+| `newNotebook(notebook)` | invoke | `createNotebook` | Writes the notebook as `Untitled.ipynb` in the folder in use, or in the default folder when that is a broad one like Documents, restarts the kernel there, returns the path. A folder that has gone is made again. When the write fails, a dialog says why and the result is null |
+| `renameNotebook(current, name, notebook)` | invoke | `renameNotebookFile`, `notebookPathIn` | Renames the file in its folder and moves its recent entry and draft. `current` must be an absolute `.ipynb` path, as for `saveNotebook`, and any other comes back as an error. With no file yet, writes the notebook under that name where `newNotebook` would, never over a file that is there. Returns a `RenameResult`: the path, or an `error` for a bad name, a taken one, or a disk that refuses. Never throws |
+| `openFolder(notebook)` | invoke | dialog, `createNotebook` | Asks for a folder, which the dialog can create, then does what `newNotebook` does in it. Null when cancelled, or when the write fails |
 | `openRecent(path)` | invoke | `openFile` | Same without a dialog. Only opens a path in `settings.recent`, and returns null for any other. Drops the entry if the file is gone |
 | `recentNotebooks()` | invoke | `settings.recent` | Up to 8 that still exist |
 | `saveNotebook(path, notebook)` | invoke | dialog, `writeFileAtomic` | Save, or Save As when `path` is null. A `path` that isn't an absolute `.ipynb` path gets the Save dialog too. Returns the path or null |

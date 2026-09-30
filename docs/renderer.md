@@ -12,7 +12,7 @@ src/
     settings/                 the Settings screen and one component per section
     notebook/                 NotebookView, CellView, editors, text renderers
     notebook/outputs/         OutputView: tables, images, text, errors, printed output
-    panes/                    Brief, Variables, History, Files, Pinned, Activity
+    panes/                    Brief, Variables & Environment, History, Files, Pinned, Activity
     welcome/                  first-run setup and the start page
     ui/                       shadcn components, generated. Edit sparingly
   lib/notebook/text.ts        Markdown, answers, @refs, Python highlighting, titles, durations
@@ -42,6 +42,8 @@ Saved with the notebook: `notebook`. Everything else is session state:
 | `lastFinishedId` | The cell that shows its suggestions |
 | `pane`, `pinnedIds` | The open side pane and pinned cells |
 | `brief`, `models`, `variables`, `settings`, `python`, `kernel` | Data from the main process |
+| `environment`, `environmentLoading`, `environmentStale` | The Python's libraries once the Environment view has asked, whether a read is under way, and whether they may be out of date. See [Side panes](#side-panes) |
+| `variablesView` | Which view the Variables & Environment pane shows |
 | `notice` | The message at the bottom of the window, with an Undo when the change can be taken back. See [Notices and errors](#notices-and-errors) |
 
 `getApi()` and `setApi()` wrap `window.dalliance`, so tests and the demo can swap in a fake.
@@ -64,11 +66,11 @@ The notices for D D and M offer Undo through the same stack. Their button undoes
 
 ### The run queue
 
-`queue` and `pump()` live at module level. `actions.run(id)` pushes an id unless it's already queued or running. `pump()` runs one cell at a time: it builds the request, awaits `api.runCell()`, and calls `finish()`. Events for the running cell arrive through `applyRunEvent()`. When the queue empties, the store refreshes variables.
+`queue` and `pump()` live at module level. `actions.run(id)` pushes an id unless it's already queued or running. `pump()` runs one cell at a time: it builds the request, awaits `api.runCell()`, and calls `finish()`. Events for the running cell arrive through `applyRunEvent()`. When the queue empties, the store refreshes variables and calls `environmentChanged()`, since a cell may have installed a library.
 
 `pump()` passes the cell as it was sent to `finish()`. The user can keep typing while the agent works. If the prompt or the code changed during the run, their edits stay, `generatedFrom` is the prompt that was sent, and the cell ends `edited` instead of `done`. The next run then regenerates for the new prompt, or runs their code. History keeps the version that ran.
 
-`interrupt()` empties the queue and drops queued runs, then calls the bridge. `deleteCell()` interrupts the cell if it's running. `restart()` interrupts, restarts the kernel, and marks every cell that has run `stale` with no execution count.
+`interrupt()` empties the queue and drops queued runs, then calls the bridge. `deleteCell()` interrupts the cell if it's running. `restart()` interrupts, restarts the kernel, marks every cell that has run `stale` with no execution count, and calls `environmentChanged()`.
 
 A result must land only in the cell and notebook that asked for it. `load()`, which New, Open, a recent file, the start page and session restore all go through, clears the queue and interrupts a running cell before it swaps the notebook in. That cell's id goes into `abandoned`, as does a running cell that is deleted, and `finish()` drops an abandoned result without touching any cell, even one with the same id: reopening the same file, or Undo after a delete, brings the id back. `finish()` also ignores a cell that no longer exists, and a `title` event for a missing cell changes nothing and leaves `dirty` alone.
 
@@ -89,7 +91,7 @@ The overview sits in its own outer group, so opening a side pane never changes i
 
 Below 1200 px wide, `NARROW_WINDOW` in `App.tsx`, there is no room for a side pane column without squeezing the notebook to its minimum. `PaneOverlay` then draws the side pane over the notebook's left edge, 400 px wide at most, with a light scrim over the rest. Esc closes it and puts focus back where it was. A click on the scrim closes it and leaves focus with the notebook. Esc inside a text field, menu or dialog stays with that control. `useMediaQuery()` in `hooks/use-media-query.ts` follows the width.
 
-A banner above the workspace asks for a key, a Python or missing packages when the settings or Python state say so.
+A banner above the workspace asks for a key, a Python or missing packages when the settings or Python state say so. It has a cross on its right. Dismissing it hides that message for the session: it comes back if the message changes, or once the problem has been fixed and returns.
 
 ## Keyboard
 
@@ -97,13 +99,13 @@ The main process menu owns the global shortcuts. The renderer owns the rest.
 
 | Keys | Where | Does |
 | --- | --- | --- |
-| Cmd+N, Cmd+O, Cmd+S, Shift+Cmd+S | Menu | New, Open, Save, Save As |
+| Cmd+N, Cmd+O, Shift+Cmd+O, Cmd+S, Shift+Cmd+S | Menu | New, Open, Open Folder, Save, Save As |
 | Cmd+Z, Shift+Cmd+Z | Menu, and command mode | Undo, Redo. In a text field, the field's own undo. Elsewhere, notebook edits. See [Undo and redo](#undo-and-redo) |
 | Cmd+, | Menu | Settings |
 | Shift+Cmd+Enter | Menu | Run all |
 | Cmd+. | Menu | Interrupt |
 | Cmd+B | Renderer, shown in the menu | Toggle the overview and side pane |
-| Cmd+1 to Cmd+6 | Renderer, shown in the menu | Brief, Variables, History, Files, Pinned, Activity |
+| Cmd+1 to Cmd+6 | Renderer, shown in the menu | Brief, Variables & Environment, History, Files, Pinned, Activity |
 | Shift+Enter | Editor or command mode | Run and move to the next cell, adding one at the end |
 | Cmd+Enter | Editor or command mode | Run in place |
 | Alt+Enter | Editor | Run and insert a cell below |
@@ -118,7 +120,7 @@ The main process menu owns the global shortcuts. The renderer owns the rest.
 
 Command mode is `useCommandMode()` in `App.tsx`. It listens only while focus is inside the notebook column, marked `data-command-scope` on `NotebookView`'s `<main>`, or on nothing at all, the body. Keys pressed on a button in the overview, a side pane or the top bar never act on the selected cell, so D D there deletes nothing. Inside the notebook it still stays off while a text field, dialog or listbox has focus, and it skips a key another handler already took with `preventDefault()`. Editor keys are `editorKeys()` in `CellView.tsx`. `useScopedSelectAll()` makes Cmd+A select only the text field, answer or output that holds the selection, like a desktop app.
 
-Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the built-in undo and redo roles with items that send `'undo'` and `'redo'` menu actions; cut, copy, paste and select all keep their roles. `editFromMenu()` in `App.tsx` runs `document.execCommand('undo')` or `'redo'` when a text field has focus, since the role no longer does it, and notebook undo otherwise. Command mode also handles Cmd+Z and Shift+Cmd+Z, or Ctrl, itself, for the browser preview and for platforms where the page sees the key before the menu. `notebookEdit()` ignores the second of a menu action and a keydown for the same key press within 150 ms, so one press never undoes twice. `MenuAction` in `packages/shared/src/ipc.ts` doesn't list `'undo'` and `'redo'` yet, so both sides compare them as strings.
+Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the built-in undo and redo roles with items that send `'undo'` and `'redo'` menu actions; cut, copy, paste and select all keep their roles. `editFromMenu()` in `App.tsx` runs `document.execCommand('undo')` or `'redo'` when a text field has focus, since the role no longer does it, and notebook undo otherwise. Command mode also handles Cmd+Z and Shift+Cmd+Z, or Ctrl, itself, for the browser preview and for platforms where the page sees the key before the menu. `notebookEdit()` ignores the second of a menu action and a keydown for the same key press within 150 ms, so one press never undoes twice.
 
 ## Cells
 
@@ -130,7 +132,9 @@ Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the bu
 4. A message for non-Python errors.
 5. Result and Code tabs. A question answered in words shows only the answer, without tabs.
 
-Under Result: the answer, the outputs, the variables the run created, and suggestions. Suggestions show only on the cell that just finished or the selected one.
+Under Result: the answer, the outputs, the variables the run created, and suggestions. Suggestions show only on the cell that just finished or the selected one, and not at all when `settings.suggestNext` is off, including ones a cell saved earlier.
+
+Between two cells, `CellInserter` in `NotebookView.tsx` draws a 1px line in `foreground/10`, so it's clear where one ends. It sits in the cells' column, right of the 44 px gutter that holds the run count, and stops 12 px short of each side, so it's a little narrower than the cells. There is none after the last cell. Hovering the gap raises the line to `foreground/20` and shows the Prompt and Note buttons centred on it. They sit on the page background, so the line breaks around them.
 
 `HighlightedEditor` is a transparent `<textarea>` over a mirror that renders the highlighting. The two share one box so the caret lines up. With `indent`, Tab and Shift+Tab indent lines through `execCommand` so Undo still works.
 
@@ -163,7 +167,7 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 | Pane | Shows |
 | --- | --- |
 | Brief | The workspace's `AGENTS.md` as a document, editable in place. Starts from a template. `- [ ]` tasks toggle on click |
-| Variables | `listVariables()` from the kernel |
+| Variables & Environment | Two views under a switch. Variables from the kernel through `listVariables()`. Environment is the Python's version and its libraries with versions, through `listPackages()`, searchable. The libraries are read when the view is first shown. After a run, a restart or a Python change, `environmentChanged()` reads them again at once if the view is on screen, and otherwise marks them stale so the view reads them when it's next shown, never spawning a Python nobody looks at. `loadEnvironment()` called during a read queues one more read after it, and only the last answer lands |
 | History | The selected cell's revisions. Restore brings one back without calling the model |
 | Files | Workspace files, reloaded after every run. Clicking a data file adds a prompt cell to load it |
 | Pinned | Result cards for pinned cells, in pin order |
@@ -173,9 +177,13 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 
 `actions.notify(text, { undo, tone })` puts one message at the bottom of the window for 6 seconds. `NoticeToast` in `App.tsx` draws it. With `undo` it shows an Undo button, without it a Dismiss button. A newer notice replaces the one showing, and loading a notebook clears it. D D and M use it to offer Undo, which goes through the notebook's undo stack, see [Undo and redo](#undo-and-redo).
 
-A bridge call the user started should never fail silently. `actions.notifyFailure(what, err)` shows "Couldn't save the notebook." and the reason, with the `Error invoking remote method` wrapper stripped by `errorText()`. Saving, writing the brief, refreshing the variables, restarting Python and the fresh kernel for a new notebook all report failures this way. A new notebook still opens when its kernel fails to restart. Background calls, like the variables refresh after each run, stay quiet.
+A bridge call the user started should never fail silently. `actions.notifyFailure(what, err)` shows "Couldn't save the notebook." and the reason, with the `Error invoking remote method` wrapper stripped by `errorText()`. Saving, writing the brief, refreshing the variables and restarting Python all report failures this way. A new notebook the main process can't write gets a dialog with the reason from there instead, and the window stays as it was. Background calls, like the variables refresh after each run, stay quiet.
 
 `ErrorBoundary` in `components/app/` wraps every cell, the open side pane and the overview. A throw while drawing one of them shows "This cell couldn't be shown." with the error and a Retry button in its place, and the rest of the window keeps working. The side pane's boundary is keyed by pane, so opening another pane starts fresh.
+
+## The notebook name
+
+The notebook's name at the top of the overview, above the folder and the kernel state, is a button that turns into a text field, `NotebookName` in `components/app/`: Enter or leaving the field calls `renameNotebook()`, Esc, or leaving the field empty, keeps the old name, and a name that can't be used stays in the field with the reason under it. The tab in the top bar is unchanged and opens the recent notebooks, with New notebook, Open and Open folder. The field is read-only while the rename is in flight rather than disabled, so it keeps focus and a refused name still answers Enter and Esc. A rename only changes `path`, so the undo stack and any notice showing are left alone.
 
 ## Settings
 
@@ -186,7 +194,7 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 | Section | Component | Holds |
 | --- | --- | --- |
 | Models | `ModelSettings` | Provider, key, model id, effort |
-| Agent | `AgentSettings` | Package installs, cell names |
+| Agent | `AgentSettings` | Approvals (package installs, shell and network code), cell names, suggested next prompts |
 | Python | `PythonSettings` | The managed environment and a Python path |
 
 It sits over the area under the top bar with the screen below still mounted and `inert`, so the setup's step, the notebook's scroll and the resizable columns come back as they were. Command mode and the Cmd+number keys stay off while it's up. Esc goes back, unless a select or menu is open, or a text field has focus, which it leaves instead.
@@ -195,7 +203,7 @@ Changes save as they're made. Selects save on change. The model id and the Pytho
 
 ## First run and the start page
 
-`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. The key step links to each provider's keys page, switches provider to match a pasted key, and checks the key before saving it, see [storage.md](storage.md#settings-and-keys). Skipping any step still sets `onboarded`. The start page offers new, open, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set.
+`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. The key step links to each provider's keys page, switches provider to match a pasted key, and checks the key before saving it, see [storage.md](storage.md#settings-and-keys). Skipping any step still sets `onboarded`. The start page offers new, open, open folder, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New goes through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, and Open folder asks for a folder first, then does the same in it, so nothing the start page opens is unsaved. File > Open Folder and the notebook tab's menu do the same, and both name the folder in use with `folderName()`.
 
 ## Theming
 
@@ -217,7 +225,7 @@ The quiet text colours, `--muted-foreground` and `--faint`, meet WCAG AA, 4.5:1,
 
 `electron/main.ts` hardcodes the canvas colours for the window background and the Windows title bar overlay. Change both together.
 
-Fonts are bundled through Fontsource: Inter for UI, JetBrains Mono for code, Source Serif 4 for answers, the brief and headings on the setup screens. A `short` custom variant tightens spacing for windows under 760 px tall.
+Fonts are bundled through Fontsource: Inter for UI, JetBrains Mono for code, Source Serif 4 for answers, the brief and headings on the setup screens. `src/fonts.css` declares only their Latin and Latin Extended files, so the build skips the Greek, Cyrillic and Vietnamese ones and other scripts fall back to system fonts. A `short` custom variant tightens spacing for windows under 760 px tall.
 
 ## shadcn components
 

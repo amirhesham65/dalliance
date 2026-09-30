@@ -76,6 +76,8 @@ export interface SettingsView {
   approvalMode: 'interactive' | 'background'
   /** Whether a small model names cells for the outline. */
   autoTitles: boolean
+  /** Whether the agent proposes follow-up prompts under a finished cell. */
+  suggestNext: boolean
   /** True once the first-run setup was finished or skipped. */
   onboarded: boolean
   /** Where the key for the chosen provider comes from: Settings, the app's environment, the user's shell profile, or nowhere. */
@@ -102,6 +104,7 @@ export interface SettingsUpdate {
   pythonPath?: string | null
   approvalMode?: 'interactive' | 'background'
   autoTitles?: boolean
+  suggestNext?: boolean
   onboarded?: boolean
   /** Set a key for a provider. An empty string removes it. */
   apiKey?: { provider: Provider; key: string }
@@ -131,6 +134,23 @@ export interface ModelList {
   models: ModelOption[]
   error: string | null
 }
+
+/** A library installed in the Python the kernel runs on. */
+export interface PackageView {
+  name: string
+  version: string
+}
+
+/** What the environment view shows: the Python, and the libraries it has. */
+export interface EnvironmentView {
+  python: string | null
+  version: string | null
+  packages: PackageView[]
+  /** Why the libraries couldn't be listed, like no Python being set up. The packages are empty then. */
+  error: string | null
+}
+/** What renaming a notebook came to: its new path, or why it couldn't be. */
+export type RenameResult = { path: string; /** True when the notebook had no file, so the rename wrote it. */ saved: boolean } | { error: string }
 
 export interface PythonState {
   python: string | null
@@ -187,8 +207,11 @@ export interface OpenedNotebook {
 export type MenuAction =
   | 'new'
   | 'open'
+  | 'open-folder'
   | 'save'
   | 'save-as'
+  | 'undo'
+  | 'redo'
   | 'run-cell'
   | 'run-all'
   | 'interrupt'
@@ -213,6 +236,8 @@ export interface DallianceApi {
   restartKernel(): Promise<void>
   kernelState(): Promise<KernelState>
   listVariables(): Promise<VariableView[]>
+  /** The Python in use and its libraries with versions. Reads the interpreter, so it never waits on a running cell. */
+  listPackages(): Promise<EnvironmentView>
   onKernelState(listener: (state: KernelState) => void): () => void
   getSettings(): Promise<SettingsView>
   listModels(): Promise<ModelList>
@@ -223,11 +248,20 @@ export interface DallianceApi {
   setupPython(): Promise<PythonState>
   onPythonLog(listener: (line: string) => void): () => void
   openNotebook(): Promise<OpenedNotebook | null>
+  /** Writes a new notebook file into the folder in use, so it has a path from the start, on a fresh kernel. Null when the folder can't be written to, after the reason is shown. */
+  newNotebook(notebook: Notebook): Promise<OpenedNotebook | null>
+  /** Asks for a folder, an existing one or a new one made in the dialog, and starts a notebook file in it. Null when cancelled, or when the folder can't be written to. */
+  openFolder(notebook: Notebook): Promise<OpenedNotebook | null>
   openRecent(path: string): Promise<OpenedNotebook | null>
   recentNotebooks(): Promise<RecentNotebook[]>
   readBrief(): Promise<Brief>
   writeBrief(text: string): Promise<Brief>
   listFiles(): Promise<FileEntry[]>
+  /**
+   * Renames the open notebook's file, as Jupyter does. A notebook without a file is written under that name in the
+   * folder in use. Unsaved edits stay unsaved. The name is checked, and a taken one comes back as an error.
+   */
+  renameNotebook(current: string | null, name: string, notebook: Notebook): Promise<RenameResult>
   saveNotebook(path: string | null, notebook: Notebook): Promise<string | null>
   confirmDiscard(): Promise<boolean>
   restoreSession(): Promise<RestoredSession | RestoreFailure | null>
@@ -244,6 +278,7 @@ export const IPC = {
   restartKernel: 'restart-kernel',
   kernelState: 'kernel-state',
   listVariables: 'list-variables',
+  listPackages: 'list-packages',
   kernelStateChanged: 'kernel-state-changed',
   getSettings: 'get-settings',
   listModels: 'list-models',
@@ -253,12 +288,15 @@ export const IPC = {
   setupPython: 'setup-python',
   pythonLog: 'python-log',
   openNotebook: 'open-notebook',
+  newNotebook: 'new-notebook',
+  openFolder: 'open-folder',
   openRecent: 'open-recent',
   recentNotebooks: 'recent-notebooks',
   readBrief: 'read-brief',
   writeBrief: 'write-brief',
   listFiles: 'list-files',
   saveNotebook: 'save-notebook',
+  renameNotebook: 'rename-notebook',
   confirmDiscard: 'confirm-discard',
   restoreSession: 'restore-session',
   saveDraft: 'save-draft',

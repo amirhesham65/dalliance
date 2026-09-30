@@ -102,7 +102,7 @@ To look at the UI in a browser with sample data, run `pnpm --filter @dalliance/d
 | Keys | |
 | --- | --- |
 | <kbd>⌘</kbd> <kbd>B</kbd> | Show or hide the sidebar and side pane |
-| <kbd>⌘</kbd> <kbd>1</kbd> … <kbd>6</kbd> | Brief, Variables, History, Files, Pinned, Activity |
+| <kbd>⌘</kbd> <kbd>1</kbd> … <kbd>6</kbd> | Brief, Variables & Environment, History, Files, Pinned, Activity |
 
 ## Under the hood
 
