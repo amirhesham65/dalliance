@@ -4,8 +4,9 @@ import { leakedList, splitLeaked } from '@dalliance/shared/leaked'
 import type { Output } from '@dalliance/shared/notebook'
 import type { ExecuteResult, Kernel } from '../kernel/kernel'
 import { approver } from './approval'
-import type { EventBus } from './events'
+import type { ApprovalRequest, EventBus } from './events'
 import { clip, formatVariables, outputsToText } from './format'
+import { type RunTrail, approvalKind, attemptError, noteApproval, noteReads, readPath } from './provenance'
 import { listFiles, readFileBounded } from './workspace'
 
 /** What the tools learn during a run. The harness reads it after the loop ends. */
@@ -13,6 +14,8 @@ export interface RunState {
   lastRun: { code: string; result: ExecuteResult } | null
   finished: { interpretation: string | null; answer: string | null; suggestions: string[] } | null
   attempts: number
+  /** What the cell's record keeps: each attempt, the files read and the approvals. See provenance.ts. */
+  trail: RunTrail
 }
 
 export interface ToolDeps {
@@ -65,7 +68,14 @@ export function duration(ms: number): string {
 export function createCellTools(deps: ToolDeps) {
   const { kernel, bus, state, cellId } = deps
 
-  const approve = approver(deps.needsApproval, deps.requestApproval)
+  const ask = approver(deps.needsApproval, deps.requestApproval)
+  // Every approval lands in the cell's record, with whether a person was asked
+  const approve = async (request: ApprovalRequest): Promise<boolean> => {
+    const asked = deps.needsApproval(request.keys)
+    const allowed = await ask(request)
+    noteApproval(state.trail, approvalKind(request.keys), request.detail, allowed ? (asked ? 'approved' : 'trusted') : 'declined')
+    return allowed
+  }
   /** run_cell calls still executing. finish waits for them, so it never judges a run that is about to change. */
   const running = new Set<Promise<unknown>>()
   const tracked = <T>(promise: Promise<T>): Promise<T> => {
@@ -78,6 +88,7 @@ export function createCellTools(deps: ToolDeps) {
   async function guarded<T>(toolName: string, input: unknown, run: () => Promise<T>): Promise<T | string> {
     const gate = await bus.emit('tool_call', { cellId, toolName, input, approve })
     if (gate.blocked) {
+      if (gate.secret != null) noteApproval(state.trail, 'secret', gate.secret, 'blocked')
       // Reported as a result too, so the log records how the call ended
       const output = `Blocked: ${gate.reason}`
       await bus.emit('tool_result', { cellId, toolName, input, output, ok: false, error: output })
@@ -119,6 +130,7 @@ EXAMPLES: subs.head(3) | subs.plan.value_counts() | sorted(events.type.unique())
           }, deps.exploreTimeoutMs ?? EXPLORE_TIMEOUT_MS)
           try {
             const result = await kernel.execute(code, { store: false })
+            noteReads(state.trail, result.filesRead)
             if (timedOut)
               return `Stopped after ${Math.round((deps.exploreTimeoutMs ?? EXPLORE_TIMEOUT_MS) / 1000)} seconds. Exploration must be quick: don't scan folders or large data. Look at a sample instead.`
             return clip(outputsToText(result.outputs, MAX_EXPLORE_CHARS), MAX_EXPLORE_CHARS)
@@ -147,7 +159,13 @@ DO NOT USE FOR: files outside the notebook's folder.`,
         limit: z.number().int().min(1).max(500).optional().describe('How many lines to read'),
       }),
       execute: ({ path, offset, limit }) =>
-        guarded('read_file', { path, offset, limit }, () => readFileBounded(deps.workspaceDir, path, offset, limit)),
+        guarded('read_file', { path, offset, limit }, async () => {
+          const text = await readFileBounded(deps.workspaceDir, path, offset, limit)
+          // Numbered lines mean it was read. A refusal, a folder or a binary file wasn't
+          const read = /^\d+: /.test(text) ? readPath(deps.workspaceDir, path) : null
+          if (read) noteReads(state.trail, { paths: [read], truncated: false })
+          return text
+        }),
     }),
 
     run_cell: tool({
@@ -159,6 +177,8 @@ USAGE: pass the whole cell, not a diff. Only the last successful run is kept. Af
       execute: ({ summary, code }) =>
         tracked(guarded('run_cell', { summary, code }, async () => {
           state.attempts += 1
+          const attempt: RunTrail['attempts'][number] = { code, error: null, filesRead: [] }
+          state.trail.attempts.push(attempt)
           deps.onAttempt(code)
           const limit = deps.runTimeoutMs ?? RUN_TIMEOUT_MS
           let timedOut = false
@@ -171,11 +191,17 @@ USAGE: pass the whole cell, not a diff. Only the last successful run is kept. Af
             result = await kernel.execute(code, { store: true, onOutput: deps.onOutput })
           } catch (err) {
             // A kernel that ignores the interrupt gets killed, and the run fails with it
-            if (!timedOut) throw err
+            if (!timedOut) {
+              attempt.error = err instanceof Error ? err.message : String(err)
+              throw err
+            }
             result = { ok: false, outputs: [], executionCount: null, durationMs: limit, assigned: [] }
           } finally {
             clearTimeout(timer)
           }
+          attempt.filesRead = result.filesRead?.paths ?? []
+          if (result.filesRead?.truncated) state.trail.readsTruncated = true
+          attempt.error = timedOut ? `Stopped after ${duration(limit)}` : attemptError(result)
           if (timedOut) {
             // Never a run finish can keep, whatever the kernel reported after the interrupt
             state.lastRun = { code, result: { ...result, ok: false } }

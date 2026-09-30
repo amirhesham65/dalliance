@@ -7,7 +7,8 @@ so anything a library prints straight to the real stdout cannot corrupt the prot
 Request:  {"id": "...", "op": "execute", "code": "...", "store": true}
           {"id": "...", "op": "variables"}
 Replies:  {"id": "...", "type": "output", "output": {...}}   zero or more
-          {"id": "...", "type": "done", "ok": true, "executionCount": 3, "durationMs": 12}
+          {"id": "...", "type": "done", "ok": true, "executionCount": 3, "durationMs": 12,
+           "assigned": [...], "filesRead": {"paths": ["data/orders.csv"], "truncated": false}}
           {"id": "...", "type": "variables", "variables": [...]}
 
 Only the writer thread writes to fd 3, and SIGINT raises KeyboardInterrupt only while a cell's
@@ -241,6 +242,86 @@ class Stream(io.TextIOBase):
 
     def flush(self):
         pass  # the writer thread sends within STREAM_FLUSH_SECONDS
+
+
+# --- Files read ----------------------------------------------------------------------------
+
+MAX_FILES_READ = 100  # paths listed per execute; past it the reply says the list was cut
+MAX_SEEN_PATHS = 4_096  # opened paths remembered per execute, so repeat opens stay cheap
+
+
+def opens_for_reading(mode, flags):
+    """Whether an open reads the file. open() passes its mode; os.open() passes None and its flags."""
+    if isinstance(mode, str):
+        return "r" in mode
+    return isinstance(flags, int) and flags & 3 != os.O_WRONLY and not flags & os.O_TRUNC
+
+
+class FileReads:
+    """Files inside the working directory that one execute opened for reading, in the order first opened.
+
+    The audit hook, on_audit(), feeds it from Python's "open" event, which fires for open(), os.open() and
+    io.open_code(), whether the cell or a library like pandas calls it. Reads in C code that skips Python's
+    open, and paths that reach the folder through a symlink from outside it, aren't seen.
+    """
+
+    def __init__(self, root):
+        self.root = os.path.join(root, "")
+        self.paths = {}  # relative path to None: an ordered set
+        self.truncated = False
+        # Paths as the opener passed them, already looked at. Resolving a relative path costs a getcwd(), so a
+        # loop that opens the same file again costs a lookup instead
+        self.seen = set()
+
+    def add(self, path, mode, flags):
+        if isinstance(path, int) or not opens_for_reading(mode, flags):
+            return  # an open file descriptor, or a write
+        path = os.fsdecode(os.fspath(path))
+        if path in self.seen:
+            return
+        if len(self.seen) < MAX_SEEN_PATHS:
+            self.seen.add(path)
+        full = os.path.abspath(path)
+        if not full.startswith(self.root):
+            return
+        relative = full[len(self.root) :].replace(os.sep, "/")
+        if relative in self.paths or "__pycache__" in relative:
+            return
+        # Checked last, since it costs a stat: a failed open, or a folder opened for its descriptor
+        if not os.path.isfile(full):
+            return
+        if len(self.paths) >= MAX_FILES_READ:
+            self.truncated = True
+            return
+        self.paths[relative] = None
+
+    def reply(self):
+        return {"paths": list(self.paths), "truncated": self.truncated}
+
+
+# The running execute's FileReads, or None between requests. Only run() sets it.
+file_reads = None
+
+
+def on_audit(event, args):
+    """The audit hook. Other events, and opens between requests, return at once. It never raises into the opener."""
+    if event != "open":
+        return
+    reads = file_reads
+    if reads is None:
+        return
+    try:
+        reads.add(*args[:3])
+    except Exception:
+        pass
+
+
+def start_file_reads():
+    """A FileReads for the folder the execute starts in, or None when the working directory is gone."""
+    try:
+        return FileReads(os.getcwd())
+    except OSError:
+        return None
 
 
 # --- Rich outputs --------------------------------------------------------------------------
@@ -934,11 +1015,12 @@ IPYTHON_MAJORS = (8, 9)
 
 
 def run(code, store):
-    global execution_count, budget, interruptible
+    global execution_count, budget, interruptible, file_reads
     started = time.perf_counter()
     if store:
         execution_count += 1
     budget = Budget()
+    reads = file_reads = start_file_reads()
     before = {name: id(value) for name, value in namespace.items()}
     stdout, stderr = Stream("stdout", current_id, budget), Stream("stderr", current_id, budget)
     real_out, real_err = sys.stdout, sys.stderr
@@ -971,6 +1053,7 @@ def run(code, store):
             sys.modules["matplotlib.pyplot"].close("all")
     finally:
         interruptible = False
+        file_reads = None
         sys.stdout, sys.stderr = real_out, real_err
         del pending_values[:]
     for output in budget.notes():
@@ -989,6 +1072,7 @@ def run(code, store):
         "executionCount": execution_count if store else None,
         "durationMs": duration,
         "assigned": assigned,
+        "filesRead": reads.reply() if reads is not None else {"paths": [], "truncated": False},
     }
 
 
@@ -1083,6 +1167,7 @@ def handle(request):
 def main():
     global current_id, shell
     signal.signal(signal.SIGINT, on_interrupt)
+    sys.addaudithook(on_audit)
     WRITER.start()
     style_matplotlib()
     shell = start_ipython()

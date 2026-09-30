@@ -14,6 +14,7 @@ The agent lives in `apps/desktop/electron/harness/`. It follows Vercel's [Build 
 | `events.ts` | The event bus extensions hook into |
 | `extensions.ts` | The built-in extensions: the `.env` block, the code policy and the run log |
 | `code-policy.ts` | `inspectCode()`, which finds secret files, shell commands and network use in Python |
+| `provenance.ts` | `buildProvenance()`, the record of how a cell was made, and the `RunTrail` the tools fill for it |
 | `format.ts` | `clip()`, `outputsToText()`, `formatVariables()` |
 | `workspace.ts` | File listing and reading inside the notebook's folder |
 
@@ -28,7 +29,7 @@ The agent lives in `apps/desktop/electron/harness/`. It follows Vercel's [Build 
 3. Builds the tools with `createCellTools()` and a `ToolLoopAgent` with the system prompt as `instructions`.
 4. Streams with `stopWhen: [stepCountIs(24), () => state.finished != null]`.
 5. Turns stream parts into activity items and status text for the renderer (see [Step labels](#step-labels)), and emits `step` at the end of every model call.
-6. Emits `run_end` and builds a `CellRunResult` from `state.lastRun` and `state.finished`.
+6. Emits `run_end` and builds a `CellRunResult` from `state.lastRun` and `state.finished`, with the record of how the cell was made from `state.trail`. See [The record of a run](#the-record-of-a-run).
 
 The tools write to a shared `RunState`:
 
@@ -37,6 +38,7 @@ interface RunState {
   lastRun: { code; result } | null  // the last run_cell, successful or not
   finished: { interpretation; answer; suggestions } | null
   attempts: number
+  trail: RunTrail  // each attempt, the files read and the approvals, for the cell's record
 }
 ```
 
@@ -45,6 +47,18 @@ The result is `ok` when there was no error and either the last `run_cell` succee
 If the model answers in plain text instead of calling `finish`, and the last run succeeded, that text becomes the answer.
 
 With `suggestNext: false` in `HarnessDeps`, from the setting of the same name, the result's `suggestions` is always empty, even if the model wrote some anyway.
+
+### The record of a run
+
+The tools fill `state.trail` as they go, and `buildProvenance()` in `provenance.ts` turns it into `CellRunResult.provenance` when the run ends. What the record holds and how it's saved is in [notebook-model.md](notebook-model.md#how-a-cell-was-made). Where each part comes from:
+
+- **Attempts.** `run_cell` records every call before it runs: the code, then the error in one line from `attemptError()`, `Stopped after 10 minutes` on a timeout, or the kernel's own error when `execute()` throws. `describeChange()` diffs each attempt's lines against the one before.
+- **Files read.** `run_cell` keeps the `filesRead` the kernel reports for each attempt (see [kernel.md](kernel.md#files-read)). `explore` adds its reads to the agent's, and so does a `read_file` that returned lines, with its path made relative the way the kernel reports paths. The final code's reads count as `code`, everything else as `agent`.
+- **Approvals.** The `approve` that `guarded()` hands to `tool_call` handlers, and that `install_packages` calls, records each answer, and whether a person was asked (`needsApproval()` before the call). A handler that blocks a call for touching secrets returns `secret` with its block, the file or the line, and `guarded()` records it as `blocked`. `blockSecretFiles()` and `codePolicy()` both do.
+- **Steps.** The model of each step comes from `steps`, and the stated rationale from their reasoning summaries, falling back to the interpretation and answer when there are none. See `statedRationale()`.
+- **Hashes.** SHA-256 of the final code, and of `canonicalOutputs()` of its outputs, from `packages/shared/src/normalize.ts`.
+
+A plain run of saved code builds no record, so the cell keeps the one it has.
 
 ## Tools
 
@@ -227,7 +241,7 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 
 `cacheReadTokens` is the quickest check that [caching](#context-and-caching) works: after the first step of a cell it should be most of `inputTokens`.
 
-`generateCell()` also returns every step's `{ step, modelId, fallback, reasoning, usage, generationId }` as `steps` on `CellRunResult`, so the record of how a cell was made has the model and the stated reasoning of each call. `usage` is the same counts as a `StepUsage`, with 0 where the provider doesn't say, and `generationId` is the gateway's id for the call, null from the Anthropic API. [Costs](#costs) prices them. A plain run of saved code has none. The request options, summaries included, are the same for every step of a run, so the prompt cache holds.
+`generateCell()` also returns every step's `{ step, modelId, fallback, reasoning, usage, generationId }` as `steps` on `CellRunResult`, and the cell's record takes the model of each step and its stated rationale from them. `usage` is the same counts as a `StepUsage`, with 0 where the provider doesn't say, and `generationId` is the gateway's id for the call, null from the Anthropic API. [Costs](#costs) prices them. A plain run of saved code has none. The request options, summaries included, are the same for every step of a run, so the prompt cache holds.
 
 `installExtensions()` in `extensions.ts` registers the built-in ones. `NotebookSession` calls it once, on its own bus:
 
@@ -237,7 +251,7 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 
 The log comes from `createRunLog()`. Each event is turned into its line at once, then written through one promise chain, so lines land in the order the events happened even when writes are slow. A failed write drops that line and the next one tries again. When the next line would take the file past 5 MB (`MAX_LOG_BYTES`), `agent.jsonl` is renamed to `agent.jsonl.1`, replacing the old backup, and a new file starts. So the log never takes more than about 10 MB. The size is read from disk once and then counted, so rotation costs no extra `stat` per line.
 
-Add new policy here rather than inside a tool. A `tool_call` handler that needs a person calls `data.approve({ title, detail, keys })`, which runs the approval flow above.
+Add new policy here rather than inside a tool. A `tool_call` handler that needs a person calls `data.approve({ title, detail, keys })`, which runs the approval flow above and lands in the cell's record. A handler that blocks a call because it touches secrets returns `{ block: true, reason, secret }`, with `secret` naming the file or the line, so the record lists it.
 
 ### The code policy
 

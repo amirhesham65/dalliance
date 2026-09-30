@@ -9,7 +9,7 @@ export { isSecretPath }
 export function blockSecretFiles(bus: EventBus) {
   bus.on('tool_call', ({ toolName, input }) => {
     const p = String((input as { path?: string } | undefined)?.path ?? '')
-    if (toolName === 'read_file' && isSecretPath(p)) return { block: true, reason: `${p} may hold secrets, so it is off limits.` }
+    if (toolName === 'read_file' && isSecretPath(p)) return { block: true, reason: `${p} may hold secrets, so it is off limits.`, secret: p }
   })
 }
 
@@ -41,6 +41,7 @@ export function codePolicy(bus: EventBus) {
       return {
         block: true,
         reason: `the code ${secret.what} (\`${short(secret.line)}\`), which may hold secrets, so it is off limits. Do the task without it. If the user needs that step, say in finish that they can write it into the cell themselves.`,
+        secret: short(secret.line),
       }
     }
     for (const kind of ['shell', 'network'] as const) {

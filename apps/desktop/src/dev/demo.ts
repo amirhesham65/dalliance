@@ -2,7 +2,7 @@
  * A pretend desktop bridge for looking at the UI in a plain browser: open the renderer with ?demo.
  * Nothing here runs inside Electron, where window.dalliance is the real bridge.
  */
-import { fakeApi, fakeSettings, result } from '@/test/fake-api'
+import { fakeApi, fakeSettings, provenance, result } from '@/test/fake-api'
 import type { PythonState, RunEvent } from '@dalliance/shared/ipc'
 import { type Notebook, type Output, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
@@ -47,6 +47,50 @@ function sampleNotebook(): Notebook {
     suggestions: ['Plot Kaplan-Meier curves by arm', 'Is the difference significant? Run a log-rank test', 'Hazard ratio adjusted for age and stage'],
     variables: [{ name: 'summary', type: 'DataFrame', shape: '2 × 5' }],
   }
+  // How the agent made the survival cell: the first try used the wrong column name
+  const firstTry = survival.code.replaceAll('g.died', 'g.death')
+  survival.provenance = provenance({
+    prompt: survival.prompt,
+    madeAt: new Date(now - 3 * 60_000).toISOString(),
+    steps: [1, 2, 3, 4, 5].map((step) => ({ step, model: 'anthropic/claude-sonnet-5.5', fallback: false })),
+    rationale: {
+      from: 'summaries',
+      text: [
+        'Patients still alive at their last visit are censored, so a plain median of follow-up would understate survival. A Kaplan-Meier fit per arm handles the censoring.',
+        'The death flag is called died, not death. Fix the column and run again.',
+      ],
+    },
+    attemptCount: 2,
+    attempts: [
+      { code: firstTry, error: "AttributeError: 'DataFrame' object has no attribute 'death'", changed: null },
+      {
+        code: survival.code,
+        error: null,
+        changed: [
+          '-     km.fit(g.months, g.death)',
+          "-     rows.append((arm, len(g), g.death.sum(), km.median_survival_time_, km.predict(24)))",
+          '+     km.fit(g.months, g.died)',
+          "+     rows.append((arm, len(g), g.died.sum(), km.median_survival_time_, km.predict(24)))",
+        ].join('\n'),
+      },
+    ],
+    filesRead: [{ path: 'protocol/statistical_analysis_plan.md', by: 'agent' }],
+    approvals: [{ kind: 'packages', detail: 'pip install lifelines', outcome: 'approved' }],
+    codeHash: 'sha256:5f2c0a9e1d7b43c68e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7',
+    outputsHash: 'sha256:9a8b7c6d5e4f30211f2e3d4c5b6a79880f1e2d3c4b5a69788796a5b4c3d2e1f0',
+  })
+  load.provenance = provenance({
+    prompt: load.prompt,
+    madeAt: new Date(now - 24 * 60_000).toISOString(),
+    steps: [1, 2].map((step) => ({ step, model: 'anthropic/claude-sonnet-5.5', fallback: false })),
+    rationale: { from: 'interpretation', text: [load.answer] },
+    attemptCount: 1,
+    attempts: [{ code: load.code, error: null, changed: null }],
+    filesRead: [{ path: 'patients.csv', by: 'code' }],
+    approvals: [],
+    codeHash: 'sha256:0d1e2f3a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a',
+    outputsHash: 'sha256:7e6d5c4b3a2918f7e6d5c4b3a2918f7e6d5c4b3a2918f7e6d5c4b3a2918f7e6',
+  })
   // The first version took a plain median of follow-up time, which ignores patients still alive at their last visit
   survival.history = [
     { at: now - 3 * 60_000, prompt: survival.prompt, code: survival.code, interpretation: survival.interpretation, answer: survival.answer, edited: false },

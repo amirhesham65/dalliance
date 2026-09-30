@@ -996,6 +996,9 @@ function finish(id: string, generate: boolean, result: CellRunResult, sent: Prom
             interpretation: result.ok ? result.interpretation : cell.interpretation,
             answer: result.ok ? result.answer : null,
             suggestions: result.ok ? result.suggestions : [],
+            // The record follows the code: a generation writes a new one, even a failed one, since its code is kept.
+            // A plain run leaves it alone, so rerunning saved code keeps how the code was made
+            provenance: result.provenance ?? null,
           }
         : {}),
     }

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createInterface } from 'node:readline'
@@ -99,5 +99,24 @@ for (const { name, env, skip } of PATHS) {
       expect(kernel.messages.find((m) => m.id === last && m.type === 'output')).toMatchObject({ output: { type: 'text', text: '2' } })
       expect(kernel.torn).toEqual([])
     }, 60_000)
+  })
+
+  describe.skipIf(skip)(`kernel protocol for files read (${name})`, () => {
+    let kernel: RawKernel
+    beforeAll(() => {
+      const dir = mkdtempSync(path.join(tmpdir(), 'dalliance-protocol-'))
+      writeFileSync(path.join(dir, 'orders.csv'), 'plan,total\n')
+      kernel = new RawKernel(dir, env)
+      return kernel.next((m) => m.type === 'ready', 20_000)
+    }, 20_000)
+    afterAll(() => kernel.stop())
+
+    it('sends what a run read on fd 3, with its done line', async () => {
+      kernel.send({ id: 'r1', op: 'execute', code: 'open("orders.csv").read()', store: true })
+      const done = await kernel.next((m) => m.id === 'r1' && m.type === 'done')
+      expect(done.filesRead).toEqual({ paths: ['orders.csv'], truncated: false })
+      kernel.send({ id: 'r2', op: 'execute', code: '1 + 1', store: false })
+      expect((await kernel.next((m) => m.id === 'r2' && m.type === 'done')).filesRead).toEqual({ paths: [], truncated: false })
+    })
   })
 }

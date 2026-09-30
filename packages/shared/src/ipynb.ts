@@ -7,6 +7,10 @@ import {
   type NoteCell,
   type Output,
   type PromptCell,
+  type Provenance,
+  type ProvenanceApproval,
+  type ProvenanceAttempt,
+  type ProvenanceFile,
   type Revision,
   type TableValue,
   newNoteCell,
@@ -28,7 +32,7 @@ type Json = Record<string, unknown>
 const DEFAULT_KERNELSPEC = { display_name: 'Python 3', language: 'python', name: 'python3' }
 
 /** The keys of a cell's metadata.dalliance that Dalliance reads. Any other key there is carried through. */
-const CELL_FIELDS = ['prompt', 'title', 'titleFrom', 'generatedFrom', 'codeEdited', 'interpretation', 'answer', 'suggestions', 'history', 'variables', 'showTables', 'state', 'durationMs']
+const CELL_FIELDS = ['prompt', 'title', 'titleFrom', 'generatedFrom', 'codeEdited', 'interpretation', 'answer', 'suggestions', 'history', 'variables', 'showTables', 'state', 'durationMs', 'provenance']
 
 const lines = (s: string): string[] => (s ? s.split(/(?<=\n)/) : [])
 const joinSource = (v: unknown): string => (Array.isArray(v) ? v.filter((x) => typeof x === 'string').join('') : typeof v === 'string' ? v : '')
@@ -107,6 +111,80 @@ function revisionFromNb(r: unknown): Revision | null {
 function variableFromNb(v: unknown): CreatedVariable | null {
   if (!isObject(v) || typeof v.name !== 'string') return null
   return { name: v.name, type: asString(v.type) ?? '', shape: asString(v.shape) ?? '' }
+}
+
+/** The record as saved: the final attempt only, and no empty lists. The rest of the trail is in logs/agent.jsonl. */
+function provenanceToNb(p: Provenance): Json {
+  return {
+    prompt: p.prompt,
+    ...(p.corrections.length ? { corrections: p.corrections } : {}),
+    madeAt: p.madeAt,
+    model: p.model,
+    effort: p.effort,
+    // A fallback is rare, so a step only says so when it happened
+    steps: p.steps.map(({ step, model, fallback }) => ({ step, model, ...(fallback ? { fallback } : {}) })),
+    rationale: p.rationale,
+    attemptCount: p.attemptCount,
+    ...(p.attempts.length ? { attempts: p.attempts.slice(-1) } : {}),
+    ...(p.filesRead.length ? { filesRead: p.filesRead } : {}),
+    ...(p.filesReadTruncated ? { filesReadTruncated: true } : {}),
+    ...(p.approvals.length ? { approvals: p.approvals } : {}),
+    codeHash: p.codeHash,
+    outputsHash: p.outputsHash,
+  }
+}
+
+const RATIONALE_SOURCES = ['summaries', 'interpretation', 'none'] as const
+const FILE_READERS = ['code', 'agent'] as const
+const APPROVAL_KINDS = ['packages', 'shell', 'network', 'secret'] as const
+const APPROVAL_OUTCOMES = ['approved', 'trusted', 'declined', 'blocked'] as const
+const oneOf = <T extends string>(options: readonly T[], v: unknown): T | null => (options.includes(v as T) ? (v as T) : null)
+
+function attemptFromNb(a: unknown): ProvenanceAttempt | null {
+  if (!isObject(a) || typeof a.code !== 'string') return null
+  return { code: a.code, error: asString(a.error), changed: asString(a.changed) }
+}
+
+function fileFromNb(f: unknown): ProvenanceFile | null {
+  if (!isObject(f) || typeof f.path !== 'string') return null
+  return { path: f.path, by: oneOf(FILE_READERS, f.by) ?? 'agent' }
+}
+
+function approvalFromNb(a: unknown): ProvenanceApproval | null {
+  if (!isObject(a)) return null
+  const kind = oneOf(APPROVAL_KINDS, a.kind)
+  const outcome = oneOf(APPROVAL_OUTCOMES, a.outcome)
+  return kind && outcome ? { kind, detail: asString(a.detail) ?? '', outcome } : null
+}
+
+function stepFromNb(s: unknown): Provenance['steps'][number] | null {
+  const step = isObject(s) ? asNumber(s.step) : null
+  return isObject(s) && step != null ? { step, model: asString(s.model), fallback: s.fallback === true } : null
+}
+
+const isCorrection = (c: unknown): c is { from: string; to: string } => isObject(c) && typeof c.from === 'string' && typeof c.to === 'string'
+
+/** A record needs its date. Without one, or when it isn't an object, the cell has no record. */
+function provenanceFromNb(v: unknown): Provenance | null {
+  if (!isObject(v) || typeof v.madeAt !== 'string') return null
+  const rationale = asObject(v.rationale)
+  const attempts = Array.isArray(v.attempts) ? v.attempts.map(attemptFromNb).filter(present) : []
+  return {
+    prompt: asString(v.prompt) ?? '',
+    corrections: Array.isArray(v.corrections) ? v.corrections.filter(isCorrection).map(({ from, to }) => ({ from, to })) : [],
+    madeAt: v.madeAt,
+    model: asString(v.model),
+    effort: asString(v.effort),
+    steps: Array.isArray(v.steps) ? v.steps.map(stepFromNb).filter(present) : [],
+    rationale: { from: oneOf(RATIONALE_SOURCES, rationale.from) ?? 'none', text: asStrings(rationale.text) },
+    attemptCount: asNumber(v.attemptCount) ?? attempts.length,
+    attempts,
+    filesRead: Array.isArray(v.filesRead) ? v.filesRead.map(fileFromNb).filter(present) : [],
+    filesReadTruncated: v.filesReadTruncated === true,
+    approvals: Array.isArray(v.approvals) ? v.approvals.map(approvalFromNb).filter(present) : [],
+    codeHash: asString(v.codeHash) ?? '',
+    outputsHash: asString(v.outputsHash) ?? '',
+  }
 }
 
 function outputToNb(o: Output, executionCount: number | null): Json {
@@ -201,6 +279,7 @@ function promptToNb(cell: PromptCell): Json {
         showTables: cell.showTables,
         state: cell.state,
         durationMs: cell.durationMs,
+        ...(cell.provenance ? { provenance: provenanceToNb(cell.provenance) } : {}),
       },
     },
     source: lines(cell.code),
@@ -288,6 +367,7 @@ export function fromIpynb(raw: unknown): Notebook {
       outputs,
       executionCount,
       durationMs: asNumber(meta.durationMs),
+      provenance: provenanceFromNb(meta.provenance),
       ...(jupyter ? { jupyter } : {}),
     }
     // Outputs saved with the file came from a kernel that is gone now

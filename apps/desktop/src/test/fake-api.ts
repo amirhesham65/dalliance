@@ -1,4 +1,5 @@
 import type { AccountView, BillingView, CellRunResult, DallianceApi, RunCellRequest, RunEvent, SettingsView } from '@dalliance/shared/ipc'
+import type { Provenance } from '@dalliance/shared/notebook'
 
 type RunHandler = (request: RunCellRequest, emit: (event: RunEvent) => void) => Promise<CellRunResult> | CellRunResult
 
@@ -117,6 +118,33 @@ export function result(overrides: Partial<CellRunResult> = {}): CellRunResult {
     activity: [],
     steps: [],
     error: null,
+    ...overrides,
+  }
+}
+
+/** The record of how a cell was made, as a generation returns it: two attempts, the second one working. */
+export function provenance(overrides: Partial<Provenance> = {}): Provenance {
+  return {
+    prompt: 'Average order value',
+    corrections: [],
+    madeAt: '2026-09-30T14:05:00.000Z',
+    model: 'anthropic/claude-sonnet-5.5',
+    effort: 'medium',
+    steps: [1, 2, 3].map((step) => ({ step, model: 'anthropic/claude-sonnet-5.5', fallback: false })),
+    rationale: { from: 'summaries', text: ['The column is total, not amount.'] },
+    attemptCount: 2,
+    attempts: [
+      { code: 'orders.amount.mean()', error: "KeyError: 'amount'", changed: null },
+      { code: 'orders.total.mean()', error: null, changed: '- orders.amount.mean()\n+ orders.total.mean()' },
+    ],
+    filesRead: [
+      { path: 'orders.csv', by: 'code' },
+      { path: 'README.md', by: 'agent' },
+    ],
+    filesReadTruncated: false,
+    approvals: [{ kind: 'packages', detail: 'pip install seaborn', outcome: 'approved' }],
+    codeHash: `sha256:${'c'.repeat(64)}`,
+    outputsHash: `sha256:${'d'.repeat(64)}`,
     ...overrides,
   }
 }

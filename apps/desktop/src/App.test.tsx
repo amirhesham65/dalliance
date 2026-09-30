@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { CellRunResult, DallianceApi, SettingsView } from '@dalliance/shared/ipc'
 import { type PromptCell, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
-import { fakeApi, fakeSettings, result } from '@/test/fake-api'
+import { fakeApi, fakeSettings, provenance, result } from '@/test/fake-api'
 import App from './App'
 
 // These tests type and run whole cells, which takes longer than the 5s default on a loaded machine
@@ -72,6 +72,32 @@ describe('App', () => {
     await user.click(step)
     expect(step).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText((_, el) => el?.tagName === 'PRE' && el.textContent === code)).toBeInTheDocument()
+  })
+
+  it('shows how a cell was made in its own tab, and keeps it through a plain rerun', async () => {
+    const user = userEvent.setup()
+    const { api, requests } = fakeApi((req) =>
+      req.generate ? result({ code: 'orders.total.mean()', provenance: provenance() }) : result({ generated: false, code: req.code }),
+    )
+    setApi(api)
+    render(<App />)
+    // A cell made before the record existed has no tab for it
+    expect(screen.queryByRole('tab', { name: 'How this was made' })).not.toBeInTheDocument()
+
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Average order value')
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
+    await user.click(await screen.findByRole('tab', { name: 'How this was made' }))
+    const view = screen.getByRole('region', { name: 'How this was made' })
+    expect(within(view).getByRole('heading', { name: 'Stated rationale' })).toBeInTheDocument()
+    expect(view).toHaveTextContent('The column is total, not amount.')
+    await user.click(within(view).getByRole('button', { name: 'Show the code' }))
+    expect(within(view).getByLabelText('Code the agent wrote')).toHaveTextContent('orders.total.mean()')
+
+    // Running the saved code again doesn't ask the agent, and the record stays
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
+    await waitFor(() => expect(requests).toHaveLength(2))
+    expect(requests[1].generate).toBe(false)
+    expect(await screen.findByRole('tab', { name: 'How this was made' })).toBeInTheDocument()
   })
 
   it('asks the question the agent raises and sends back the answer', async () => {
@@ -283,6 +309,22 @@ describe('question cells', () => {
     expect(await screen.findByText('Predict returns.')).toBeInTheDocument()
     expect(screen.getByText('target: returned').closest('li')).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Code' })).not.toBeInTheDocument()
+  })
+
+  it('folds out how a written answer was made under it', async () => {
+    const user = userEvent.setup()
+    const record = provenance({ attempts: [], attemptCount: 0, rationale: { from: 'interpretation', text: ['A question about modelling, answered in words.'] } })
+    setApi(fakeApi(() => result({ code: '', outputs: [], executionCount: null, answer: 'Predict returns.', provenance: record })).api)
+    render(<App />)
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'What model could we build?')
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
+    const toggle = await screen.findByRole('button', { name: 'How this was made' })
+    expect(screen.queryByRole('region', { name: 'How this was made' })).not.toBeInTheDocument()
+    await user.click(toggle)
+    const view = screen.getByRole('region', { name: 'How this was made' })
+    expect(view).toHaveTextContent(/^The agent answered this on/)
+    expect(view).toHaveTextContent('so this is its interpretation of the prompt and its answer.')
+    expect(within(view).queryByRole('button', { name: 'Show the code' })).not.toBeInTheDocument()
   })
 
   it('runs a suggested next prompt as a new cell', async () => {

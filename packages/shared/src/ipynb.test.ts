@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { FORMAT_VERSION, TABLE_MIME, fromIpynb, toIpynb } from './ipynb'
-import { type PromptCell, needsGeneration, newNoteCell, newPromptCell, parseInterpretation } from './notebook'
+import { type PromptCell, type Provenance, needsGeneration, newNoteCell, newPromptCell, parseInterpretation } from './notebook'
 
 describe('ipynb', () => {
   it('round-trips prompts, code and every output type', () => {
@@ -199,6 +199,107 @@ describe('reading hand-edited or corrupted metadata', () => {
     expect(cell.outputs).toEqual([
       { type: 'table', columns: [], index: ['0', '1'], rows: [['a', '{"x":1}'], [true, null]], totalRows: 2, profile: [{ name: 'a', kind: 'text' }] },
     ])
+  })
+})
+
+describe('the record of how a cell was made', () => {
+  const record: Provenance = {
+    prompt: 'Average order value by plan',
+    corrections: [{ from: 'total', to: 'total including tax' }],
+    madeAt: '2026-09-30T12:00:00.000Z',
+    model: 'anthropic/claude-sonnet-5.5',
+    effort: 'medium',
+    steps: [
+      { step: 1, model: 'anthropic/claude-sonnet-5.5', fallback: false },
+      { step: 2, model: 'anthropic/claude-opus-5', fallback: true },
+    ],
+    rationale: { from: 'summaries', text: ['Group by plan, then average.'] },
+    attemptCount: 3,
+    attempts: [
+      { code: 'orders.amount.mean()', error: "KeyError: 'amount'", changed: null },
+      { code: 'orders.totl.mean()', error: "AttributeError: 'DataFrame' object has no attribute 'totl'", changed: '- orders.amount.mean()\n+ orders.totl.mean()' },
+      { code: 'orders.groupby("plan").total.mean()', error: null, changed: '- orders.totl.mean()\n+ orders.groupby("plan").total.mean()' },
+    ],
+    filesRead: [
+      { path: 'data/orders.csv', by: 'code' },
+      { path: 'README.md', by: 'agent' },
+    ],
+    filesReadTruncated: false,
+    approvals: [{ kind: 'packages', detail: 'pip install seaborn', outcome: 'approved' }],
+    codeHash: `sha256:${'a'.repeat(64)}`,
+    outputsHash: `sha256:${'b'.repeat(64)}`,
+  }
+  const cell: PromptCell = { ...newPromptCell(record.prompt, 'orders.groupby("plan").total.mean()'), provenance: record }
+  const saved = () => JSON.parse(JSON.stringify(toIpynb({ cells: [cell] })))
+  const read = (provenance: unknown) =>
+    (fromIpynb({ nbformat: 4, cells: [{ cell_type: 'code', source: ['x = 1'], metadata: { dalliance: { provenance } }, outputs: [] }] }).cells[0] as PromptCell).provenance
+
+  it('saves only the final attempt, with the count of all of them', () => {
+    const file = saved().cells[0].metadata.dalliance.provenance
+    expect(file.attemptCount).toBe(3)
+    // Only a step a fallback answered says so
+    expect(file.steps).toEqual([
+      { step: 1, model: 'anthropic/claude-sonnet-5.5' },
+      { step: 2, model: 'anthropic/claude-opus-5', fallback: true },
+    ])
+    expect(file.attempts).toEqual([record.attempts[2]])
+    expect(file).not.toHaveProperty('filesReadTruncated')
+  })
+
+  it('leaves out empty lists', () => {
+    const bare = { ...record, corrections: [], attempts: [], filesRead: [], approvals: [], attemptCount: 0 }
+    const file = toIpynb({ cells: [{ ...cell, provenance: bare }] }) as { cells: { metadata: { dalliance: { provenance: object } } }[] }
+    expect(Object.keys(file.cells[0].metadata.dalliance.provenance)).toEqual(['prompt', 'madeAt', 'model', 'effort', 'steps', 'rationale', 'attemptCount', 'codeHash', 'outputsHash'])
+  })
+
+  it('reads back as saved, and saves the same again', () => {
+    const first = saved()
+    const back = fromIpynb(first).cells[0] as PromptCell
+    expect(back.provenance).toEqual({ ...record, attempts: [record.attempts[2]] })
+    expect(JSON.parse(JSON.stringify(toIpynb({ cells: [back] }))).cells[0].metadata.dalliance.provenance).toEqual(first.cells[0].metadata.dalliance.provenance)
+  })
+
+  it('is absent from cells without one, and from files saved before it existed', () => {
+    const file = toIpynb({ cells: [newPromptCell('Plot it', 'x = 1')] }) as { cells: { metadata: { dalliance: object } }[] }
+    expect(file.cells[0].metadata.dalliance).not.toHaveProperty('provenance')
+    expect(read(undefined)).toBeNull()
+  })
+
+  it('reads a record that is not an object, or has no date, as none', () => {
+    expect(read('made by the agent')).toBeNull()
+    expect(read([record])).toBeNull()
+    expect(read({ ...record, madeAt: 20260930 })).toBeNull()
+  })
+
+  it('reads mistyped fields as their defaults and drops malformed entries', () => {
+    const back = read({
+      madeAt: '2026-09-30',
+      prompt: 7,
+      corrections: [{ from: 'a' }, { from: 'a', to: 'b' }],
+      steps: [{ step: '1' }, { step: 2 }, null],
+      rationale: { from: 'dreams', text: ['kept', 3] },
+      attempts: [{ error: 'no code' }, { code: 'x = 1', error: 5 }],
+      filesRead: ['a.csv', { path: 'b.csv', by: 'someone' }],
+      approvals: [{ kind: 'packages', detail: 'pip install x', outcome: 'maybe' }, { kind: 'shell', outcome: 'declined' }],
+      filesReadTruncated: 'yes',
+      codeHash: null,
+    })
+    expect(back).toEqual({
+      prompt: '',
+      corrections: [{ from: 'a', to: 'b' }],
+      madeAt: '2026-09-30',
+      model: null,
+      effort: null,
+      steps: [{ step: 2, model: null, fallback: false }],
+      rationale: { from: 'none', text: ['kept'] },
+      attemptCount: 1,
+      attempts: [{ code: 'x = 1', error: null, changed: null }],
+      filesRead: [{ path: 'b.csv', by: 'agent' }],
+      filesReadTruncated: false,
+      approvals: [{ kind: 'shell', detail: '', outcome: 'declined' }],
+      codeHash: '',
+      outputsHash: '',
+    })
   })
 })
 

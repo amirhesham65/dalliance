@@ -131,9 +131,11 @@ Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the bu
 2. The interpretation, when it has `[[assumptions]]`. Click one to correct it.
 3. Run progress: the activity list, a status line, and a question card or install bar. Each step's label is plain words. A step that ran code, an `explore` or a `run_cell`, is a button that opens its code underneath. After the run, the list folds into the "N steps" toggle by the duration.
 4. A message for non-Python errors.
-5. Result and Code tabs. A question answered in words shows only the answer, without tabs.
+5. Result and Code tabs, and a How this was made tab once the agent has written the code. A question answered in words shows only the answer, without tabs, and folds its How this was made out under the answer from a toggle beside the duration.
 
 Under Result: the answer, the outputs, the variables the run created, and suggestions. Suggestions show only on the cell that just finished or the selected one, and not at all when `settings.suggestNext` is off, including ones a cell saved earlier.
+
+How this was made is `HowItWasMade` in `notebook/HowItWasMade.tsx`, drawn from the cell's `provenance` (see [notebook-model.md](notebook-model.md#how-a-cell-was-made)). In plain words, top to bottom: who wrote the code, when, with which model and effort, and each model by step range when a fallback switched it; the prompt and any corrections; the stated rationale, with a line saying whether it is the model's reasoning summaries or the interpretation and answer standing in for them; the attempts with each error and the lines that changed; the files read; what was allowed, refused or blocked; the SHA-256 fingerprints; and the code the agent wrote behind a Show the code toggle. It says when the cell's code has changed since, and when the earlier attempts are only in the agent log. Call it the agent's stated rationale in the UI, never its reasoning.
 
 Between two cells, `CellInserter` in `NotebookView.tsx` draws a 1px line in `foreground/10`, so it's clear where one ends. It sits in the cells' column, right of the 44 px gutter that holds the run count, and stops 12 px short of each side, so it's a little narrower than the cells. There is none after the last cell. Hovering the gap raises the line to `foreground/20` and shows the Prompt and Note buttons centred on it. They sit on the page background, so the line breaks around them.
 

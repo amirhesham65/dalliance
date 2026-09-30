@@ -289,6 +289,7 @@ export class NotebookSession {
         pythonVersion,
         projectInstructions: (await this.readBrief()).text,
         modelId: config.model,
+        effort: config.effort,
         suggestNext: this.options.settings.suggestNext,
         emit,
         askUser: async (question, options) => {

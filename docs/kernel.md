@@ -43,11 +43,11 @@ Replies:
 ```json
 {"id": null, "type": "ready", "python": "3.12.4", "executable": "/…/python", "ipython": "9.1.0"}
 {"id": "7", "type": "output", "output": {"type": "table", "...": "..."}}
-{"id": "7", "type": "done", "ok": true, "executionCount": 3, "durationMs": 41, "assigned": [...]}
+{"id": "7", "type": "done", "ok": true, "executionCount": 3, "durationMs": 41, "assigned": [...], "filesRead": {"paths": ["orders.csv"], "truncated": false}}
 {"id": "8", "type": "variables", "variables": [...]}
 ```
 
-`ready` arrives once at startup. Its `ipython` is the IPython version cells run through, or `null` on the plain path. An execute sends zero or more `output` messages, then one `done`.
+`ready` arrives once at startup. Its `ipython` is the IPython version cells run through, or `null` on the plain path. An execute sends zero or more `output` messages, then one `done`. Its `filesRead` is what the run read, see [Files read](#files-read).
 
 `PythonKernel.request()` chains every request on a promise queue, so they run one at a time in order, like a Jupyter shell channel.
 
@@ -74,7 +74,28 @@ A `display()` function is injected into the namespace for showing values mid-cel
 
 `sys.path` starts with `''`, the working directory, and leaves out the folder the script was written to. `import helpers` finds `helpers.py` in the notebook's folder, and still does after `os.chdir()`. Import caches are cleared before each run, so a file written since the last cell imports too.
 
+Every execute, `store` or not, also reports the files it read. See [Files read](#files-read).
+
 Variables are described by `describe()`, which reads the value's type, shape and a short `repr`. If that throws for some value, the entry keeps its name and type with an empty shape and detail.
+
+## Files read
+
+A `pd.read_csv()` inside a cell never goes through the agent's tools, so the harness can't see it. The kernel can: at startup `main()` installs `on_audit()` with `sys.addaudithook()`, and it listens for Python's `open` audit event. That event fires for `open()`, `os.open()` and `io.open_code()`, whoever calls them: the cell, pandas, NumPy, or an import of a module in the notebook's folder.
+
+`run()` starts a fresh `FileReads` for each execute, rooted at the working directory the run starts in, and sends what it saw as `filesRead` on the `done` line, over fd 3 like every other reply:
+
+```json
+{"paths": ["data/orders.csv", "helpers.py"], "truncated": false}
+```
+
+- `paths` are relative to that folder, with `/`, in the order first opened, each once.
+- Only reads count: a mode with `r` from `open()`, or flags without write access or `O_TRUNC` from `os.open()`. Writes, open file descriptors, files that don't exist, folders and `__pycache__` files are left out, and so is anything outside the folder.
+- At most `MAX_FILES_READ` = 100 paths. Past that, `truncated` is true.
+- It costs little. Any other audit event returns after one comparison, and so does an open between requests. The first open of a path costs a `getcwd()` and a `stat()`. The path is then remembered, up to `MAX_SEEN_PATHS` = 4,096 per run, so a loop that opens the same file again costs a set lookup: well under a microsecond on top of the open itself.
+- The hook never raises into the code that opened the file. Audit hooks can't be removed, so it stays installed and does nothing between requests.
+- It sees what Python opens. A C library that opens files itself, without Python's `open`, and a path that reaches the folder through a symlink from outside it, aren't counted.
+
+`PythonKernel.execute()` hands it on as `ExecuteResult.filesRead: { paths, truncated }`. It is optional, so a kernel that doesn't report it still fits the interface. The harness puts it in the cell's record of how it was made (see [notebook-model.md](notebook-model.md#how-a-cell-was-made)). Anything else that needs the files a run read, such as hashing the data a notebook depends on, should take them from here.
 
 ## IPython
 
@@ -203,7 +224,7 @@ The harness depends on `Kernel`, not `PythonKernel`:
 ```ts
 interface Kernel {
   info(): KernelInfo
-  execute(code: string, options: { store: boolean; onOutput? }): Promise<ExecuteResult>
+  execute(code: string, options: { store: boolean; onOutput? }): Promise<ExecuteResult>  // ok, outputs, executionCount, durationMs, assigned, filesRead?
   variables(): Promise<VariableInfo[]>
   interrupt(): void
   restart(): Promise<void>
@@ -211,4 +232,4 @@ interface Kernel {
 }
 ```
 
-`FakeKernel` answers every `execute()` with a handler you pass in and records what ran. Use it for harness tests. See [testing.md](testing.md).
+`FakeKernel` answers every `execute()` with a handler you pass in and records what ran. The handler can return `filesRead` paths too. Use it for harness tests. See [testing.md](testing.md).

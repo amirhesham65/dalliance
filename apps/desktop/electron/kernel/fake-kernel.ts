@@ -1,7 +1,7 @@
 import type { Output } from '@dalliance/shared/notebook'
 import type { ExecuteOptions, ExecuteResult, Kernel, KernelInfo, VariableInfo } from './kernel'
 
-type Handler = (code: string) => { ok: boolean; outputs: Output[]; assigned?: VariableInfo[] }
+type Handler = (code: string) => { ok: boolean; outputs: Output[]; assigned?: VariableInfo[]; filesRead?: string[] }
 
 /** In-memory kernel for tests. Each execute() is answered by the handler you pass in. */
 export class FakeKernel implements Kernel {
@@ -20,9 +20,16 @@ export class FakeKernel implements Kernel {
 
   async execute(code: string, options: ExecuteOptions): Promise<ExecuteResult> {
     this.executed.push({ code, store: options.store })
-    const { ok, outputs, assigned = [] } = this.handler(code)
+    const { ok, outputs, assigned = [], filesRead = [] } = this.handler(code)
     for (const o of outputs) options.onOutput?.(o)
-    return { ok, outputs, executionCount: options.store ? ++this.count : null, durationMs: 5, assigned: options.store ? assigned : [] }
+    return {
+      ok,
+      outputs,
+      executionCount: options.store ? ++this.count : null,
+      durationMs: 5,
+      assigned: options.store ? assigned : [],
+      filesRead: { paths: filesRead, truncated: false },
+    }
   }
 
   async variables() {

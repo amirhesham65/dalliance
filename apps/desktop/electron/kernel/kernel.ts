@@ -15,6 +15,16 @@ export interface ExecuteResult {
   durationMs: number
   /** Names the run bound or rebound. Empty for exploratory runs. */
   assigned: VariableInfo[]
+  /** Files inside the working directory the run opened for reading. Absent when the kernel doesn't report them. */
+  filesRead?: FilesRead
+}
+
+/** What the kernel's audit hook saw one execute read. See docs/kernel.md. */
+export interface FilesRead {
+  /** Paths relative to the folder the run started in, with `/` separators, in the order first opened, each once. */
+  paths: string[]
+  /** True when the run read more than the kernel lists (MAX_FILES_READ). */
+  truncated: boolean
 }
 
 export interface ExecuteOptions {
