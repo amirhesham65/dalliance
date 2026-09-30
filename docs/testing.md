@@ -48,7 +48,7 @@ const kernel = new FakeKernel((code) => ({ ok: true, outputs: [{ type: 'text', t
 
 `python-kernel.test.ts` spawns the real script with the system Python. It checks state across cells, tracebacks, exploratory runs, the variable list, interrupts, restarts and which names a cell assigned. Run it after any change to `dalliance_kernel.py`.
 
-`python-env.test.ts` checks the package lists and the name check `installPackages()` runs before pip, with `spawn` mocked. Its two missing-package cases use the system Python and skip without one.
+`python-env.test.ts` checks the package lists and the name check `installPackages()` runs before pip, including every archive extension pip accepts, with `spawn` mocked. The mock can fail with pip's PEP 668 output, to check the Settings > Python message. Python discovery runs against a fake Mac through injected `exec`, `exists`, `list` and `path`: Homebrew over Apple's Python, the newest version winning, and `/usr/bin/python3` left alone without the Command Line Tools. The base-package cases check what an old managed environment lacks and that only that gets installed. Its two missing-package cases use the system Python and skip without one.
 
 ### The renderer
 
