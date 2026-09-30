@@ -52,7 +52,7 @@ These run in Node with Electron mocked, and need nothing installed.
 
 | File | Covers |
 | --- | --- |
-| `electron/session.test.ts` | `NotebookSession`'s kernel lifecycle with a fake `launchKernel`: a notebook opened during the launch warm-up gets a kernel in its own folder, a caller waiting on a stale start gets the current kernel, a start under way is reused, and a kernel that finishes starting after quit is shut down. Also the `.env` guard on `read_file` |
+| `electron/session.test.ts` | `NotebookSession`'s kernel lifecycle with a fake `launchKernel`: a notebook opened during the launch warm-up gets a kernel in its own folder, a caller waiting on a stale start gets the current kernel, a start under way is reused, and a kernel that finishes starting after quit is shut down. Also the `.env` guard on `read_file`, and, with `python-env` and `PythonKernel` mocked, that a kernel on the managed environment installs missing base packages once per session without waiting for them |
 | `electron/settings.test.ts` | `SettingsStore` reads what an earlier run saved, keeps `settings.json` private (mode 600), and moves a file that doesn't parse or isn't an object aside before starting from the defaults |
 | `electron/draft.test.ts` | `DraftStore`: a notebook comes back as it was after a reload, unsaved changes come back after a relaunch, a saved notebook reopens from its file, a file from a newer version or one that's no longer a notebook is reported, and Don't Save forgets the draft |
 | `electron/ipc-sender.test.ts` | `isAppUrl` and `isTrustedSender`: IPC is answered only from the top frame of the app window showing the app's own page |
