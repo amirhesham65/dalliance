@@ -106,7 +106,7 @@ Long prompts get a 2 to 5 word title for the overview. The store asks for one wh
 - Prompt cells become `code` cells. `source` is the Python, so Jupyter can run the file.
 - Everything else about a prompt cell goes under `metadata.dalliance`: `prompt`, `title`, `titleFrom`, `generatedFrom`, `codeEdited`, `interpretation`, `answer`, `suggestions`, `history`, `variables`, `showTables`, `state`, `durationMs`.
 - Tables are saved as `display_data` with the custom MIME type `application/vnd.dalliance.table+json` and a `text/plain` fallback.
-- The notebook's metadata carries `dalliance: { version: 1 }`.
+- The notebook's metadata carries `dalliance: { version: FORMAT_VERSION }`, which is 1 today.
 
 `fromIpynb()` reads any nbformat 4 file:
 
@@ -114,8 +114,13 @@ Long prompts get a 2 to 5 word title for the overview. The store asks for one wh
 - `code` cells become prompt cells. A plain Jupyter cell has no prompt and keeps its code, so it runs without the agent.
 - Outputs map back by MIME type in this order: the Dalliance table type, `image/png`, `text/plain`. A pandas HTML table from Jupyter shows as its `text/plain` fallback. An output with none of the three is dropped.
 - `corrections` are not saved. They only live until the next run.
+- `state` is not read back. A cell opens as `stale` or `idle`, as described above.
+- Every field under `metadata.dalliance` is type-checked. A field with the wrong type reads as its default: `null`, `[]` or `false`. A mistyped `generatedFrom` reads as missing, so the saved code counts as written for its prompt.
+- Lists are filtered item by item. A revision without string `code` is dropped, and a variable without a string `name` is dropped. Other missing revision fields get defaults.
+- Cells and outputs that aren't objects are skipped. A malformed table keeps the parts that parse.
+- The version check comes first. A missing or non-numeric `metadata.dalliance.version` reads as 1. A number above `FORMAT_VERSION` throws "This notebook was saved by a newer version of Dalliance. Update the app to open it." Opening the file fails with that message instead of loading fields the app would misread.
 
-Change the format with care. Old files must still open, so add fields with defaults and read them defensively, the way `fromIpynb()` checks every type. Bump `metadata.dalliance.version` only for a change old readers can't handle.
+Change the format with care. Old files must still open, so add fields with defaults and read them with the type guards in `ipynb.ts`, never with a bare cast. Bump `FORMAT_VERSION` only for a change old readers can't handle. Once it's bumped, older apps refuse the new files.
 
 ## Interpretation and corrections
 
