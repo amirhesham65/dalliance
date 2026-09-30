@@ -132,6 +132,9 @@ export interface ModelList {
   error: string | null
 }
 
+/** What renaming a notebook came to: its new path, or why it couldn't be. */
+export type RenameResult = { path: string; /** True when the notebook had no file, so the rename wrote it. */ saved: boolean } | { error: string }
+
 export interface PythonState {
   python: string | null
   version: string | null
@@ -187,6 +190,7 @@ export interface OpenedNotebook {
 export type MenuAction =
   | 'new'
   | 'open'
+  | 'open-folder'
   | 'save'
   | 'save-as'
   | 'undo'
@@ -225,11 +229,20 @@ export interface DallianceApi {
   setupPython(): Promise<PythonState>
   onPythonLog(listener: (line: string) => void): () => void
   openNotebook(): Promise<OpenedNotebook | null>
+  /** Writes a new notebook file into the folder in use, so it has a path from the start, on a fresh kernel. Null when the folder can't be written to, after the reason is shown. */
+  newNotebook(notebook: Notebook): Promise<OpenedNotebook | null>
+  /** Asks for a folder, an existing one or a new one made in the dialog, and starts a notebook file in it. Null when cancelled, or when the folder can't be written to. */
+  openFolder(notebook: Notebook): Promise<OpenedNotebook | null>
   openRecent(path: string): Promise<OpenedNotebook | null>
   recentNotebooks(): Promise<RecentNotebook[]>
   readBrief(): Promise<Brief>
   writeBrief(text: string): Promise<Brief>
   listFiles(): Promise<FileEntry[]>
+  /**
+   * Renames the open notebook's file, as Jupyter does. A notebook without a file is written under that name in the
+   * folder in use. Unsaved edits stay unsaved. The name is checked, and a taken one comes back as an error.
+   */
+  renameNotebook(current: string | null, name: string, notebook: Notebook): Promise<RenameResult>
   saveNotebook(path: string | null, notebook: Notebook): Promise<string | null>
   confirmDiscard(): Promise<boolean>
   restoreSession(): Promise<RestoredSession | RestoreFailure | null>
@@ -255,12 +268,15 @@ export const IPC = {
   setupPython: 'setup-python',
   pythonLog: 'python-log',
   openNotebook: 'open-notebook',
+  newNotebook: 'new-notebook',
+  openFolder: 'open-folder',
   openRecent: 'open-recent',
   recentNotebooks: 'recent-notebooks',
   readBrief: 'read-brief',
   writeBrief: 'write-brief',
   listFiles: 'list-files',
   saveNotebook: 'save-notebook',
+  renameNotebook: 'rename-notebook',
   confirmDiscard: 'confirm-discard',
   restoreSession: 'restore-session',
   saveDraft: 'save-draft',

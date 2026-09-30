@@ -412,6 +412,11 @@ export const actions = {
     set({ settingsPage: null })
   },
 
+  /** The notebook file got a new name. Its edits are as saved or unsaved as they were, unless the rename wrote the file. */
+  renamed(path: string, saved: boolean) {
+    set(saved ? { path, dirty: false } : { path })
+  },
+
   markSaved(path: string) {
     const moved = get().path !== path
     set({ path, dirty: false })
@@ -475,15 +480,6 @@ export const actions = {
     } catch (err) {
       actions.notifyFailure("Couldn't save the brief", err)
       return false
-    }
-  },
-
-  /** A fresh kernel for a new notebook. A failure shows a message; the notebook still opens. */
-  async freshKernel() {
-    try {
-      await api?.restartKernel()
-    } catch (err) {
-      actions.notifyFailure("Couldn't restart Python", err)
     }
   },
 
