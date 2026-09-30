@@ -384,6 +384,19 @@ describe('question cells', () => {
     expect(screen.getByRole('tab', { name: 'Python' })).toHaveAttribute('aria-selected', 'true')
   })
 
+  it('lets the notice over the workspace be dismissed', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    api.getSettings = async () => ({ ...fakeSettings(), keySource: null })
+    setApi(api)
+    render(<App />)
+
+    expect(await screen.findByText('Add an API key to turn prompts into code.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByText('Add an API key to turn prompts into code.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Open Settings' })).not.toBeInTheDocument()
+  })
+
   it('shows the pane shortcuts in the overview tooltips', async () => {
     const user = userEvent.setup()
     setApi(fakeApi(() => result()).api)
