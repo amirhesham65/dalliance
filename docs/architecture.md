@@ -94,12 +94,13 @@ The renderer is treated as untrusted web content.
 - Links with `https://` open in the default browser. Every other new window is denied, and in-app navigation is blocked.
 - Packaged builds get a strict Content Security Policy from the `dalliance-csp` plugin in `vite.config.ts`. The dev server skips it because React Fast Refresh needs inline scripts.
 - API keys are encrypted with Electron `safeStorage`, which uses the macOS keychain. See [storage.md](storage.md).
+- File paths from the renderer aren't trusted. `saveNotebook()` only writes to an absolute path ending in `.ipynb` and shows the Save dialog for anything else. `openRecent()` only opens a path already in `settings.recent`.
 
 The agent is fenced in by the harness rather than by the OS:
 
 - `read_file` and `list_files` refuse paths outside the workspace.
 - Broad folders such as the home folder, Documents, Desktop, Downloads and iCloud Drive get no file listing at all. See `isBroadFolder()` in `electron/harness/workspace.ts`.
-- A built-in event bus extension blocks `read_file` on `.env` and `.env.*`.
+- A built-in event bus extension blocks `read_file` on `.env` and `.env.*`, in any case and with either `/` or `\` separators. See `isSecretPath()` in `electron/session.ts`.
 - Package installs need the user's approval unless the approval mode is `background`.
 - `explore` and `run_cell` run arbitrary Python in the user's own interpreter. The system prompt tells the model not to touch files or the network unless asked, but nothing enforces that. Treat the kernel as having the user's permissions.
 

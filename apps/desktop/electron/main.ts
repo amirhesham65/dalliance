@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { BrowserWindow, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { type DraftState, IPC, type MenuAction, type OpenedNotebook, type Provider, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '@dalliance/shared/ipc'
 import { fromIpynb, toIpynb } from '@dalliance/shared/ipynb'
 import type { Notebook } from '@dalliance/shared/notebook'
+import { writeFileAtomic } from './atomic-write'
 import { checkKey, listModels } from './harness/model'
 import { DraftStore } from './draft'
 import { buildMenu } from './menu'
@@ -40,6 +41,9 @@ const session = new NotebookSession({
     if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
   },
 })
+
+/** Paths from the renderer are only trusted to name a notebook file. Anything else goes through the Save dialog. */
+const isNotebookPath = (file: unknown): file is string => typeof file === 'string' && path.isAbsolute(file) && /\.ipynb$/i.test(file)
 
 const sendMenu = (action: MenuAction) => win?.webContents.send(IPC.menu, action)
 
@@ -171,6 +175,8 @@ function registerIpc() {
   })
 
   ipcMain.handle(IPC.openRecent, async (_e, file: string) => {
+    // Only a notebook the app itself put on the list, never an arbitrary path from the window
+    if (!settings.recent.some((r) => r.path === file)) return null
     if (!existsSync(file)) {
       settings.removeRecent(file)
       return null
@@ -189,31 +195,34 @@ function registerIpc() {
 
   ipcMain.handle(IPC.saveNotebook, async (_e, current: string | null, notebook: Notebook) => {
     if (!win) return null
-    let file = current
-    if (!file) {
-      const { canceled, filePath } = await dialog.showSaveDialog(win, {
-        title: 'Save notebook',
-        defaultPath: path.join(defaultWorkspace, 'Untitled.ipynb'),
-        filters: [{ name: 'Notebooks', extensions: ['ipynb'] }],
-      })
-      if (canceled || !filePath) {
-        allowCloseAfterSave = false
-        return null
+    try {
+      let file = isNotebookPath(current) ? current : null
+      if (!file) {
+        const { canceled, filePath } = await dialog.showSaveDialog(win, {
+          title: 'Save notebook',
+          defaultPath: path.join(defaultWorkspace, 'Untitled.ipynb'),
+          filters: [{ name: 'Notebooks', extensions: ['ipynb'] }],
+        })
+        if (canceled || !filePath) return null
+        file = filePath.endsWith('.ipynb') ? filePath : `${filePath}.ipynb`
       }
-      file = filePath.endsWith('.ipynb') ? filePath : `${filePath}.ipynb`
+      // A crash or a full disk mid-save leaves the old file, never a truncated one
+      await writeFileAtomic(file, `${JSON.stringify(toIpynb(notebook), null, 1)}\n`)
+      app.addRecentDocument(file)
+      settings.addRecent(file)
+      // Record the save now: the window may close before the renderer reports it
+      drafts.update({ path: file, dirty: false, notebook })
+      drafts.flush()
+      await session.moveWorkspace(path.dirname(file))
+      if (allowCloseAfterSave) {
+        allowClose = true
+        win.close()
+      }
+      return file
+    } finally {
+      // Whether the save landed, was cancelled or failed, a later ordinary Save must not close the window
+      allowCloseAfterSave = false
     }
-    await writeFile(file, `${JSON.stringify(toIpynb(notebook), null, 1)}\n`)
-    app.addRecentDocument(file)
-    settings.addRecent(file)
-    // Record the save now: the window may close before the renderer reports it
-    drafts.update({ path: file, dirty: false, notebook })
-    drafts.flush()
-    await session.moveWorkspace(path.dirname(file))
-    if (allowCloseAfterSave) {
-      allowClose = true
-      win.close()
-    }
-    return file
   })
 
   ipcMain.handle(IPC.confirmDiscard, async () => {
@@ -259,6 +268,11 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  drafts.flush()
+})
+
+// Not in before-quit: the close dialog can still cancel the quit, and the notebook would stay open with a dead kernel
+app.on('will-quit', () => {
   drafts.flush()
   void session.shutdown()
 })

@@ -16,9 +16,11 @@ On macOS this is `~/Library/Application Support/Dalliance/`. The code gets it wi
 
 To reset the app to a first launch, quit it and delete this folder.
 
+`settings.json`, `session.json` and saved notebooks are written with `writeFileAtomic` or `writeFileAtomicSync` from `electron/atomic-write.ts`. The data goes to a temporary file in the same folder, is flushed to disk, then renamed over the old file. A crash or a full disk mid-write leaves the old file whole. The new file keeps the old one's mode, or the mode the caller asks for.
+
 ## Settings and keys
 
-`SettingsStore` reads `settings.json` once, merges it over `DEFAULTS`, and writes the whole file on every change. A file that doesn't parse falls back to the defaults. Settings from before the first-run setup existed count as onboarded if they list any recent notebooks.
+`SettingsStore` reads `settings.json` once, merges it over `DEFAULTS`, and writes the whole file on every change. A file that doesn't parse, or isn't a JSON object, is renamed to `settings.json.corrupt-<timestamp>` and the app starts from the defaults. The old file is kept so the next save can't overwrite the keys and recent notebooks it may still hold. The main process logs the move with `console.warn`. Settings from before the first-run setup existed count as onboarded if they list any recent notebooks.
 
 Keys are stored per provider:
 
@@ -56,7 +58,7 @@ The renderer sends the document with `saveDraft()` 400 ms after each change and 
 
 The folder holding the `.ipynb` is the workspace. The kernel runs there, the agent can list and read files there, and the brief is `AGENTS.md` there. Unsaved notebooks use `~/Documents/Dalliance Notebooks/`, created at startup, so they never run in all of Documents.
 
-The app writes two things into it: the `.ipynb` on save, and `AGENTS.md` when the user edits the brief. Cells can write anything else, since they're the user's Python.
+The app writes two things into it: the `.ipynb` on save, and `AGENTS.md` when the user edits the brief. The save writes a hidden `.<name>.ipynb.<pid>.<random>.tmp` file next to the notebook and renames it into place. Cells can write anything else, since they're the user's Python.
 
 ## localStorage
 
@@ -70,4 +72,4 @@ Per-window conveniences only. Every read and write is wrapped in try/catch.
 
 ## Recent notebooks
 
-`settings.recent` holds up to 8 paths, newest first. Opening or saving a file moves it to the top. `recentNotebooks()` hides entries whose files are gone, and `openRecent()` removes one when it finds the file missing. The main process also calls `app.addRecentDocument()` for the macOS Dock menu.
+`settings.recent` holds up to 8 paths, newest first. Opening or saving a file moves it to the top. `recentNotebooks()` hides entries whose files are gone, and `openRecent()` removes one when it finds the file missing. `openRecent()` refuses any path that isn't on the list. The main process also calls `app.addRecentDocument()` for the macOS Dock menu.

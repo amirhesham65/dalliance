@@ -7,7 +7,7 @@ import { EventBus } from './harness/events'
 import { MissingKeyError, resolveModel } from './harness/model'
 import { friendlyError, runCell } from './harness/run-cell'
 import { generateTitle, titleModel } from './harness/title'
-import type { KernelInfo } from './kernel/kernel'
+import type { Kernel, KernelInfo } from './kernel/kernel'
 import { installPackages, pythonStatus, setupManagedEnv } from './kernel/python-env'
 import { PythonKernel } from './kernel/python-kernel'
 import { isBroadFolder, listFiles } from './harness/workspace'
@@ -18,6 +18,14 @@ interface SessionOptions {
   userData: string
   defaultWorkspace: string
   send: (channel: string, ...args: unknown[]) => void
+  /** Starts a kernel in `cwd`. Defaults to the Python kernel; tests pass a fake. */
+  launchKernel?: (cwd: string, onStatus: (info: KernelInfo) => void) => Promise<Kernel>
+}
+
+/** A read_file path the agent may not open: `.env` or `.env.*`, in any case, with either kind of separator. */
+export function isSecretPath(p: string): boolean {
+  const base = p.split(/[\\/]/).pop() ?? ''
+  return /^\.env(\..*)?$/i.test(base)
 }
 
 /**
@@ -25,8 +33,12 @@ interface SessionOptions {
  * One cell runs at a time; the renderer queues Run all.
  */
 export class NotebookSession {
-  private kernel: PythonKernel | null = null
-  private kernelStarting: Promise<PythonKernel> | null = null
+  private kernel: Kernel | null = null
+  private kernelStarting: { generation: number; promise: Promise<Kernel> } | null = null
+  /** Bumped by every restart. A kernel start from an earlier generation is stale and shuts itself down. */
+  private generation = 0
+  /** Set on quit, so a start still in flight doesn't leave a kernel behind. */
+  private closed = false
   private workspace: string
   private controller: AbortController | null = null
   private pending = new Map<string, (answer: string | boolean | null) => void>()
@@ -47,7 +59,7 @@ export class NotebookSession {
   private installExtensions() {
     this.bus.on('tool_call', ({ toolName, input }) => {
       const p = String((input as { path?: string } | undefined)?.path ?? '')
-      if (toolName === 'read_file' && /(^|\/)\.env(\..*)?$/.test(p)) return { block: true, reason: `${p} may hold secrets, so it is off limits.` }
+      if (toolName === 'read_file' && isSecretPath(p)) return { block: true, reason: `${p} may hold secrets, so it is off limits.` }
     })
     const logDir = path.join(this.options.userData, 'logs')
     const log = async (event: string, data: object) => {
@@ -114,30 +126,54 @@ export class NotebookSession {
     return this.pythonState()
   }
 
-  private async ensureKernel(): Promise<PythonKernel> {
+  private async ensureKernel(): Promise<Kernel> {
+    if (this.closed) throw new Error('Dalliance is quitting.')
     if (this.kernel && this.kernel.info().status !== 'dead') return this.kernel
-    if (this.kernelStarting) return this.kernelStarting
-    this.kernelStarting = (async () => {
-      const status = await this.pythonState()
-      if (!status.python) {
-        const error = 'No Python found. Open Settings to set up a Python environment.'
-        this.lastKernelState = { status: 'dead', python: null, cwd: this.workspace, error }
-        this.options.send(IPC.kernelStateChanged, this.lastKernelState)
-        throw new Error(error)
+    if (this.kernelStarting?.generation === this.generation) return this.kernelStarting.promise
+    const generation = this.generation
+    const cwd = this.workspace
+    const current = () => generation === this.generation
+    const promise = (async (): Promise<Kernel> => {
+      let kernel: Kernel
+      try {
+        kernel = await (this.options.launchKernel ?? this.launchPython)(cwd, (info) => {
+          // A stale kernel's status would overwrite the current one's in the renderer
+          if (current()) this.publishKernel(info)
+        })
+      } catch (err) {
+        if (current()) throw err
+        return this.ensureKernel()
       }
-      const kernel = new PythonKernel({
-        python: status.python,
-        cwd: this.workspace,
-        scratchDir: path.join(this.options.userData, 'kernel'),
-        onStatus: (info) => this.publishKernel(info),
-      })
-      await kernel.start()
+      if (!current()) {
+        // A restart or a new folder came while this one was starting, so it may be in the wrong folder.
+        // Shut it down and hand anyone waiting on it the current kernel instead.
+        await kernel.shutdown().catch(() => {})
+        return this.ensureKernel()
+      }
       this.kernel = kernel
       return kernel
     })().finally(() => {
-      this.kernelStarting = null
+      if (this.kernelStarting?.promise === promise) this.kernelStarting = null
     })
-    return this.kernelStarting
+    this.kernelStarting = { generation, promise }
+    return promise
+  }
+
+  private launchPython = async (cwd: string, onStatus: (info: KernelInfo) => void): Promise<Kernel> => {
+    const status = await this.pythonState()
+    if (!status.python) {
+      const error = 'No Python found. Open Settings to set up a Python environment.'
+      onStatus({ status: 'dead', python: null, executable: null, cwd, error })
+      throw new Error(error)
+    }
+    const kernel = new PythonKernel({
+      python: status.python,
+      cwd,
+      scratchDir: path.join(this.options.userData, 'kernel'),
+      onStatus,
+    })
+    await kernel.start()
+    return kernel
   }
 
   /** Start the kernel in the background so the first run doesn't wait for it. */
@@ -189,7 +225,7 @@ export class NotebookSession {
       }
     }
 
-    let kernel: PythonKernel
+    let kernel: Kernel
     try {
       emit({ type: 'status', text: 'Starting Python' })
       kernel = await this.ensureKernel()
@@ -276,8 +312,10 @@ export class NotebookSession {
     this.kernel?.interrupt()
   }
 
+  /** A fresh kernel in the current workspace. A start still in flight is discarded, since it may be in the old folder. */
   async restart() {
     this.interrupt()
+    this.generation++
     const old = this.kernel
     this.kernel = null
     await old?.shutdown()
@@ -286,6 +324,10 @@ export class NotebookSession {
 
   async shutdown() {
     this.interrupt()
-    await this.kernel?.shutdown()
+    this.closed = true
+    this.generation++
+    const kernel = this.kernel
+    this.kernel = null
+    await kernel?.shutdown()
   }
 }
