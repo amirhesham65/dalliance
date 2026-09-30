@@ -14,10 +14,10 @@ pnpm turbo run test --filter @dalliance/shared        # the shared package
 
 | Tests | Environment | Needs |
 | --- | --- | --- |
-| `packages/shared/src/*.test.ts` | Node | Nothing |
+| `packages/shared/src/*.test.ts` | Node | Nothing. The `nbformat.validate` block in `ipynb-jupyter.test.ts` runs `python3` with `nbformat` and skips without it |
 | `apps/desktop/src/**/*.test.tsx` | jsdom | Nothing |
-| `apps/desktop/electron/**/*.test.ts` | Node, via `// @vitest-environment node` | Nothing, except the two below |
-| `electron/kernel/python-kernel.test.ts` | Node | A system Python 3.9+. Skips without one. CI provides Python 3.12 on Ubuntu and macOS |
+| `apps/desktop/electron/**/*.test.ts` | Node, via `// @vitest-environment node` | Nothing, except the three below |
+| `electron/kernel/python-kernel.test.ts`, `electron/kernel/kernel-protocol.test.ts` | Node | A system Python 3.9+. Skips without one. CI provides Python 3.12 on Ubuntu and macOS |
 | `electron/e2e.test.ts` | Node | `DALLIANCE_E2E=1`, `AI_GATEWAY_API_KEY`, the network. Costs a few cents |
 
 `apps/desktop/vitest.config.ts` is separate from `vite.config.ts`, so tests never start Electron. The website has no tests. See [website.md](website.md#download-log) for how the download route was checked.
@@ -26,7 +26,7 @@ pnpm turbo run test --filter @dalliance/shared        # the shared package
 
 ### Shared model
 
-`ipynb.test.ts` round-trips notebooks through `toIpynb` and `fromIpynb` and reads plain Jupyter files. Its `ipynb format version` block checks the version Dalliance writes, and that a file from a newer version is refused. `reading hand-edited or corrupted metadata` feeds in mistyped and malformed `metadata.dalliance` fields and checks each one falls back to a safe default instead of throwing. `leaked.test.ts` covers the tool markup cleanup. Add a case here whenever the file format changes.
+`ipynb.test.ts` round-trips notebooks through `toIpynb` and `fromIpynb` and reads plain Jupyter files. Its `ipynb format version` block checks the version Dalliance writes, and that a file from a newer version is refused. `reading hand-edited or corrupted metadata` feeds in mistyped and malformed `metadata.dalliance` fields and checks each one falls back to a safe default instead of throwing. `ipynb-jupyter.test.ts` opens and saves the Jupyter fixtures in `packages/shared/fixtures`: a save keeps what Jupyter wrote, a 4.4 file upgrades to 4.5, raw cells, attachments, tags and outputs Dalliance can't show survive, and those outputs go once the cell reruns. Its `nbformat.validate` block checks each fixture and its saved copy with the real `nbformat` when `python3` has it installed, and skips otherwise. `leaked.test.ts` covers the tool markup cleanup. Add a case here whenever the file format changes.
 
 ### The harness
 
@@ -42,7 +42,9 @@ const kernel = new FakeKernel((code) => ({ ok: true, outputs: [{ type: 'text', t
 
 `prompts` records what the model was sent on each call, so a test can check the context. The existing tests cover retries, the finish gate, approvals, blocking through the event bus, aborts, the explore timeout, questions answered in words, leaked markup, and the append-only history. Every new tool or rule in the loop needs a test here.
 
-`prompt.test.ts`, `title.test.ts` and `workspace.test.ts` test those modules directly. `draft.test.ts` covers session restore.
+`prompt.test.ts`, `title.test.ts` and `workspace.test.ts` test those modules directly.
+
+`code-policy.test.ts` checks `scanPython()` and `inspectCode()`: what counts as a secret file, a shell command or the network, and the look-alikes that don't, such as names in comments, `os.environ` or `urllib.parse`. `extensions.test.ts` checks the built-in extensions on a bare event bus: the `.env` guard, the run log (clipping, order, rotation at the size limit, carrying on after a failed write) and the code policy in each approval mode.
 
 ### The main process
 
@@ -52,11 +54,16 @@ These run in Node with Electron mocked, and need nothing installed.
 | --- | --- |
 | `electron/session.test.ts` | `NotebookSession`'s kernel lifecycle with a fake `launchKernel`: a notebook opened during the launch warm-up gets a kernel in its own folder, a caller waiting on a stale start gets the current kernel, a start under way is reused, and a kernel that finishes starting after quit is shut down. Also the `.env` guard on `read_file` |
 | `electron/settings.test.ts` | `SettingsStore` reads what an earlier run saved, keeps `settings.json` private (mode 600), and moves a file that doesn't parse or isn't an object aside before starting from the defaults |
+| `electron/draft.test.ts` | `DraftStore`: a notebook comes back as it was after a reload, unsaved changes come back after a relaunch, a saved notebook reopens from its file, a file from a newer version or one that's no longer a notebook is reported, and Don't Save forgets the draft |
+| `electron/ipc-sender.test.ts` | `isAppUrl` and `isTrustedSender`: IPC is answered only from the top frame of the app window showing the app's own page |
+| `electron/open-files.test.ts` | `notebookFromArgv` and `OpenQueue`: the last `.ipynb` on a command line that exists is found, a file the OS asks to open waits until the window can take it, a later one replaces it, and a reload asks the page again |
 | `electron/atomic-write.test.ts` | `writeFileAtomic` and `writeFileAtomicSync`, each: new and replaced files, file modes, writing through a symlink, a missing folder, and no temporary file left behind when the rename fails |
 
 ### The kernel
 
 `python-kernel.test.ts` spawns the real script with the system Python. It checks state across cells, tracebacks, exploratory runs, the variable list, interrupts, restarts and which names a cell assigned. Its `PythonKernel hardening` block checks that a value whose `describe()` breaks doesn't kill the kernel, that a request failing outside the cell gets an error answer, that cells import modules from the notebook's folder, that API keys never reach the kernel's environment, and that cells get an empty stdin rather than the request pipe. Run it after any change to `dalliance_kernel.py`.
+
+`kernel-protocol.test.ts` drives the same script over raw pipes, with a system Python, and skips without one. It interrupts printing loops again and again and checks that no protocol line is torn and every request still gets its `done`.
 
 `python-env.test.ts` checks the package lists and the name check `installPackages()` runs before pip, including every archive extension pip accepts, with `spawn` mocked. The mock can fail with pip's PEP 668 output, to check the Settings > Python message. Python discovery runs against a fake Mac through injected `exec`, `exists`, `list` and `path`: Homebrew over Apple's Python, the newest version winning, and `/usr/bin/python3` left alone without the Command Line Tools. The base-package cases check what an old managed environment lacks and that only that gets installed. Its two missing-package cases use the system Python and skip without one.
 
@@ -77,7 +84,7 @@ const { api, requests, responses } = fakeApi(async (request, emit) => {
 setApi(api)
 ```
 
-`notebook-store.test.ts` tests actions and the run queue, including a prompt or code edited while its cell runs, which is kept and used next time, and turning an empty prompt cell into a note without an Undo. `App.test.tsx` renders the whole app with Testing Library and drives it like a user: running cells, answering questions, D D and Undo, M on a cell with code and Undo bringing it back as it was, a failed save that stays on screen instead of being dropped, a cell that fails to draw behind the error boundary while the rest of the notebook stays up, table folding, suggestions, history, the brief, pinning, the model picker, titles, the Settings screen and Cmd+A. `Welcome.test.tsx` covers the setup and start page.
+`notebook-store.test.ts` tests actions and the run queue, including a prompt or code edited while its cell runs, which is kept and used next time, and turning an empty prompt cell into a note without an Undo. `App.test.tsx` renders the whole app with Testing Library and drives it like a user: running cells, answering questions, D D and Undo, M on a cell with code and Undo bringing it back as it was, a failed save that stays on screen instead of being dropped, a cell that fails to draw behind the error boundary while the rest of the notebook stays up, table folding, suggestions, history, the brief, pinning, the model picker, titles, the Settings screen and Cmd+A. `Welcome.test.tsx` covers the setup and start page. `ModelSettings.test.tsx` covers the note under the key: asking again for a key that can't be read, and warning when it's stored without a keychain.
 
 The store is a module-level singleton. Call `setApi()` and `actions.load()` at the start of each test so state from the last one doesn't leak in.
 
