@@ -82,7 +82,11 @@ export function BriefPane() {
   const save = (value: string) => {
     clearTimeout(timer.current)
     unsaved.current = false
-    void actions.saveBrief(value).then(() => setSaved(!unsaved.current))
+    void actions.saveBrief(value).then((ok) => {
+      // A failed write stays unsaved, so the next edit or Done tries again
+      if (!ok) unsaved.current = true
+      setSaved(!unsaved.current)
+    })
   }
 
   const changed = (value: string) => {

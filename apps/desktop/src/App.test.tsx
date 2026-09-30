@@ -1,10 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { type PromptCell, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
 import { fakeApi, fakeSettings, result } from '@/test/fake-api'
 import App from './App'
+
+// These tests type and run whole cells, which takes longer than the 5s default on a loaded machine
+vi.setConfig({ testTimeout: 15_000 })
 
 beforeEach(() => {
   actions.load({ cells: [newNoteCell('# Sales review'), newPromptCell('')] }, null)
@@ -82,6 +85,69 @@ describe('App', () => {
     expect(screen.queryByRole('heading', { name: 'Sales review' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Undo' }))
     expect(screen.getByRole('heading', { name: 'Sales review' })).toBeInTheDocument()
+  })
+
+  it('makes a prompt cell with code a note with M, and Undo brings the cell back as it was', async () => {
+    const user = userEvent.setup()
+    setApi(fakeApi(() => result()).api)
+    const rev = { at: 1, prompt: 'Revenue by month', code: 'rev = orders.total.sum()', interpretation: null, answer: 'Revenue rose.', edited: false }
+    const original: PromptCell = {
+      ...newPromptCell('Revenue by month', 'rev = orders.total.sum()'),
+      outputs: [{ type: 'text', text: '41.2' }],
+      answer: 'Revenue rose.',
+      history: [rev],
+      executionCount: 3,
+      state: 'done',
+    }
+    actions.load({ cells: [newNoteCell('# Sales review'), original] }, null)
+    render(<App />)
+
+    await user.click(screen.getByText('Revenue rose.'))
+    await user.keyboard('m')
+    expect(screen.queryByRole('article', { name: 'Prompt cell' })).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Made the cell a note')
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(useNotebook.getState().notebook.cells[1]).toEqual(original)
+    expect(screen.getByText('Revenue rose.')).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('shows a failed save instead of dropping it', async () => {
+    const { api } = fakeApi(() => result())
+    let menu!: (action: 'save') => void
+    api.onMenu = (l) => {
+      menu = l
+      return () => {}
+    }
+    api.saveNotebook = async () => {
+      throw new Error("Error invoking remote method 'save-notebook': Error: EACCES: permission denied")
+    }
+    setApi(api)
+    render(<App />)
+    await waitFor(() => expect(menu).toBeDefined())
+    menu('save')
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't save the notebook. EACCES: permission denied")
+    expect(useNotebook.getState().dirty).toBe(false)
+  })
+
+  it('keeps the notebook up when one cell fails to draw, and Retry draws it again', async () => {
+    const user = userEvent.setup()
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+    setApi(fakeApi(() => result()).api)
+    // A cell from a damaged file, with no outputs list
+    const broken = { ...newPromptCell('Broken', 'x = 1'), outputs: null } as unknown as PromptCell
+    actions.load({ cells: [newNoteCell('# Sales review'), broken] }, null)
+    render(<App />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent("This cell couldn't be shown.")
+    expect(screen.getByRole('heading', { name: 'Sales review' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Run all' })).toBeInTheDocument()
+
+    useNotebook.setState((s) => ({ notebook: { cells: s.notebook.cells.map((c) => (c.id === broken.id ? { ...broken, outputs: [] } : c)) } }))
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveValue('Broken')
+    quiet.mockRestore()
   })
 })
 
