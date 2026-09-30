@@ -49,6 +49,14 @@ export function createCellTools(deps: ToolDeps) {
   const { kernel, bus, state, cellId } = deps
 
   const approve = approver(deps.needsApproval, deps.requestApproval)
+  /** run_cell calls still executing. finish waits for them, so it never judges a run that is about to change. */
+  const running = new Set<Promise<unknown>>()
+  const tracked = <T>(promise: Promise<T>): Promise<T> => {
+    running.add(promise)
+    const done = () => running.delete(promise)
+    promise.then(done, done)
+    return promise
+  }
 
   async function guarded<T>(toolName: string, input: unknown, run: () => Promise<T>): Promise<T | string> {
     const gate = await bus.emit('tool_call', { cellId, toolName, input, approve })
@@ -132,7 +140,7 @@ WHEN NOT TO USE: quick looks at data (use explore).
 USAGE: pass the whole cell, not a diff. Only the last successful run is kept. After it succeeds, call finish.`,
       inputSchema: z.object({ code: z.string().describe('The complete Python code for the cell') }),
       execute: ({ code }) =>
-        guarded('run_cell', { code }, async () => {
+        tracked(guarded('run_cell', { code }, async () => {
           state.attempts += 1
           deps.onAttempt(code)
           const result = await kernel.execute(code, { store: true, onOutput: deps.onOutput })
@@ -141,7 +149,7 @@ USAGE: pass the whole cell, not a diff. Only the last successful run is kept. Af
           return result.ok
             ? `Ran successfully in ${result.durationMs} ms.\nOutputs:\n${text}\nIf this answers the prompt, call finish. Otherwise fix the code and call run_cell again.`
             : `The cell failed.\n${text}\nFix the code and call run_cell again.`
-        }),
+        })),
     }),
 
     install_packages: tool({
@@ -193,6 +201,8 @@ WHEN NOT TO USE: the prompt asks for a computed result and no run_cell has succe
       }),
       execute: (input) =>
         guarded('finish', input, async () => {
+          // Models that call tools in parallel can send finish alongside run_cell. Judge the run once it's done.
+          await Promise.allSettled([...running])
           // Recover the fields a model wrote into the text instead of passing them
           const leakedInterpretation = splitLeaked(input.interpretation)
           const leakedAnswer = splitLeaked(input.answer)

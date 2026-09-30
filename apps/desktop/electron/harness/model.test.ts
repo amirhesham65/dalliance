@@ -3,7 +3,7 @@ import { agentProviderOptions } from './model'
 
 describe('agentProviderOptions', () => {
   it('turns on thinking, effort and automatic caching for Anthropic models, direct or through the gateway', () => {
-    const expected = { anthropic: { thinking: { type: 'adaptive' }, effort: 'high', cacheControl: { type: 'ephemeral' } } }
+    const expected = { anthropic: { thinking: { type: 'adaptive' }, effort: 'high', cacheControl: { type: 'ephemeral' }, disableParallelToolUse: true } }
     expect(agentProviderOptions({ provider: 'anthropic', model: 'claude-opus-5', effort: 'high' })).toEqual(expected)
     expect(agentProviderOptions({ provider: 'gateway', model: 'anthropic/claude-opus-5', effort: 'high' })).toEqual(expected)
   })

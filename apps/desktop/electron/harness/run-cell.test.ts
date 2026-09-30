@@ -284,6 +284,38 @@ describe('runCell without generation', () => {
   })
 })
 
+describe('parallel tool calls', () => {
+  it('makes finish wait for a run_cell sent in the same step', async () => {
+    const chunks = [
+      { type: 'stream-start' as const, warnings: [] },
+      { type: 'tool-call' as const, toolCallId: 'call-1', toolName: 'run_cell', input: JSON.stringify({ code: 'total = orders.total.sum()\ntotal' }) },
+      { type: 'tool-call' as const, toolCallId: 'call-2', toolName: 'finish', input: JSON.stringify({ interpretation: '', answer: '' }) },
+      { type: 'finish' as const, finishReason: { unified: 'tool-calls' as const, raw: 'tool_use' }, usage },
+    ]
+    const text = [
+      { type: 'stream-start' as const, warnings: [] },
+      { type: 'text-start' as const, id: 't' },
+      { type: 'text-delta' as const, id: 't', delta: 'Stuck.' },
+      { type: 'text-end' as const, id: 't' },
+      { type: 'finish' as const, finishReason: { unified: 'stop' as const, raw: 'end_turn' }, usage },
+    ]
+    let calls = 0
+    // One step with both calls, then plain text, so a refused finish would leave the cell unfinished
+    const model = new MockLanguageModelV4({ doStream: async () => ({ stream: simulateReadableStream({ chunks: (calls++ === 0 ? chunks : text) as never[] }) }) })
+    const kernel = new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '42' }] }))
+    const execute = kernel.execute.bind(kernel)
+    kernel.execute = async (code, options) => {
+      await new Promise((r) => setTimeout(r, 50))
+      return execute(code, options)
+    }
+    const { deps } = harness(model, kernel)
+    const result = await runCell(request(), deps)
+    expect(result).toMatchObject({ ok: true, code: 'total = orders.total.sum()\ntotal', outputs: [{ type: 'text', text: '42' }], error: null })
+    expect(result.activity.map((a) => a.label)).toEqual(['Ran the cell', 'Finished'])
+    expect(calls).toBe(1)
+  })
+})
+
 describe('safety limits', () => {
   it('stops an exploration that runs too long and tells the model why', async () => {
     let interrupted = false
@@ -399,6 +431,8 @@ describe('caching', () => {
     expect(bodies).toHaveLength(2)
     for (const body of bodies) {
       expect(body.cache_control).toEqual({ type: 'ephemeral' })
+      // One tool call per step
+      expect(body.tool_choice).toEqual({ type: 'auto', disable_parallel_tool_use: true })
       expect((body.system as { cache_control?: unknown }[]).at(-1)?.cache_control).toEqual({ type: 'ephemeral' })
     }
     // The second step resends the first step's messages unchanged, so it reads them from the cache

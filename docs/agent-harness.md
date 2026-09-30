@@ -60,6 +60,8 @@ Every tool's description follows the course's format: WHEN TO USE, WHEN NOT TO U
 
 `finish` is the verification gate. It refuses when no code ran and there's no answer, or when the last `run_cell` failed. The refusal goes back to the model as the tool result, and the loop carries on.
 
+A model can ask for several tools in one step, and the AI SDK runs them at the same time. Anthropic models are told not to (see [Models and providers](#models-and-providers)), but other makers may still send `run_cell` and `finish` together. So `finish` first waits for every `run_cell` still executing, and judges the run they leave behind, never the one before.
+
 ### guarded()
 
 Every tool body runs inside `guarded(toolName, input, run)`:
@@ -119,7 +121,7 @@ Two constraints shape the loop.
 
 `resolveModel()` throws `MissingKeyError` without a key. Effort maps per maker:
 
-- Anthropic models, direct or `anthropic/*` on the gateway, get `thinking: { type: 'adaptive' }`, `effort` and the top-level `cacheControl` described in [Context and caching](#context-and-caching).
+- Anthropic models, direct or `anthropic/*` on the gateway, get `thinking: { type: 'adaptive' }`, `effort` and the top-level `cacheControl` described in [Context and caching](#context-and-caching). They also get `disableParallelToolUse: true`, which the provider sends as `tool_choice: { type: 'auto', disable_parallel_tool_use: true }`: one tool call per step, so the loop stays a sequence of run, look, fix.
 - `openai/*` models get `reasoningEffort`. `high`, `xhigh` and `max` all map to `high`.
 - Every other maker runs with its defaults.
 

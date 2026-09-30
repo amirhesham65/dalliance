@@ -47,7 +47,8 @@ export function resolveModel(config: ModelConfig): {
  */
 export function agentProviderOptions(config: Pick<ModelConfig, 'provider' | 'model' | 'effort'>): ToolLoopAgentSettings['providerOptions'] {
   if (config.provider === 'anthropic' || config.model.startsWith('anthropic/')) {
-    return { anthropic: { thinking: { type: 'adaptive' }, effort: config.effort, cacheControl: { type: 'ephemeral' } } }
+    // One tool call per step: finish must never race the run_cell it reports on
+    return { anthropic: { thinking: { type: 'adaptive' }, effort: config.effort, cacheControl: { type: 'ephemeral' }, disableParallelToolUse: true } }
   }
   if (config.model.startsWith('openai/')) {
     return { openai: { reasoningEffort: config.effort === 'low' || config.effort === 'medium' ? config.effort : 'high' } }
