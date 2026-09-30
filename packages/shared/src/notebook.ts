@@ -65,6 +65,26 @@ export interface Correction {
 /** Prompts this short ("Load orders") already read as a title, so they aren't sent to be named. */
 export const MIN_TITLE_PROMPT = 16
 
+/** A JSON object from an .ipynb file. */
+export type JsonObject = Record<string, unknown>
+
+/**
+ * The parts of a Jupyter cell Dalliance doesn't use, carried through unchanged so that opening and
+ * saving someone's notebook loses nothing. Only ipynb.ts reads and writes these.
+ */
+export interface JupyterCell {
+  /** The cell's metadata as found (tags and the rest), minus the fields Dalliance reads from `dalliance`. */
+  metadata?: JsonObject
+  /** Files embedded in a Markdown or raw cell. */
+  attachments?: JsonObject
+  /** The cell was a raw cell. It shows as a note and saves as raw again. */
+  raw?: boolean
+  /** Every output as found, in order, including the ones Dalliance can't show. Kept only when Dalliance would write them differently. */
+  outputs?: JsonObject[]
+  /** A fingerprint of the outputs Dalliance read from `outputs`. When the cell's outputs no longer match it, the cell was rerun and `outputs` is dropped. */
+  outputsFrom?: { executionCount: number | null; hash: string }
+}
+
 export interface PromptCell {
   id: string
   kind: 'prompt'
@@ -95,18 +115,24 @@ export interface PromptCell {
   executionCount: number | null
   state: CellState
   durationMs: number | null
+  /** What Jupyter wrote that Dalliance doesn't use. Absent for cells made in Dalliance. */
+  jupyter?: JupyterCell
 }
 
 export interface NoteCell {
   id: string
   kind: 'note'
   markdown: string
+  /** What Jupyter wrote that Dalliance doesn't use. Absent for cells made in Dalliance. */
+  jupyter?: JupyterCell
 }
 
 export type Cell = PromptCell | NoteCell
 
 export interface Notebook {
   cells: Cell[]
+  /** The file's notebook metadata as found (kernelspec, widget state...), minus `dalliance.version`. Absent for a new notebook. */
+  metadata?: JsonObject
 }
 
 let counter = 0

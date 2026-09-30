@@ -16,6 +16,7 @@
     "lint": "oxlint -c ../../.oxlintrc.json"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
