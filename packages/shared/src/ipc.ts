@@ -81,7 +81,19 @@ export interface SettingsView {
   /** Where the key for the chosen provider comes from: Settings, the app's environment, the user's shell profile, or nowhere. */
   keySource: 'settings' | 'environment' | 'shell' | null
   hasKey: Record<Provider, boolean>
+  /**
+   * Providers whose saved key is there but can't be decrypted, usually because an update changed the app's
+   * keychain identity. The user has to paste it again. Optional so older views and test fixtures still type.
+   */
+  unreadableKeys?: Provider[]
+  /**
+   * How each provider's key is kept: the saved key's form, or for no saved key, how a new one would be saved.
+   * `plain` means settings.json holds it unencrypted because the system has no keychain.
+   */
+  keyStorage?: Record<Provider, KeyStorage>
 }
+
+export type KeyStorage = 'keychain' | 'plain'
 
 export interface SettingsUpdate {
   provider?: Provider
