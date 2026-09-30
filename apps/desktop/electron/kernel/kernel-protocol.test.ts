@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { type ChildProcess, spawn } from 'node:child_process'
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -11,6 +11,7 @@ import { findSystemPython } from './python-env'
 
 const python = await findSystemPython()
 const script = fileURLToPath(new URL('./dalliance_kernel.py', import.meta.url))
+const hasIPython = python !== null && spawnSync(python, ['-c', 'import sys, IPython; sys.exit(IPython.version_info[0] not in (8, 9))'], { stdio: 'ignore' }).status === 0
 
 type Message = { id: string | null; type: string; [key: string]: unknown }
 
@@ -21,8 +22,8 @@ class RawKernel {
   private readonly child: ChildProcess
   private waiters: { test: (m: Message) => boolean; resolve: (m: Message) => void }[] = []
 
-  constructor(cwd: string) {
-    this.child = spawn(python!, ['-u', script], { cwd, env: { ...process.env, MPLBACKEND: 'Agg' }, stdio: ['pipe', 'ignore', 'ignore', 'pipe'] })
+  constructor(cwd: string, env: NodeJS.ProcessEnv = {}) {
+    this.child = spawn(python!, ['-u', script], { cwd, env: { ...process.env, ...env, MPLBACKEND: 'Agg' }, stdio: ['pipe', 'ignore', 'ignore', 'pipe'] })
     createInterface({ input: this.child.stdio[3] as Readable }).on('line', (line) => {
       let msg: Message
       try {
@@ -58,33 +59,45 @@ class RawKernel {
   }
 }
 
-describe.skipIf(!python)('kernel protocol under interrupts', () => {
-  const kernel = new RawKernel(mkdtempSync(path.join(tmpdir(), 'dalliance-protocol-')))
-  beforeAll(() => kernel.next((m) => m.type === 'ready', 20_000), 20_000)
-  afterAll(() => kernel.stop())
+// Both of the script's paths: IPython's InteractiveShell, and plain exec and eval
+const PATHS = [
+  { name: 'IPython', env: { DALLIANCE_KERNEL_NO_IPYTHON: '0' }, skip: !python || !hasIPython },
+  { name: 'plain exec', env: { DALLIANCE_KERNEL_NO_IPYTHON: '1' }, skip: !python },
+]
 
-  const loops = [
-    "while True:\n    print('x' * 100000)",
-    "while True:\n    display('y' * 100000)",
-    "import sys\nwhile True:\n    sys.stderr.write('z' * 70000)\n    print('.', end='')",
-  ]
+for (const { name, env, skip } of PATHS) {
+  describe.skipIf(skip)(`kernel protocol under interrupts (${name})`, () => {
+    let kernel: RawKernel
+    beforeAll(() => {
+      // Started here, not while collecting, so a skipped path leaves no process behind
+      kernel = new RawKernel(mkdtempSync(path.join(tmpdir(), 'dalliance-protocol-')), env)
+      return kernel.next((m) => m.type === 'ready', 20_000)
+    }, 20_000)
+    afterAll(() => kernel.stop())
 
-  it('never tears a line and always finishes the request', async () => {
-    let id = 0
-    for (let round = 0; round < 12; round++) {
-      const rid = String(++id)
-      kernel.send({ id: rid, op: 'execute', code: loops[round % loops.length], store: false })
-      await kernel.next((m) => m.id === rid && m.type === 'output')
-      await new Promise((r) => setTimeout(r, 5 + round * 7))
-      kernel.interrupt()
-      const done = await kernel.next((m) => m.id === rid && m.type === 'done')
-      expect(done.ok).toBe(false)
-    }
-    const last = String(++id)
-    kernel.send({ id: last, op: 'execute', code: '1 + 1', store: false })
-    const done = await kernel.next((m) => m.id === last && m.type === 'done')
-    expect(done.ok).toBe(true)
-    expect(kernel.messages.find((m) => m.id === last && m.type === 'output')).toMatchObject({ output: { type: 'text', text: '2' } })
-    expect(kernel.torn).toEqual([])
-  }, 60_000)
-})
+    const loops = [
+      "while True:\n    print('x' * 100000)",
+      "while True:\n    display('y' * 100000)",
+      "import sys\nwhile True:\n    sys.stderr.write('z' * 70000)\n    print('.', end='')",
+    ]
+
+    it('never tears a line and always finishes the request', async () => {
+      let id = 0
+      for (let round = 0; round < 12; round++) {
+        const rid = String(++id)
+        kernel.send({ id: rid, op: 'execute', code: loops[round % loops.length], store: false })
+        await kernel.next((m) => m.id === rid && m.type === 'output')
+        await new Promise((r) => setTimeout(r, 5 + round * 7))
+        kernel.interrupt()
+        const done = await kernel.next((m) => m.id === rid && m.type === 'done')
+        expect(done.ok).toBe(false)
+      }
+      const last = String(++id)
+      kernel.send({ id: last, op: 'execute', code: '1 + 1', store: false })
+      const done = await kernel.next((m) => m.id === last && m.type === 'done')
+      expect(done.ok).toBe(true)
+      expect(kernel.messages.find((m) => m.id === last && m.type === 'output')).toMatchObject({ output: { type: 'text', text: '2' } })
+      expect(kernel.torn).toEqual([])
+    }, 60_000)
+  })
+}

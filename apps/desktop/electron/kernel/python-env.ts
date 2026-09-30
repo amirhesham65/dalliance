@@ -13,13 +13,24 @@ export const REQUIRED_PACKAGES = ['pandas', 'numpy', 'matplotlib']
 
 /**
  * What the app's own environment installs: the required packages plus the usual research
- * stack, so ordinary statistics work without an install step. A Python the user brings
- * only needs the required ones. The agent installs the rest on demand.
+ * stack, so ordinary statistics work without an install step, and IPython, which the kernel
+ * runs cells through when it's there. A Python the user brings only needs the required ones.
+ * The agent installs the rest on demand.
  */
-export const BASE_PACKAGES = [...REQUIRED_PACKAGES, 'scipy', 'statsmodels', 'seaborn', 'scikit-learn']
+export const BASE_PACKAGES = [...REQUIRED_PACKAGES, 'scipy', 'statsmodels', 'seaborn', 'scikit-learn', 'ipython']
+
+/**
+ * Version ranges pip installs a base package within. The kernel patches IPython internals that
+ * were checked against 8 and 9, and runs cells without it on other versions (IPYTHON_MAJORS in
+ * dalliance_kernel.py).
+ */
+const PIP_SPECS: Record<string, string> = { ipython: 'ipython>=8,<10' }
+
+/** What pip installs for a base package: its name, with a version range if it has one. */
+export const pipSpec = (name: string) => PIP_SPECS[name] ?? name
 
 /** Import names for the base packages whose pip name differs. */
-const IMPORT_NAMES: Record<string, string> = { 'scikit-learn': 'sklearn' }
+const IMPORT_NAMES: Record<string, string> = { 'scikit-learn': 'sklearn', ipython: 'IPython' }
 
 export interface PythonStatus {
   /** The interpreter the kernel will use, or null if none was found. */
@@ -236,7 +247,7 @@ export async function setupManagedEnv(envDir: string, onLog: (line: string) => v
     onLog(`Creating a Python environment with ${system}`)
     await stream(system, ['-m', 'venv', envDir], onLog)
   }
-  await installPackages(python, BASE_PACKAGES, onLog)
+  await installPackages(python, BASE_PACKAGES.map(pipSpec), onLog)
   return python
 }
 
@@ -257,7 +268,7 @@ export async function missingBasePackages(envDir: string, exec: Exec = realExec)
  */
 export async function installMissingBasePackages(envDir: string, onLog: (line: string) => void, exec: Exec = realExec): Promise<string[]> {
   const missing = await missingBasePackages(envDir, exec)
-  if (missing.length) await installPackages(managedPython(envDir), missing, onLog)
+  if (missing.length) await installPackages(managedPython(envDir), missing.map(pipSpec), onLog)
   return missing
 }
 

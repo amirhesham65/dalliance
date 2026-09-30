@@ -1,6 +1,6 @@
 # The Python kernel
 
-Dalliance doesn't use Jupyter's kernel protocol or ZeroMQ. It runs its own small Python script and talks to it over pipes.
+Dalliance doesn't use Jupyter's kernel protocol or ZeroMQ. It runs its own small Python script and talks to it over pipes. When IPython is installed, the script runs cells through IPython's `InteractiveShell`, in process, so magics, top-level `await` and rich display work. See [IPython](#ipython).
 
 | File | Does |
 | --- | --- |
@@ -41,13 +41,13 @@ Requests:
 Replies:
 
 ```json
-{"id": null, "type": "ready", "python": "3.12.4", "executable": "/…/python"}
+{"id": null, "type": "ready", "python": "3.12.4", "executable": "/…/python", "ipython": "9.1.0"}
 {"id": "7", "type": "output", "output": {"type": "table", "...": "..."}}
 {"id": "7", "type": "done", "ok": true, "executionCount": 3, "durationMs": 41, "assigned": [...]}
 {"id": "8", "type": "variables", "variables": [...]}
 ```
 
-`ready` arrives once at startup. An execute sends zero or more `output` messages, then one `done`.
+`ready` arrives once at startup. Its `ipython` is the IPython version cells run through, or `null` on the plain path. An execute sends zero or more `output` messages, then one `done`.
 
 `PythonKernel.request()` chains every request on a promise queue, so they run one at a time in order, like a Jupyter shell channel.
 
@@ -57,7 +57,7 @@ The script's request loop catches any exception per request. A request that fail
 
 ## Executing code
 
-`run(code, store)` in the script works like a notebook cell:
+`run(code, store)` in the script works like a notebook cell. On the plain path, without IPython:
 
 1. Parse the code with `ast`. If the last statement is an expression, pull it out.
 2. `exec` the rest in the shared namespace, then `eval` the last expression.
@@ -66,13 +66,52 @@ The script's request loop catches any exception per request. A request that fail
 5. Emit a note for anything the run's budget dropped. See [Output budgets](#output-budgets).
 6. When `store` is true, compare the namespace to a snapshot by `id()` and report new or rebound names as `assigned`.
 
+With IPython, `run_shell()` replaces steps 1 to 4: `InteractiveShell.run_cell()` runs the code, then figures are collected and the last value is shown, in the same order. Steps 5 and 6 are the same on both paths. See [IPython](#ipython).
+
 `store: true` is a real cell run. It advances the execution count, sets `_`, and reports assigned variables. `store: false` is the agent's `explore`, and does none of those. Both share the same namespace, which is why the system prompt tells the model not to change state in `explore`.
 
-A `display()` function is injected into the namespace for showing values mid-cell.
+A `display()` function is injected into the namespace for showing values mid-cell. With IPython, it passes keyword arguments such as `display_id` on to IPython's `display()`.
 
 `sys.path` starts with `''`, the working directory, and leaves out the folder the script was written to. `import helpers` finds `helpers.py` in the notebook's folder, and still does after `os.chdir()`. Import caches are cleared before each run, so a file written since the last cell imports too.
 
 Variables are described by `describe()`, which reads the value's type, shape and a short `repr`. If that throws for some value, the entry keeps its name and type with an empty shape and detail.
+
+## IPython
+
+At startup `start_ipython()` imports IPython and creates an `InteractiveShell` over the kernel's namespace. It needs IPython 8 or 9, since `configure()` patches internals checked against those two. If IPython is missing, another version, fails to start, or `DALLIANCE_KERNEL_NO_IPYTHON=1` is set, `shell` stays `None` and every cell takes the plain path above, exactly as before IPython support. IPython is in `BASE_PACKAGES`, installed as `ipython>=8,<10`, so the managed environment has it, and `installMissingBasePackages()` adds it to environments made before. A Python the user brings works either way. It adds about 125 ms to the time before `ready`: 400 ms instead of 280 ms, median of seven starts with IPython 9.17 and matplotlib on Linux.
+
+There is no ZeroMQ and no ipykernel. The shell lives inside the script, and every protocol rule above still holds: replies go through the writer thread on fd 3, one request runs at a time, `SIGINT` only raises while `interruptible` is set, and `input()` still refuses.
+
+What IPython adds:
+
+- Magics such as `%time`, `%timeit`, `%pip` and `%%writefile`, and `!cmd` shell commands.
+- Top-level `await`.
+- `display()` and `IPython.display` objects, and anything with `_repr_png_`, `_repr_html_` or `_repr_mimebundle_`. See [Rich outputs](#rich-outputs).
+- A trailing `;` hides the last value.
+- History for cell runs: `_`, `__`, `___`, `_N`, `Out`, `In` and `_i`. The kernel sets `shell.execution_count` before each run, so IPython's numbers match `executionCount`. `store: false` runs with `store_history=False` under the next cell's number without advancing it, and the displayhook skips `_` and `Out`, so `explore` leaves the count and the history alone.
+
+How the shell is set up to fit the kernel:
+
+| IPython part | Replaced with |
+| --- | --- |
+| `DisplayHook` | `Hook`: keeps `_` and `Out` for cell runs only, and holds the value until the run's figures are out |
+| `DisplayPublisher` | `Publisher`: turns each display bundle into outputs within the run's budget, instead of printing it |
+| `display_formatter.format` | Hands tables and matplotlib objects back to the kernel's own outputs, unformatted |
+| `showtraceback`, `showsyntaxerror` | Emit an `error` output with Python's usual traceback. Frames from the kernel and from IPython's package are dropped, and so are event loop frames at the top when a Stop lands in an `await` |
+| `system`, `getoutput` | `run_command()`: the command runs with stdin on `/dev/null`, its output streams as `stdout` and `stderr`, and a Stop sends `SIGINT` to its process group, then `SIGKILL` a second later, then stops the cell |
+| `%matplotlib` | Does nothing. Figures are collected after each run anyway, with the kernel's dark style. `%pylab` raises a `UsageError` |
+| History | In memory only (`hist_file=":memory:"`). IPython 9's copies of every print and every error are turned off, since nothing reads them and they grow without bound |
+
+### Shell commands and the code policy
+
+`!cmd`, `%pip` and `%%bash` run real commands. The harness's code policy (`harness/code-policy.ts`, see [agent-harness.md](agent-harness.md)) reads the agent's code before `explore` and `run_cell` and asks before shell commands: a line starting with `!`, `%pip`, `%conda`, `%%bash` and similar. The kernel refuses the IPython forms the policy doesn't look for, so they can't get past it:
+
+- Automagic is off and IPython's shell aliases are gone, so `pip install x` or `ls` alone is a plain Python line, not a command.
+- `x = !cmd`, and `x = %sx cmd` or any other assignment from `%system`, `%sx`, `%pip`, `%conda` or `%mamba`, raise a `UsageError`. The policy only matches those at the start of a line.
+- `%time`, `%timeit` and `%prun` run their argument as a cell, so `%time !ls` or `%time %sx ls` would hide a command mid-line. While one of them runs, `transform_cell()` raises a `UsageError` for code that calls a shell. The cell forms, `%%time` and the like, are fine: their commands start a line.
+- `UNCHECKED_LINE_MAGICS` and `UNCHECKED_CELL_MAGICS` raise a `UsageError`: `%alias`, `%alias_magic`, `%rehashx`, `%sc`, `%edit`, `%micromamba`, `%uv`, `%pastebin`, `%load`, `%loadpy`, `%pycat`, `%%!`, `%%perl`, `%%ruby`, `%%python` and the like.
+
+A new magic that runs commands needs either a policy rule or a place on those lists.
 
 ## Rich outputs
 
@@ -83,7 +122,12 @@ Variables are described by `describe()`, which reads the value's type, shape and
 | `pandas.DataFrame` | `table` |
 | `pandas.Series` | `table` with one column |
 | A matplotlib object | nothing, figures are collected separately |
-| Anything else | `text` from `repr()`, clipped at 20,000 characters |
+| Anything else, plain path | `text` from `repr()`, clipped at 20,000 characters |
+| Anything else, with IPython | IPython's display bundle, through `bundle_outputs()`: `image/png` becomes an `image`, otherwise `text/plain` becomes `text`, clipped at 20,000 characters |
+
+With IPython, `text/plain` is IPython's pretty repr. When that is only a bare object repr, like `<__main__.Card at 0x10f3>` or `<IPython.core.display.HTML object>`, the text of the bundle's `text/markdown` or `text/html` is used instead, with the tags, scripts and styles stripped. Other types, such as SVG, JPEG, LaTeX and JavaScript, are ignored: the `Output` type has no place for them. A displayed PNG counts against the same 20 image limit as figures, and one over 4,000 pixels on a side is replaced by a note.
+
+The renderer never sees HTML. Showing it would need a new `Output` variant in `packages/shared` and a sandboxed view in the renderer.
 
 ### Tables and column profiles
 
@@ -111,12 +155,12 @@ Each execute gets a fresh `Budget`, so one cell can't flood the app or the agent
 | `MAX_DISPLAYS` | 100 values from `display()` and the last expression | The rest are dropped, with one note at the end of the run |
 | `MAX_TABLE_COLUMNS` | 50 columns per table | See [Tables](#tables-and-column-profiles) |
 | `MAX_CELL_TEXT` | 1,000 characters per table cell or header | Clipped |
-| `MAX_IMAGES` | 20 figures | The rest are closed unsaved, with one note |
+| `MAX_IMAGES` | 20 images: figures, and PNGs shown with `display()` or as the last value | The rest are closed unsaved or dropped, with one note |
 | `MAX_FIGURE_SIDE` | 4,000 pixels on a side | See [Figures](#figures) |
 
 Notes don't count against the budget. The `Output` type in `packages/shared` has no field for them, so a note is an ordinary stderr stream.
 
-`python-kernel.test.ts` covers each limit and the interrupt escalation below. `kernel-protocol.test.ts` drives the script over raw pipes, interrupts printing loops again and again, and checks that every line parses and every request gets its `done`.
+`python-kernel.test.ts` covers each limit and the interrupt escalation below. `kernel-protocol.test.ts` drives the script over raw pipes, interrupts printing loops again and again, and checks that every line parses and every request gets its `done`. Both files run these suites twice, through IPython and on the plain path with `DALLIANCE_KERNEL_NO_IPYTHON=1`, and `python-kernel.test.ts` adds one suite for what only IPython does. The IPython runs are skipped when the test machine's Python lacks IPython 8 or 9. CI installs it.
 
 ## Lifecycle
 
@@ -146,7 +190,7 @@ On a Mac, an app started from the Dock gets a `PATH` like `/usr/bin:/bin`, where
 
 It also reports which of `pandas`, `numpy` and `matplotlib` are missing. The renderer shows a banner when any are.
 
-`setupManagedEnv()` creates the venv with the system Python if needed, then pip-installs `BASE_PACKAGES` (the three above plus SciPy, statsmodels, seaborn and scikit-learn), streaming lines to the renderer over `python-log`. Changing `pythonPath` in Settings restarts the kernel.
+`setupManagedEnv()` creates the venv with the system Python if needed, then pip-installs `BASE_PACKAGES` (the three above plus SciPy, statsmodels, seaborn, scikit-learn and IPython), streaming lines to the renderer over `python-log`. Changing `pythonPath` in Settings restarts the kernel.
 
 Environments made before `BASE_PACKAGES` grew only have the three required packages. `missingBasePackages(envDir)` reports which base packages the managed environment lacks, as pip names, and `installMissingBasePackages(envDir, onLog)` installs just those and resolves with their names. Both do nothing when there's no managed environment. `NotebookSession` calls `installMissingBasePackages()` the first time a kernel starts on the managed environment in each app session, without waiting for it, and sends its lines over `python-log`. A failure is ignored, so the packages just stay missing.
 
