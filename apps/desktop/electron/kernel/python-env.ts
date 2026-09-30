@@ -13,13 +13,14 @@ export const REQUIRED_PACKAGES = ['pandas', 'numpy', 'matplotlib']
 
 /**
  * What the app's own environment installs: the required packages plus the usual research
- * stack, so ordinary statistics work without an install step. A Python the user brings
- * only needs the required ones. The agent installs the rest on demand.
+ * stack, so ordinary statistics work without an install step, and IPython, which the kernel
+ * runs cells through when it's there. A Python the user brings only needs the required ones.
+ * The agent installs the rest on demand.
  */
-export const BASE_PACKAGES = [...REQUIRED_PACKAGES, 'scipy', 'statsmodels', 'seaborn', 'scikit-learn']
+export const BASE_PACKAGES = [...REQUIRED_PACKAGES, 'scipy', 'statsmodels', 'seaborn', 'scikit-learn', 'ipython']
 
 /** Import names for the base packages whose pip name differs. */
-const IMPORT_NAMES: Record<string, string> = { 'scikit-learn': 'sklearn' }
+const IMPORT_NAMES: Record<string, string> = { 'scikit-learn': 'sklearn', ipython: 'IPython' }
 
 export interface PythonStatus {
   /** The interpreter the kernel will use, or null if none was found. */

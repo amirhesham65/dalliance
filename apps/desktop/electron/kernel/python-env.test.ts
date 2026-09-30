@@ -191,6 +191,12 @@ describe('missing base packages in the managed environment', () => {
     expect(probes[0][2]).toContain('"sklearn"')
   })
 
+  it('maps IPython back to ipython', async () => {
+    const { envDir, exec, probes } = envWith(['IPython'])
+    expect(await missingBasePackages(envDir, exec)).toEqual(['ipython'])
+    expect(probes[0][2]).toContain('"IPython"')
+  })
+
   it('installs only what is missing into the managed environment', async () => {
     const { envDir, exec } = envWith(['sklearn', 'seaborn'])
     const log: string[] = []
@@ -216,9 +222,9 @@ describe('missing base packages in the managed environment', () => {
 })
 
 describe('package lists', () => {
-  it('installs the research stack in the managed environment but only requires the core three', () => {
+  it('installs the research stack and IPython in the managed environment but only requires the core three', () => {
     expect(REQUIRED_PACKAGES).toEqual(['pandas', 'numpy', 'matplotlib'])
-    expect(BASE_PACKAGES).toEqual(expect.arrayContaining([...REQUIRED_PACKAGES, 'scipy', 'statsmodels', 'seaborn', 'scikit-learn']))
+    expect(BASE_PACKAGES).toEqual(expect.arrayContaining([...REQUIRED_PACKAGES, 'scipy', 'statsmodels', 'seaborn', 'scikit-learn', 'ipython']))
     expect(BASE_PACKAGES.every(isPackageSpec)).toBe(true)
   })
 })
