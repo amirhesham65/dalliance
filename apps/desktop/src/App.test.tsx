@@ -519,6 +519,31 @@ describe('switching notebooks', () => {
   })
 })
 
+describe('narrow windows', () => {
+  it('opens a side pane over the notebook, and Esc or a click outside closes it', async () => {
+    const user = userEvent.setup()
+    const matchMedia = window.matchMedia
+    window.matchMedia = ((query: string) => ({ ...matchMedia(query), matches: query === '(max-width: 1199px)' })) as typeof window.matchMedia
+    try {
+      setApi(fakeApi(() => result()).api)
+      render(<App />)
+      await user.click(screen.getByRole('button', { name: /^Variables/ }))
+      expect(screen.getByRole('region', { name: 'Variables' })).toBeInTheDocument()
+      await user.keyboard('{Escape}')
+      expect(screen.queryByRole('region', { name: 'Variables' })).not.toBeInTheDocument()
+      // Focus goes back to the button that opened it
+      expect(screen.getByRole('button', { name: /^Variables/ })).toHaveFocus()
+
+      await user.click(screen.getByRole('button', { name: /^Variables/ }))
+      await user.click(screen.getByTestId('pane-scrim'))
+      expect(screen.queryByRole('region', { name: 'Variables' })).not.toBeInTheDocument()
+      expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeInTheDocument()
+    } finally {
+      window.matchMedia = matchMedia
+    }
+  })
+})
+
 describe('undo and redo', () => {
   it('undoes and redoes a delete and a move with Cmd+Z and Shift+Cmd+Z in command mode', async () => {
     const user = userEvent.setup()

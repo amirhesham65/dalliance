@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { Sidebar } from '@/components/app/Sidebar'
 import { TopBar } from '@/components/app/TopBar'
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { SidebarProvider, useSidebar } from '@/components/ui/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { useMediaQuery } from '@/hooks/use-media-query'
 import { useDefaultLayout } from 'react-resizable-panels'
 import type { MenuAction } from '@dalliance/shared/ipc'
 import { PANE_ORDER, actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
@@ -224,16 +225,21 @@ function writeStored(key: string, value: string) {
 
 const layoutStorage = { getItem: readStored, setItem: writeStored }
 
+/** Below this window width a side pane floats over the notebook instead of taking a column from it. */
+const NARROW_WINDOW = '(max-width: 1199px)'
+
 /**
  * The overview, the open side pane and the notebook, left to right, with draggable gaps between them.
  * The overview sits in its own group, so opening or closing a side pane never changes its width.
  * Cmd+B hides the overview and the side pane together, leaving the notebook.
+ * In a narrow window the side pane opens over the notebook, so the notebook keeps its width.
  */
 function Workspace() {
   const { open, openMobile, isMobile } = useSidebar()
   const pane = useNotebook((s) => s.pane)
+  const narrow = useMediaQuery(NARROW_WINDOW)
   const visible = isMobile ? openMobile : open
-  const docked = visible && pane != null
+  const docked = visible && pane != null && !narrow
   const outer = useDefaultLayout({ id: 'dalliance-overview', panelIds: visible ? ['overview', 'main'] : ['main'], storage: layoutStorage })
   const inner = useDefaultLayout({ id: 'dalliance-panes', panelIds: docked ? ['side', 'notebook'] : ['notebook'], storage: layoutStorage })
   return (
@@ -248,7 +254,7 @@ function Workspace() {
           <Gap />
         </>
       )}
-      <ResizablePanel id="main" minSize={360} className="flex">
+      <ResizablePanel id="main" minSize={360} className="relative flex">
         <ResizablePanelGroup orientation="horizontal" defaultLayout={inner.defaultLayout} onLayoutChanged={inner.onLayoutChanged}>
           {docked && (
             <>
@@ -262,8 +268,53 @@ function Workspace() {
             <NotebookView />
           </ResizablePanel>
         </ResizablePanelGroup>
+        {visible && pane != null && narrow && <PaneOverlay />}
       </ResizablePanel>
     </ResizablePanelGroup>
+  )
+}
+
+/**
+ * The side pane over the notebook's left edge, for windows too narrow for both. Esc or a click on the
+ * notebook closes it. Closed from the keyboard, focus goes back where it was; closed by a click, it stays
+ * with the notebook so command mode works there at once.
+ */
+function PaneOverlay() {
+  const ref = useRef<HTMLDivElement>(null)
+  const clickedAway = useRef(false)
+  useEffect(() => {
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const box = ref.current
+    if (box && !box.contains(document.activeElement)) box.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || useNotebook.getState().settingsPage) return
+      // A field, menu or dialog takes Esc for itself first
+      if ((e.target as HTMLElement).closest('input, textarea, [contenteditable="true"], [role="dialog"], [role="listbox"], [role="menu"]')) return
+      e.preventDefault()
+      actions.openPane(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      if (clickedAway.current || !returnTo?.isConnected) return
+      if (!document.activeElement || document.activeElement === document.body) returnTo.focus()
+    }
+  }, [])
+  return (
+    <>
+      <div
+        aria-hidden="true"
+        data-testid="pane-scrim"
+        className="absolute inset-0 z-20 rounded-xl bg-black/10 dark:bg-black/30"
+        onMouseDown={() => {
+          clickedAway.current = true
+          actions.openPane(null)
+        }}
+      />
+      <div ref={ref} tabIndex={-1} className="absolute inset-y-0 left-0 z-30 flex w-[min(400px,calc(100%-48px))] rounded-xl shadow-2xl outline-none">
+        <SidePane />
+      </div>
+    </>
   )
 }
 
