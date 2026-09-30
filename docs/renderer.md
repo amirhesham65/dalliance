@@ -186,7 +186,7 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 | Section | Component | Holds |
 | --- | --- | --- |
 | Models | `ModelSettings` | Provider, key, model id, effort |
-| Agent | `AgentSettings` | Package installs, cell names |
+| Agent | `AgentSettings` | Approvals (package installs, shell and network code), cell names |
 | Python | `PythonSettings` | The managed environment and a Python path |
 
 It sits over the area under the top bar with the screen below still mounted and `inert`, so the setup's step, the notebook's scroll and the resizable columns come back as they were. Command mode and the Cmd+number keys stay off while it's up. Esc goes back, unless a select or menu is open, or a text field has focus, which it leaves instead.

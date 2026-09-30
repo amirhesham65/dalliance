@@ -370,6 +370,12 @@ describe('question cells', () => {
     await user.click(screen.getByRole('tab', { name: 'Python' }))
     expect(screen.getByRole('button', { name: 'Set up' })).toBeInTheDocument()
 
+    // One approval setting covers installs and shell or network code
+    await user.click(screen.getByRole('tab', { name: 'Agent' }))
+    expect(screen.getByRole('combobox', { name: 'Approvals' })).toBeInTheDocument()
+    expect(screen.getByText(/runs shell commands or uses the network/)).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Python' }))
+
     // Notebook keys stay off while Settings is up
     const cells = screen.getAllByRole('article', { hidden: true }).length
     await user.keyboard('b')
