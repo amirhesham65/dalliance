@@ -545,6 +545,13 @@ describe('narrow windows', () => {
 })
 
 describe('undo and redo', () => {
+  // One clock for the whole block: every Undo looks simultaneous with the one before, as on a fast machine, so
+  // state left over from an earlier test would swallow the next menu Undo here, not only in CI
+  beforeEach(() => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000)
+    onTestFinished(() => now.mockRestore())
+  })
+
   it('undoes and redoes a delete and a move with Cmd+Z and Shift+Cmd+Z in command mode', async () => {
     const user = userEvent.setup()
     setApi(fakeApi(() => result()).api)

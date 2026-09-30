@@ -383,6 +383,8 @@ function editFromMenu(which: 'undo' | 'redo') {
 function useCommandMode() {
   useEffect(() => {
     let lastD = 0
+    // A new window starts with no recent edit, so an Undo left over from the last one can't swallow the first
+    lastEdit = null
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
       if (e.defaultPrevented) return
