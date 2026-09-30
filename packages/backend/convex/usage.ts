@@ -1,6 +1,6 @@
 import { v } from 'convex/values'
 import { internal } from './_generated/api'
-import { type QueryCtx, httpAction, internalMutation, internalQuery } from './_generated/server'
+import { type QueryCtx, httpAction, internalMutation, internalQuery, query } from './_generated/server'
 import { authComponent, fromWebsite } from './auth'
 import { polar } from './billing'
 
@@ -96,6 +96,32 @@ export const record = internalMutation({
       .unique()
     if (row) await ctx.db.patch(row._id, { costMicros: row.costMicros + costMicros })
     else await ctx.db.insert('spend', { userId, periodStart, costMicros })
+  },
+})
+
+/** More than a run of the app ever makes: 24 agent steps and a title. */
+export const MAX_CREDIT_IDS = 100
+
+/**
+ * What some of the signed-in user's calls cost, in credits, for the app's Show costs setting. The app sends the
+ * generation ids of one run. A row lands a few seconds after its call ends, so an id without one is left out and
+ * the app keeps counting; the query is live, so the answer grows as rows land. Rows of other users are left out
+ * too, whatever ids are sent. Null when signed out.
+ */
+export const credits = query({
+  args: { generationIds: v.array(v.string()) },
+  handler: async (ctx, { generationIds }) => {
+    const user = await authComponent.safeGetAuthUser(ctx)
+    if (!user) return null
+    const found: { generationId: string; credits: number }[] = []
+    for (const generationId of new Set(generationIds.slice(0, MAX_CREDIT_IDS))) {
+      const row = await ctx.db
+        .query('usage')
+        .withIndex('by_generation', (q) => q.eq('generationId', generationId))
+        .unique()
+      if (row && row.userId === user._id) found.push({ generationId, credits: toCredits(row.costMicros) })
+    }
+    return found
   },
 })
 

@@ -7,10 +7,10 @@ The plan is what runs the models. It includes a number of credits each billing p
 | Piece | Code | Does |
 | --- | --- | --- |
 | Convex backend | `backend/convex/billing.ts` | The plans on offer, the user's subscription, checkout and the billing portal. Polar's webhooks land in `http.ts` |
-| Usage ledger | `backend/convex/usage.ts`, `schema.ts` | The credit check before each model call, and what each call cost |
+| Usage ledger | `backend/convex/usage.ts`, `schema.ts` | The credit check before each model call, what each call cost, and the credits of a run for the app |
 | Model proxy | `web/src/app/api/ai/[...path]/route.ts` | Checks the plan, calls the gateway on Dalliance's key, records the cost |
 | Zero data retention | `web/src/lib/zdr.ts` | Which models qualify, and the flag every call carries |
-| Desktop app | The Cloud client in [the app repo](https://github.com/amirhesham65/dalliance) | A Convex client in the main process that follows the plan, and opens checkout and the portal in the browser. Settings shows the plan and its credits |
+| Desktop app | The Cloud client in [the app repo](https://github.com/amirhesham65/dalliance) | A Convex client in the main process that follows the plan, and opens checkout and the portal in the browser. Settings shows the plan and its credits, and with Show costs on the Activity pane shows each run's |
 | Cloud site | `web/src/app/billing/done/` | Where Polar sends the browser after checkout or the portal |
 
 ## Subscribing
@@ -67,10 +67,19 @@ sequenceDiagram
 3. It refuses a model that doesn't qualify for zero data retention, sets the gateway's `zeroDataRetention` flag on the call, and sends it to `ai-gateway.vercel.sh/v4/ai/…` with Dalliance's key. It streams the answer back while keeping a copy. The model list comes back with only the qualifying models in it. See [Zero data retention](#zero-data-retention).
 4. After the response, in `after()`, it finds the generation id in the copy and asks the gateway's `GET /v1/generation` for its `total_cost`. That record lands a few seconds after the call ends, so it retries on 404 for up to 30 seconds. Then it posts the cost to `/gateway/report`.
 5. `usage:record` adds a row to `usage`, keyed by generation id so a repeat can't bill twice, and adds the cost to the user's `spend` row for the period. `billing:status` returns it, so Settings > Plan shows it live.
+6. With Show costs on, the app asks `usage:credits` for the generation ids of each run it just made, and shows "counting" until every row has landed. The query is live, so each row reaches the app as it's recorded. See [Credits per run](#credits-per-run).
 
 Users see credits, and the ledger keeps dollars. Each call's cost is stored exactly, in millionths of a dollar, as the gateway reported it. `CREDITS_PER_USD` on the deployment says how many credits a dollar of that cost uses, 100 unless set, so a credit is a cent of model use. A plan's credits per billing period are `POLAR_<PLAN>_CREDITS`, per plan key. Changing the rate reprices usage from then on, including what's already been spent this period, because the conversion happens when the totals are read. A period is the subscription's `currentPeriodStart`, so the total starts again when Polar renews it.
 
 Refusals come back in the gateway's error shape with the type `dalliance_account`, so the AI SDK shows the message as written. `authentication_error` would be replaced with the SDK's own text about API keys. Running out of credits is a 402, not a 429, because a 429 is retried and waiting won't help.
+
+## Credits per run
+
+The app has a Show costs setting, off by default. On Dalliance Cloud it shows the credits each cell run used, never dollars, and a running total for the notebook.
+
+The app knows each call's generation id: the gateway puts it in the call's provider metadata, which the proxy passes through. It subscribes to `usage:credits` with a run's ids and stops once every id has a row, or after 90 seconds. That's longer than the proxy's 30 seconds of retries for the cost, so a row that never comes means the call wasn't billed.
+
+`usage:credits` reads the user from the Convex JWT and returns only that user's rows, whatever ids are sent, so one user can't see what another's calls cost. It takes at most 100 ids, more than a run makes. Credits come from `toCredits()` at the current `CREDITS_PER_USD`, like the period's total.
 
 ## Zero data retention
 
@@ -94,7 +103,7 @@ Zero data retention is not a HIPAA business associate agreement.
 - **The app never picks a product or a destination.** `billing:checkout` takes a plan key, validated as a literal, and maps it to a product id from the deployment's environment. The success URL is built from `SITE_URL` on the server. The component's own `api()`, which takes product ids and URLs from the caller, isn't exported.
 - **Only a verified email can reach a Polar customer.** Polar links a new customer to an existing one with the same email, and so to that customer's portal. `billingUser()` refuses unverified emails when `POLAR_SERVER` is `production`. GitHub and Google sign-in give verified emails. Sandbox allows unverified ones, so the local password sign-in can test checkout.
 - **Subscriptions only come from Polar.** Nothing the app sends can write one. Webhooks with a bad signature get 403, and with `POLAR_WEBHOOK_SECRET` unset every webhook fails.
-- **Each user sees only their own plan.** `billing:status` and `billing:portal` read the user from the Convex JWT, never from arguments. `syncProducts` is internal, so only the CLI or the dashboard can run it.
+- **Each user sees only their own plan and usage.** `billing:status`, `billing:portal` and `usage:credits` read the user from the Convex JWT, never from arguments. `syncProducts` is internal, so only the CLI or the dashboard can run it.
 - **The Convex token stays in the main process**, like the session.
 - **Dalliance's gateway key only lives on the cloud site.** The proxy forwards only the request's content type, user agent, protocol version and `ai-language-model-*` headers, never the caller's cookies or token, and passes back no `set-cookie`.
 - **Convex decides who pays.** The proxy bills the `userId` that `/gateway/authorize` returned for that JWT, never anything the app sent. `/gateway/authorize` and `/gateway/report` answer 404 without `AUTH_PROXY_SECRET`, so only the cloud site can ask or report. A JWT that Convex can't validate counts as signed out.

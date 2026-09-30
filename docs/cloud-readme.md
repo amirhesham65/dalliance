@@ -55,5 +55,6 @@ Refusals from `/api/ai` use the gateway's error shape with `type: "dalliance_acc
 | `billing:status` | query | The signed-in user's subscription and credits this period |
 | `billing:checkout({ plan })` | action | A Polar checkout URL |
 | `billing:portal` | action | A Polar customer portal URL |
+| `usage:credits({ generationIds })` | query | The credits each of the signed-in user's calls used, for the ids that have a ledger row yet, as `{ generationId, credits }[]`. Null when signed out. At most 100 ids are looked up |
 
 **Shared constants**: the scheme `io.dalliance.app`, and the Better Auth and `@better-auth/electron` versions, which must match the app's.
