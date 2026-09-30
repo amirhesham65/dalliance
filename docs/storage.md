@@ -8,7 +8,7 @@ On macOS this is `~/Library/Application Support/Dalliance/`. The code gets it wi
 
 | Path | Written by | Holds |
 | --- | --- | --- |
-| `settings.json` | `SettingsStore`, `electron/settings.ts` | Provider, model, effort, Python path, approval mode, titles on or off, onboarded, encrypted keys, recent notebooks. Mode `0600` |
+| `settings.json` | `SettingsStore`, `electron/settings.ts` | Provider, model, effort, Python path, approval mode, titles on or off, suggested next prompts on or off, onboarded, encrypted keys, recent notebooks. Mode `0600` |
 | `session.json` | `DraftStore`, `electron/draft.ts` | The open notebook's path, whether it's dirty, and its contents when dirty |
 | `logs/agent.jsonl` | The logging extension in `electron/session.ts` | One line per `run_start`, `tool_call`, `tool_result` and `run_end`, strings clipped to 2,000 characters |
 | `python-env/` | `setupManagedEnv()`, `electron/kernel/python-env.ts` | The managed virtual environment |

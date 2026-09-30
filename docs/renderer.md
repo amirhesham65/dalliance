@@ -130,7 +130,7 @@ Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the bu
 4. A message for non-Python errors.
 5. Result and Code tabs. A question answered in words shows only the answer, without tabs.
 
-Under Result: the answer, the outputs, the variables the run created, and suggestions. Suggestions show only on the cell that just finished or the selected one.
+Under Result: the answer, the outputs, the variables the run created, and suggestions. Suggestions show only on the cell that just finished or the selected one, and not at all when `settings.suggestNext` is off, including ones a cell saved earlier.
 
 `HighlightedEditor` is a transparent `<textarea>` over a mirror that renders the highlighting. The two share one box so the caret lines up. With `indent`, Tab and Shift+Tab indent lines through `execCommand` so Undo still works.
 
@@ -186,7 +186,7 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 | Section | Component | Holds |
 | --- | --- | --- |
 | Models | `ModelSettings` | Provider, key, model id, effort |
-| Agent | `AgentSettings` | Package installs, cell names |
+| Agent | `AgentSettings` | Package installs, cell names, suggested next prompts |
 | Python | `PythonSettings` | The managed environment and a Python path |
 
 It sits over the area under the top bar with the screen below still mounted and `inert`, so the setup's step, the notebook's scroll and the resizable columns come back as they were. Command mode and the Cmd+number keys stay off while it's up. Esc goes back, unless a select or menu is open, or a text field has focus, which it leaves instead.
