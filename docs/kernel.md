@@ -124,7 +124,7 @@ Notes don't count against the budget. The `Output` type in `packages/shared` has
 
 - `warmUp()` starts it in the background at launch and after every restart.
 - `ensureKernel()` starts it on demand and shares one start promise between concurrent callers.
-- `openWorkspace(dir)` restarts it in the new notebook's folder. New and opened notebooks always get a fresh kernel.
+- `openWorkspace(dir)` restarts it in the new notebook's folder and remembers the folder. New and opened notebooks always get a fresh kernel.
 - `moveWorkspace(dir)` runs `os.chdir()` in the live kernel after Save As into another folder, so variables survive.
 - `restart()` bumps a generation counter, shuts the kernel down and warms up a new one. A kernel that was still starting when the restart came is discarded once it's up: it belongs to an older generation and may be in the old folder, so `ensureKernel()` shuts it down and hands its waiters the current one.
 - `interrupt()` sends `SIGINT`, but only while the kernel is busy. The script ignores an interrupt that lands between requests.

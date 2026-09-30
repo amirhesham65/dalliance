@@ -262,6 +262,73 @@ describe('question cells', () => {
     expect(screen.getByRole('list', { name: 'Run log' })).toHaveTextContent('Wrote “Plot revenue by month”')
   })
 
+  it('renames the notebook from its name at the top of the overview', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    const calls: unknown[][] = []
+    api.renameNotebook = async (current, name) => {
+      calls.push([current, name])
+      return { path: `/work/${name}.ipynb`, saved: false }
+    }
+    setApi(api)
+    actions.load({ cells: [newPromptCell('Total sales')] }, '/work/Untitled.ipynb')
+    render(<App />)
+
+    // Only the heading of the overview renames. The tab in the top bar keeps opening the recent notebooks
+    expect(screen.getAllByRole('button', { name: /Notebook name/ })).toHaveLength(1)
+    await user.click(screen.getByRole('button', { name: /Notebook name: Untitled/ }))
+    const field = screen.getByRole('textbox', { name: 'Notebook name' })
+    expect(field).toHaveValue('Untitled')
+    await user.clear(field)
+    await user.type(field, 'Survival readout.ipynb{Enter}')
+
+    expect(calls).toEqual([['/work/Untitled.ipynb', 'Survival readout']])
+    expect(await screen.findByRole('button', { name: /Notebook name: Survival readout/ })).toBeInTheDocument()
+    expect(useNotebook.getState().path).toBe('/work/Survival readout.ipynb')
+  })
+
+  it('keeps the name field open with the reason when a name is refused, and Esc puts the old name back', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    api.renameNotebook = async (_c, name) => ({ error: `There is already a notebook called "${name}" in this folder.` })
+    setApi(api)
+    actions.load({ cells: [newPromptCell('Total sales')] }, '/work/Untitled.ipynb')
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Notebook name: Untitled/ }))
+    await user.clear(screen.getByRole('textbox', { name: 'Notebook name' }))
+    await user.type(screen.getByRole('textbox', { name: 'Notebook name' }), 'Taken{Enter}')
+    expect(await screen.findByRole('alert')).toHaveTextContent('There is already a notebook called "Taken"')
+    expect(screen.getByRole('textbox', { name: 'Notebook name' })).toHaveValue('Taken')
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('textbox', { name: 'Notebook name' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Notebook name: Untitled/ })).toBeInTheDocument()
+    expect(useNotebook.getState().path).toBe('/work/Untitled.ipynb')
+  })
+
+  it('shows an error when the rename call itself fails, and names an unsaved notebook by writing it', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    let fail = true
+    api.renameNotebook = async (current, name) => {
+      if (fail) throw new Error('ipc closed')
+      return { path: `/work/${name}.ipynb`, saved: current == null }
+    }
+    setApi(api)
+    actions.load({ cells: [newPromptCell('Total sales')] }, null)
+    useNotebook.setState({ dirty: true })
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Notebook name: Untitled/ }))
+    await user.type(screen.getByRole('textbox', { name: 'Notebook name' }), '{Control>}a{/Control}Trials{Enter}')
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't rename the notebook: ipc closed")
+
+    fail = false
+    await user.type(screen.getByRole('textbox', { name: 'Notebook name' }), '{Enter}')
+    await vi.waitFor(() => expect(useNotebook.getState()).toMatchObject({ path: '/work/Trials.ipynb', dirty: false }))
+  })
+
   it('keeps earlier versions of a cell and restores one', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi((req) => result({ code: req.prompt === 'Total sales' ? 'orders.total.sum()' : 'orders.total.mean()' }))

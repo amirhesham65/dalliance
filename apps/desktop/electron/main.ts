@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
-import { type DraftState, IPC, type MenuAction, type OpenedNotebook, type Provider, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '@dalliance/shared/ipc'
+import { type DraftState, IPC, type MenuAction, type OpenedNotebook, type Provider, type RenameResult, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '@dalliance/shared/ipc'
 import { fromIpynb, toIpynb } from '@dalliance/shared/ipynb'
 import type { Notebook } from '@dalliance/shared/notebook'
 import { writeFileAtomic } from './atomic-write'
@@ -10,6 +10,7 @@ import { checkKey, listModels } from './harness/model'
 import { DraftStore } from './draft'
 import { type AppPage, isTrustedSender } from './ipc-sender'
 import { buildMenu } from './menu'
+import { newNotebookPath, notebookPathIn, renameNotebookFile } from './notebook-files'
 import { OpenQueue, notebookFromArgv } from './open-files'
 import { NotebookSession } from './session'
 import { ENV_KEYS, SettingsStore } from './settings'
@@ -71,6 +72,30 @@ async function openFile(file: string): Promise<OpenedNotebook> {
   await session.openWorkspace(path.dirname(file))
   drafts.update({ path: file, dirty: false, notebook })
   return { path: file, notebook }
+}
+
+const ipynbText = (notebook: Notebook) => `${JSON.stringify(toIpynb(notebook), null, 1)}\n`
+
+/**
+ * A new notebook is a file from the start, in the folder it was made for, with a fresh kernel there. When the folder
+ * can't be written to, the reason is shown in a dialog and the result is null, so the window stays as it was.
+ */
+async function createNotebook(dir: string, notebook: Notebook): Promise<OpenedNotebook | null> {
+  try {
+    // The folder may have been moved or deleted since it was chosen
+    await mkdir(dir, { recursive: true })
+    const file = newNotebookPath(dir)
+    await writeFile(file, ipynbText(notebook))
+    app.addRecentDocument(file)
+    settings.addRecent(file)
+    await session.openWorkspace(dir)
+    drafts.update({ path: file, dirty: false, notebook })
+    return { path: file, notebook }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message.split('\n')[0] : String(err)
+    if (win) await dialog.showMessageBox(win, { type: 'error', message: "Couldn't create a notebook here", detail: `${dir}\n${detail}` })
+    return null
+  }
 }
 
 function createWindow() {
@@ -234,11 +259,27 @@ function registerIpc() {
     }
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
       title: 'Open notebook',
+      defaultPath: session.dir,
       filters: [{ name: 'Notebooks', extensions: ['ipynb'] }],
       properties: ['openFile'],
     })
     if (canceled || !filePaths[0]) return null
     return openFile(filePaths[0])
+  })
+
+  handle(IPC.newNotebook, (_e, notebook: Notebook) => createNotebook(session.dir, notebook))
+
+  handle(IPC.openFolder, async (_e, notebook: Notebook) => {
+    if (!win) return null
+    // On macOS the dialog's New Folder button makes a folder and picks it in one go
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Choose a folder for your notebooks',
+      buttonLabel: 'Use folder',
+      defaultPath: session.dir,
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    if (canceled || !filePaths[0]) return null
+    return createNotebook(filePaths[0], notebook)
   })
 
   handle(IPC.openRecent, async (_e, file: string) => {
@@ -267,14 +308,14 @@ function registerIpc() {
       if (!file) {
         const { canceled, filePath } = await dialog.showSaveDialog(win, {
           title: 'Save notebook',
-          defaultPath: path.join(defaultWorkspace, 'Untitled.ipynb'),
+          defaultPath: path.join(session.dir, 'Untitled.ipynb'),
           filters: [{ name: 'Notebooks', extensions: ['ipynb'] }],
         })
         if (canceled || !filePath) return null
         file = filePath.endsWith('.ipynb') ? filePath : `${filePath}.ipynb`
       }
       // A crash or a full disk mid-save leaves the old file, never a truncated one
-      await writeFileAtomic(file, `${JSON.stringify(toIpynb(notebook), null, 1)}\n`)
+      await writeFileAtomic(file, ipynbText(notebook))
       app.addRecentDocument(file)
       settings.addRecent(file)
       // Record the save now: the window may close before the renderer reports it
@@ -289,6 +330,37 @@ function registerIpc() {
     } finally {
       // Whether the save landed, was cancelled or failed, a later ordinary Save must not close the window
       allowCloseAfterSave = false
+    }
+  })
+
+  handle(IPC.renameNotebook, async (_e, current: string | null, name: string, notebook: Notebook): Promise<RenameResult> => {
+    try {
+      if (current) {
+        const renamed = await renameNotebookFile(current, name)
+        if ('error' in renamed) return renamed
+        if (renamed.path !== current) {
+          settings.removeRecent(current)
+          settings.addRecent(renamed.path)
+          app.addRecentDocument(renamed.path)
+          // The draft keeps the edits as they are: a rename doesn't save them
+          drafts.update({ path: renamed.path, dirty: documentState.dirty, notebook })
+          documentState = { ...documentState, path: renamed.path }
+          updateTitle()
+        }
+        return { path: renamed.path, saved: false }
+      }
+      // A notebook that was never a file is written under its new name, in the folder in use
+      await mkdir(session.dir, { recursive: true })
+      const target = notebookPathIn(session.dir, name)
+      if ('error' in target) return target
+      await writeFile(target.path, ipynbText(notebook))
+      app.addRecentDocument(target.path)
+      settings.addRecent(target.path)
+      drafts.update({ path: target.path, dirty: false, notebook })
+      drafts.flush()
+      return { path: target.path, saved: true }
+    } catch (err) {
+      return { error: `Couldn't rename the notebook: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}` }
     }
   })
 

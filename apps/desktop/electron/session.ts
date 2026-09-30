@@ -45,7 +45,7 @@ export class NotebookSession {
 
   constructor(options: SessionOptions) {
     this.options = options
-    this.workspace = options.defaultWorkspace
+    this.workspace = options.settings.workspaceDir ?? options.defaultWorkspace
     this.lastKernelState = { status: 'dead', python: null, cwd: this.workspace, error: null }
 
     // Keep .env files private, and log every run to logs/agent.jsonl
@@ -159,9 +159,15 @@ export class NotebookSession {
     void this.ensureKernel().catch(() => {})
   }
 
-  /** A new or opened notebook gets a fresh kernel in its own folder. */
+  /** The folder in use: the kernel's working directory, where the agent reads, and where new notebooks go. */
+  get dir() {
+    return this.workspace
+  }
+
+  /** A new or opened notebook gets a fresh kernel in its own folder. The folder is remembered for the next launch. */
   async openWorkspace(dir: string | null) {
     this.workspace = dir ?? this.options.defaultWorkspace
+    this.options.settings.setWorkspaceDir(this.workspace)
     await this.restart()
   }
 
@@ -169,6 +175,7 @@ export class NotebookSession {
   async moveWorkspace(dir: string) {
     if (dir === this.workspace) return
     this.workspace = dir
+    this.options.settings.setWorkspaceDir(dir)
     if (this.kernel && this.kernel.info().status !== 'dead') {
       await this.kernel.execute(`import os as _os\n_os.chdir(${JSON.stringify(dir)})\ndel _os`, { store: false })
     }

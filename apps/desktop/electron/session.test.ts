@@ -39,7 +39,8 @@ function slowLauncher() {
 function session(launchKernel: (cwd: string, onStatus: (info: KernelInfo) => void) => Promise<FolderKernel>) {
   const sent: KernelState[] = []
   const s = new NotebookSession({
-    settings: {} as SettingsStore,
+    // Only what the session reads and writes about the folder in use
+    settings: { workspaceDir: null, setWorkspaceDir: () => {} } as unknown as SettingsStore,
     userData: mkdtempSync(path.join(tmpdir(), 'dalliance-session-')),
     defaultWorkspace: '/default',
     send: (channel, state) => {
