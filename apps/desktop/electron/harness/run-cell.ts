@@ -18,6 +18,8 @@ export interface HarnessDeps {
   pythonVersion: string | null
   projectInstructions: string | null
   modelId?: string | null
+  /** Whether to ask for suggested next prompts. On unless the user turned them off. */
+  suggestNext?: boolean
   emit: (event: RunEvent) => void
   askUser: (question: string, options: string[]) => Promise<string | null>
   /** Asks a person. `keys` are what approving trusts for the rest of the session. */
@@ -120,6 +122,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     previousCells: request.previousCells,
     existingCode: request.code.trim() ? request.code : null,
     corrections: request.corrections,
+    suggestNext: deps.suggestNext,
   })
 
   let text = ''
@@ -210,7 +213,8 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     variables: created(last?.result.assigned ?? []),
     // If the model answered in text instead of calling finish, keep that answer
     answer: state.finished?.answer ?? (succeeded && text.trim() ? clip(text.trim(), 1200) : null),
-    suggestions: state.finished?.suggestions ?? [],
+    // A model may still write some after being told not to
+    suggestions: deps.suggestNext === false ? [] : (state.finished?.suggestions ?? []),
     activity: [...activity.values()],
     error,
   }

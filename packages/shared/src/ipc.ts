@@ -76,6 +76,8 @@ export interface SettingsView {
   approvalMode: 'interactive' | 'background'
   /** Whether a small model names cells for the outline. */
   autoTitles: boolean
+  /** Whether the agent proposes follow-up prompts under a finished cell. */
+  suggestNext: boolean
   /** True once the first-run setup was finished or skipped. */
   onboarded: boolean
   /** Where the key for the chosen provider comes from: Settings, the app's environment, the user's shell profile, or nowhere. */
@@ -102,6 +104,7 @@ export interface SettingsUpdate {
   pythonPath?: string | null
   approvalMode?: 'interactive' | 'background'
   autoTitles?: boolean
+  suggestNext?: boolean
   onboarded?: boolean
   /** Set a key for a provider. An empty string removes it. */
   apiKey?: { provider: Provider; key: string }

@@ -3,7 +3,7 @@ import type { DallianceApi, SettingsView } from '@dalliance/shared/ipc'
 import { Group, Row, SectionHeading } from './parts'
 import { saveSettings } from './save'
 
-/** What the agent may do without asking, and how cells get their names. */
+/** What the agent may do without asking, how cells get their names, and whether it suggests what to ask next. */
 export function AgentSettings({ api, settings }: { api: DallianceApi; settings: SettingsView }) {
   const update = (u: Parameters<typeof api.updateSettings>[0]) => void saveSettings(api, u)
   return (
@@ -37,6 +37,21 @@ export function AgentSettings({ api, settings }: { api: DallianceApi; settings: 
             <SelectContent>
               <SelectItem value="model">Short titles from {settings.provider === 'gateway' ? 'GPT-6 Luna' : 'Claude Haiku 4.5'}</SelectItem>
               <SelectItem value="prompt">The prompt itself</SelectItem>
+            </SelectContent>
+          </Select>
+        </Row>
+        <Row
+          label="Suggested next prompts"
+          htmlFor="suggest"
+          description="Up to three follow-ups under the cell you just ran. Off, the agent doesn't write them."
+        >
+          <Select value={settings.suggestNext ? 'show' : 'hide'} onValueChange={(v) => update({ suggestNext: v === 'show' })}>
+            <SelectTrigger id="suggest" className="w-52">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="show">Show them</SelectItem>
+              <SelectItem value="hide">Don't show them</SelectItem>
             </SelectContent>
           </Select>
         </Row>

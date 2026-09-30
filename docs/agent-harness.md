@@ -43,6 +43,8 @@ The result is `ok` when there was no error and either the last `run_cell` succee
 
 If the model answers in plain text instead of calling `finish`, and the last run succeeded, that text becomes the answer.
 
+With `suggestNext: false` in `HarnessDeps`, from the setting of the same name, the result's `suggestions` is always empty, even if the model wrote some anyway.
+
 ## Tools
 
 Every tool's description follows the course's format: WHEN TO USE, WHEN NOT TO USE, and DO NOT USE FOR where it helps. The description is how the model chooses, so keep it accurate when you change behaviour.
@@ -56,7 +58,7 @@ Every tool's description follows the course's format: WHEN TO USE, WHEN NOT TO U
 | `run_cell` | Runs the complete cell with `store: true` and records it as `lastRun` | 5,000 characters. Tables show 15 rows to the model. Interrupted after 10 minutes |
 | `install_packages` | `pip install` into the kernel's interpreter | 1 to 5 packages. Last 1,500 characters of the log |
 | `ask_user` | A multiple-choice question in the cell | 2 to 4 options |
-| `finish` | Ends the cell with interpretation, answer and `next` | Up to 3 suggestions |
+| `finish` | Ends the cell with interpretation, answer and `next` | Up to 3 suggestions. None when `suggestNext` is off |
 
 `finish` is the verification gate. It refuses when no code ran and there's no answer, or when the last `run_cell` failed. The refusal goes back to the model as the tool result, and the loop carries on.
 
@@ -92,7 +94,8 @@ Some models write the rest of a tool call into a text field, like `...the answer
 4. Files in the workspace.
 5. This cell's current code, when regenerating after a prompt change or a correction.
 6. The user's corrections.
-7. The prompt.
+7. When Settings turns the suggested next prompts off (`suggestNext`), a line telling the model to leave `next` empty in `finish`. It sits here rather than in the system prompt so switching it never breaks the cache.
+8. The prompt.
 
 Some rules in the system prompt shape the product, so change them knowingly:
 

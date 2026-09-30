@@ -35,6 +35,18 @@ describe('SettingsStore', () => {
     expect(new SettingsStore(folder).recent.map((r) => r.path)).toEqual(['/notebooks/sales.ipynb'])
   })
 
+  it('suggests next prompts unless turned off, including for a file saved before the setting existed', () => {
+    const folder = dir()
+    writeFileSync(path.join(folder, 'settings.json'), JSON.stringify({ provider: 'anthropic', autoTitles: false }))
+    const settings = new SettingsStore(folder)
+    expect(settings.suggestNext).toBe(true)
+    expect(settings.view().suggestNext).toBe(true)
+
+    settings.update({ suggestNext: false })
+    expect(new SettingsStore(folder).suggestNext).toBe(false)
+    expect(new SettingsStore(folder).view()).toMatchObject({ suggestNext: false, autoTitles: false })
+  })
+
   it.skipIf(process.platform === 'win32')('keeps settings.json private', () => {
     const folder = dir()
     new SettingsStore(folder).update({ autoTitles: false })
