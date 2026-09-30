@@ -20,7 +20,7 @@ const sections = [
     label: 'This website',
     rows: [
       { k: 'Page views.', v: 'Counted with Vercel Web Analytics: the page, the site that sent you, your country, browser, operating system and device type.' },
-      { k: 'Downloads.', v: 'Each click on a download button is logged with the time, the button, the page it was on, your country, region and city, browser, operating system and device type. Not your IP address.' },
+      { k: 'Downloads.', v: 'Each click on a download button is logged with the time, the button, the page it was on, your country, region and city, browser, operating system and device type. Not your IP address. Only the latest 10,000 downloads are kept.' },
       { k: 'No cookies.', v: 'Nothing is stored on your device, and visits are not linked across days or other sites.' },
     ],
   },
