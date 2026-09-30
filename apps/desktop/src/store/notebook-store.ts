@@ -183,8 +183,195 @@ function hasRun(cell: PromptCell) {
   return cell.executionCount != null || cell.outputs.length > 0 || cell.state === 'error'
 }
 
+const findCell = (id: string) => get().notebook.cells.find((c) => c.id === id)
+
+function insertAt(cell: Cell, index: number) {
+  updateCells((cells) => [...cells.slice(0, index), cell, ...cells.slice(index)])
+  set({ selectedId: cell.id })
+}
+
+/** Take a cell out, stopping its run, and select the one that took its place. */
+function removeCell(id: string): { cell: Cell; index: number } | null {
+  const cells = get().notebook.cells
+  const index = cells.findIndex((c) => c.id === id)
+  if (index < 0) return null
+  if (get().runs[id]?.status === 'running') {
+    abandoned.add(id)
+    void api?.interrupt()
+  }
+  removeFromQueue(id)
+  updateCells((cs) => cs.filter((c) => c.id !== id))
+  const rest = get().notebook.cells
+  set({ selectedId: rest[Math.min(index, rest.length - 1)]?.id ?? null })
+  return { cell: cells[index], index }
+}
+
+/** Swap a cell with its neighbour. False when there is none. */
+function shiftCell(id: string, delta: -1 | 1): boolean {
+  const cells = [...get().notebook.cells]
+  const i = cells.findIndex((c) => c.id === id)
+  const j = i + delta
+  if (i < 0 || j < 0 || j >= cells.length) return false
+  ;[cells[i], cells[j]] = [cells[j], cells[i]]
+  updateCells(() => cells)
+  return true
+}
+
+function putCell(cell: Cell) {
+  updateCell(cell.id, () => cell)
+}
+
+/**
+ * One notebook edit, recorded so Cmd+Z can take it back. Each is an operation on one cell, not a snapshot of
+ * the notebook, so undoing it never touches other cells or rolls back a run.
+ */
+type Edit =
+  | { type: 'insert'; cell: Cell; index: number }
+  | { type: 'delete'; cell: Cell; index: number }
+  | { type: 'move'; id: string; delta: -1 | 1 }
+  /** A note or prompt switch: the whole cell before and after. */
+  | { type: 'swap'; from: Cell; to: Cell }
+  /** A correction or a restored revision: only the fields it changed. */
+  | { type: 'fields'; id: string; from: Partial<PromptCell>; to: Partial<PromptCell> }
+
+const MAX_EDITS = 100
+const past: Edit[] = []
+const future: Edit[] = []
+/** The edit a showing notice's Undo button takes back. */
+let noticeEdit: { edit: Edit; noticeId: number } | null = null
+
+function record(edit: Edit) {
+  past.push(edit)
+  if (past.length > MAX_EDITS) past.shift()
+  future.length = 0
+  forgetNoticeEdit()
+}
+
+function clearEdits() {
+  past.length = 0
+  future.length = 0
+  noticeEdit = null
+}
+
+/** A notice whose Undo takes back this edit, the same as Cmd+Z would. A later edit or undo retires it. */
+function notifyUndoable(text: string, edit: Edit) {
+  actions.notify(text, { undo: () => past[past.length - 1] === edit && actions.undo() })
+  noticeEdit = { edit, noticeId: get().notice!.id }
+}
+
+function forgetNoticeEdit() {
+  if (noticeEdit) actions.dismissNotice(noticeEdit.noticeId)
+  noticeEdit = null
+}
+
+/** Record changed fields of a prompt cell and apply them. */
+function changeFields(cell: PromptCell, to: Partial<PromptCell>) {
+  const from = Object.fromEntries(Object.keys(to).map((k) => [k, cell[k as keyof PromptCell]])) as Partial<PromptCell>
+  putCell({ ...cell, ...to })
+  record({ type: 'fields', id: cell.id, from, to })
+}
+
+function step(direction: 'undo' | 'redo'): boolean {
+  const [source, target] = direction === 'undo' ? [past, future] : [future, past]
+  while (source.length) {
+    const edit = source.pop()!
+    if (noticeEdit?.edit === edit) forgetNoticeEdit()
+    const done = direction === 'undo' ? revert(edit) : reapply(edit)
+    if (!done) continue // The notebook moved on, say the cell ran since: this edit can't be taken back, so drop it
+    target.push(done)
+    const id = done.type === 'move' || done.type === 'fields' ? done.id : done.type === 'swap' ? done.to.id : null
+    if (id) set({ selectedId: id })
+    return true
+  }
+  return false
+}
+
+/** Undo one edit. Returns the edit to redo it with, or null when the notebook no longer allows it. */
+function revert(edit: Edit): Edit | null {
+  switch (edit.type) {
+    case 'insert': {
+      // Keep what was typed into the cell, so Redo brings it back as it was
+      const removed = removeCell(edit.cell.id)
+      return removed && { type: 'insert', ...removed }
+    }
+    case 'delete':
+      if (findCell(edit.cell.id)) return null
+      insertAt(edit.cell, Math.min(edit.index, get().notebook.cells.length))
+      return edit
+    case 'move':
+      return shiftCell(edit.id, edit.delta === 1 ? -1 : 1) ? edit : null
+    case 'swap': {
+      const done = swapCell(edit.to, edit.from)
+      return done && { type: 'swap', from: done.to, to: done.from }
+    }
+    case 'fields':
+      return setFields(edit.id, edit.to, edit.from) ? edit : null
+  }
+}
+
+/** Redo one edit. Returns the edit to undo it with again, or null when the notebook no longer allows it. */
+function reapply(edit: Edit): Edit | null {
+  switch (edit.type) {
+    case 'insert':
+      if (findCell(edit.cell.id)) return null
+      insertAt(edit.cell, Math.min(edit.index, get().notebook.cells.length))
+      return edit
+    case 'delete': {
+      const removed = removeCell(edit.cell.id)
+      return removed && { type: 'delete', ...removed }
+    }
+    case 'move':
+      return shiftCell(edit.id, edit.delta) ? edit : null
+    case 'swap':
+      return swapCell(edit.from, edit.to)
+    case 'fields':
+      return setFields(edit.id, edit.from, edit.to) ? edit : null
+  }
+}
+
+const textOf = (c: Cell) => (c.kind === 'note' ? c.markdown : c.prompt)
+
+/**
+ * Switch a cell that still looks like `expected` to `target`. Text typed since carries over, and a prompt
+ * cell that ran since is left alone, so a switch back never throws a result away.
+ */
+function swapCell(expected: Cell, target: Cell): Extract<Edit, { type: 'swap' }> | null {
+  const current = findCell(expected.id)
+  if (!current || current.kind !== expected.kind) return null
+  if (current.kind === 'prompt' && expected.kind === 'prompt' && (current.outputs !== expected.outputs || current.executionCount !== expected.executionCount))
+    return null
+  const text = textOf(current)
+  let next = target
+  if (text !== textOf(expected))
+    next =
+      target.kind === 'note'
+        ? { ...target, markdown: text }
+        : { ...target, prompt: text, state: hasRun(target) && target.state !== 'stale' ? 'edited' : target.state }
+  putCell(next)
+  return { type: 'swap', from: current, to: next }
+}
+
+/** Set fields on a prompt cell, only if the ones being replaced still hold what the edit left there. */
+function setFields(id: string, expected: Partial<PromptCell>, next: Partial<PromptCell>): boolean {
+  const cell = findCell(id)
+  if (!cell || cell.kind !== 'prompt') return false
+  const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b)
+  if (!Object.entries(expected).every(([k, v]) => same(cell[k as keyof PromptCell], v))) return false
+  putCell({ ...cell, ...next })
+  return true
+}
+
 export const actions = {
   load(notebook: Notebook, path: string | null, dirty = false) {
+    // A run from the last notebook must not land in this one. Stop it and drop what was queued; its result
+    // names a cell this notebook doesn't have, so finish() ignores it
+    queue.length = 0
+    const running = Object.entries(get().runs).find(([, r]) => r.status === 'running')
+    if (running) {
+      abandoned.add(running[0])
+      void api?.interrupt().catch(() => {})
+    }
+    clearEdits()
     set({
       screen: 'notebook',
       canReturn: false,
@@ -203,7 +390,6 @@ export const actions = {
       // An Undo from the last notebook must not reach into this one
       notice: null,
     })
-    queue.length = 0
     void actions.loadBrief()
   },
 
@@ -315,8 +501,8 @@ export const actions = {
       return
     }
     const cell = newPromptCell(prompt)
-    updateCells((cs) => [...cs.slice(0, index + 1), cell, ...cs.slice(index + 1)])
-    set({ selectedId: cell.id })
+    insertAt(cell, index + 1)
+    record({ type: 'insert', cell, index: index + 1 })
     actions.run(cell.id)
   },
 
@@ -326,21 +512,16 @@ export const actions = {
     if (!cell || cell.kind !== 'prompt') return
     const rev = cell.history.find((r) => r.at === at)
     if (!rev) return
-    updateCell(id, (c) =>
-      c.kind !== 'prompt'
-        ? c
-        : {
-            ...c,
-            prompt: rev.prompt,
-            code: rev.code,
-            generatedFrom: rev.prompt,
-            codeEdited: rev.edited,
-            interpretation: rev.interpretation,
-            answer: rev.answer,
-            corrections: [],
-            state: hasRun(c) ? 'edited' : c.state,
-          },
-    )
+    changeFields(cell, {
+      prompt: rev.prompt,
+      code: rev.code,
+      generatedFrom: rev.prompt,
+      codeEdited: rev.edited,
+      interpretation: rev.interpretation,
+      answer: rev.answer,
+      corrections: [],
+      state: hasRun(cell) ? 'edited' : cell.state,
+    })
     addLog({ kind: 'restored', text: `Restored an earlier version of ${quoted({ ...cell, prompt: rev.prompt })}`, cellId: id })
   },
 
@@ -366,23 +547,20 @@ export const actions = {
 
   /** The user changed one of the agent's stated assumptions. The next run regenerates with the correction. */
   correctAssumption(id: string, from: string, to: string) {
-    if (!to.trim() || from === to) return
-    updateCell(id, (c) =>
-      c.kind !== 'prompt'
-        ? c
-        : {
-            ...c,
-            interpretation: c.interpretation?.replace(`[[${from}]]`, `[[${to}]]`) ?? null,
-            corrections: [...c.corrections.filter((x) => x.to !== from), { from, to }],
-            state: 'edited',
-          },
-    )
+    const cell = get().notebook.cells.find((c) => c.id === id)
+    if (!cell || cell.kind !== 'prompt' || !to.trim() || from === to) return
+    changeFields(cell, {
+      interpretation: cell.interpretation?.replace(`[[${from}]]`, `[[${to}]]`) ?? null,
+      corrections: [...cell.corrections.filter((x) => x.to !== from), { from, to }],
+      state: 'edited',
+    })
   },
 
   insertCell(index: number, kind: 'prompt' | 'note'): string {
     const cell = kind === 'prompt' ? newPromptCell() : newNoteCell()
-    updateCells((cells) => [...cells.slice(0, index), cell, ...cells.slice(index)])
-    set({ selectedId: cell.id, focusId: cell.id })
+    insertAt(cell, index)
+    record({ type: 'insert', cell, index })
+    set({ focusId: cell.id })
     return cell.id
   },
 
@@ -392,31 +570,18 @@ export const actions = {
     return actions.insertCell(index < 0 ? notebook.cells.length : index + 1, kind)
   },
 
+  /** Delete a cell, stopping it if it runs. The notice's Undo and Cmd+Z both take it back. */
   deleteCell(id: string): { cell: Cell; index: number } | null {
-    const cells = get().notebook.cells
-    const index = cells.findIndex((c) => c.id === id)
-    if (index < 0) return null
-    const cell = cells[index]
-    if (get().runs[id]?.status === 'running') void api?.interrupt()
-    removeFromQueue(id)
-    updateCells((cs) => cs.filter((c) => c.id !== id))
-    const rest = get().notebook.cells
-    set({ selectedId: rest[Math.min(index, rest.length - 1)]?.id ?? null })
-    return { cell, index }
-  },
-
-  restoreCell(cell: Cell, index: number) {
-    updateCells((cells) => [...cells.slice(0, index), cell, ...cells.slice(index)])
-    set({ selectedId: cell.id })
+    const removed = removeCell(id)
+    if (!removed) return null
+    const edit: Edit = { type: 'delete', ...removed }
+    record(edit)
+    notifyUndoable('Cell deleted', edit)
+    return removed
   },
 
   moveCell(id: string, delta: -1 | 1) {
-    const cells = [...get().notebook.cells]
-    const i = cells.findIndex((c) => c.id === id)
-    const j = i + delta
-    if (i < 0 || j < 0 || j >= cells.length) return
-    ;[cells[i], cells[j]] = [cells[j], cells[i]]
-    updateCells(() => cells)
+    if (shiftCell(id, delta)) record({ type: 'move', id, delta })
   },
 
   /**
@@ -427,18 +592,24 @@ export const actions = {
     const before = get().notebook.cells.find((c) => c.id === id)
     if (!before || before.kind === kind) return
     if (before.kind === 'prompt') removeFromQueue(id)
-    updateCell(id, (c) =>
-      c.kind === 'prompt' ? { ...newNoteCell(c.prompt), id: c.id } : { ...newPromptCell(c.kind === 'note' ? c.markdown : ''), id: c.id },
-    )
-    if (before.kind === 'prompt' && (before.code.trim() || before.outputs.length || before.history.length))
-      actions.notify('Made the cell a note', { undo: () => actions.replaceCell(before) })
+    const after: Cell = before.kind === 'prompt' ? { ...newNoteCell(before.prompt), id: before.id } : { ...newPromptCell(before.markdown), id: before.id }
+    putCell(after)
+    const edit: Edit = { type: 'swap', from: before, to: after }
+    record(edit)
+    if (before.kind === 'prompt' && (before.code.trim() || before.outputs.length || before.history.length)) notifyUndoable('Made the cell a note', edit)
   },
 
-  /** Put a cell back exactly as it was, in the same place, if it's still in the notebook. */
-  replaceCell(cell: Cell) {
-    if (!get().notebook.cells.some((c) => c.id === cell.id)) return
-    updateCell(cell.id, () => cell)
-    set({ selectedId: cell.id })
+  /**
+   * Take back the last insert, delete, move, note or prompt switch, correction or restore. Text edits stay
+   * with the text fields' own undo, and run results are never rolled back. Returns whether anything changed.
+   */
+  undo(): boolean {
+    return step('undo')
+  },
+
+  /** Do again what undo took back. */
+  redo(): boolean {
+    return step('redo')
   },
 
   /** Fold or unfold a cell's tables. The choice is saved with the notebook. */
@@ -516,6 +687,8 @@ export const actions = {
   applyRunEvent(id: string, event: RunEvent) {
     // A title can arrive after the run has ended, so it goes straight to the cell
     if (event.type === 'title') {
+      // The cell may be gone, deleted or left behind in another notebook
+      if (!get().notebook.cells.some((c) => c.id === id)) return
       updateCell(id, (c) => (c.kind === 'prompt' ? { ...c, title: event.title, titleFrom: event.prompt } : c))
       return
     }
@@ -561,6 +734,8 @@ function emptyRun(status: CellRun['status']): CellRun {
 
 const queue: string[] = []
 let pumping = false
+/** Cells whose running result must be dropped when it arrives: deleted mid-run, or in a notebook since closed. */
+const abandoned = new Set<string>()
 
 function removeFromQueue(id: string) {
   const i = queue.indexOf(id)
@@ -634,6 +809,12 @@ function failed(request: RunCellRequest, err: unknown): CellRunResult {
 }
 
 function finish(id: string, generate: boolean, result: CellRunResult, sent: PromptCell) {
+  // The cell was deleted while it ran, or its notebook was closed. Even if Undo brought a cell with this id
+  // back, the result belongs to a run that was stopped on its way out
+  if (abandoned.delete(id)) {
+    set((s) => ({ runs: omit(s.runs, id) }))
+    return
+  }
   const stopped = result.error === 'Stopped.'
   logRun(get().notebook.cells.find((c) => c.id === id), generate, result)
   set((s) => {

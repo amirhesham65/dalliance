@@ -1,12 +1,16 @@
 import { NotebookText, Play, Plus, RotateCw, Square } from 'lucide-react'
-import { Fragment, useEffect, useRef } from 'react'
+import { Fragment, memo, useEffect, useRef } from 'react'
 import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { IconButton } from '@/components/app/IconButton'
 import { Button } from '@/components/ui/button'
 import { actions, useNotebook } from '@/store/notebook-store'
 import { CellView } from './CellView'
 
-export function NotebookView({ onDelete }: { onDelete: (id: string) => void }) {
+/**
+ * The notebook column. Cells are memoized: typing in one cell, or a run event for one cell, redraws that cell
+ * and leaves the others alone. Keep the props passed to CellView stable for that to hold.
+ */
+export function NotebookView() {
   const cells = useNotebook((s) => s.notebook.cells)
   const selectedId = useNotebook((s) => s.selectedId)
   const busy = useNotebook((s) => Object.keys(s.runs).length > 0)
@@ -20,8 +24,11 @@ export function NotebookView({ onDelete }: { onDelete: (id: string) => void }) {
     el?.scrollIntoView({ block: 'nearest' })
   }, [selectedId])
 
+  // Prompt cells are numbered as the overview's summary counts them: "Cell 2 of 5"
+  let number = 0
   return (
-    <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background shadow-pane">
+    // Command mode listens while focus is in here, see useCommandMode() in App.tsx
+    <main data-command-scope className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background shadow-pane">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b px-4 text-[13px]">
         <NotebookText className="size-3.5 text-muted-foreground" />
         <h2 className="font-medium">Notebook</h2>
@@ -50,14 +57,14 @@ export function NotebookView({ onDelete }: { onDelete: (id: string) => void }) {
           {cells.map((cell, i) => (
             <Fragment key={cell.id}>
               <ErrorBoundary what="This cell" className="my-3 ml-11">
-                <CellView cell={cell} selected={cell.id === selectedId} onDelete={onDelete} />
+                <CellView cell={cell} number={cell.kind === 'prompt' ? ++number : 0} selected={cell.id === selectedId} />
               </ErrorBoundary>
               <CellInserter index={i + 1} />
             </Fragment>
           ))}
           <button
             type="button"
-            onClick={() => actions.insertCell(cells.length, 'prompt')}
+            onClick={() => actions.insertCell(useNotebook.getState().notebook.cells.length, 'prompt')}
             className="mt-2 ml-11 flex items-center gap-1.5 rounded-md px-2 py-1 text-[13px] text-faint hover:bg-hover hover:text-foreground"
           >
             <Plus className="size-3" />
@@ -70,7 +77,7 @@ export function NotebookView({ onDelete }: { onDelete: (id: string) => void }) {
 }
 
 /** Hover between two cells to add one there. */
-function CellInserter({ index }: { index: number }) {
+const CellInserter = memo(function CellInserter({ index }: { index: number }) {
   const button = 'flex items-center gap-1 rounded px-1.5 py-0.5 text-faint hover:bg-hover hover:text-foreground'
   return (
     <div className="group/add flex h-5 items-center gap-2 pl-11">
@@ -88,4 +95,4 @@ function CellInserter({ index }: { index: number }) {
       <div className="h-px flex-1 group-hover/add:bg-border" />
     </div>
   )
-}
+})
