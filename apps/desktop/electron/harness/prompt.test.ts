@@ -33,4 +33,12 @@ describe('buildCellPrompt', () => {
     expect(prompt).toContain('(truncated, 5000 more characters)')
     expect(prompt).toContain('The notes were clipped. Read AGENTS.md with read_file if the rest matters.')
   })
+
+  it('tells the agent to leave next empty only when the suggested prompts are off', () => {
+    const off = buildCellPrompt({ ...base, suggestNext: false })
+    expect(off).toContain('# Follow-up prompts\nThe user turned suggested next prompts off. Leave next empty in finish.')
+    expect(off.indexOf('# Follow-up prompts')).toBeLessThan(off.indexOf("# The cell's prompt"))
+    expect(buildCellPrompt({ ...base, suggestNext: true })).not.toContain('Follow-up prompts')
+    expect(buildCellPrompt(base)).not.toContain('Follow-up prompts')
+  })
 })

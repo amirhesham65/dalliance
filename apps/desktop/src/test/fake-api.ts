@@ -79,6 +79,7 @@ export function fakeSettings(): SettingsView {
     pythonPath: null,
     approvalMode: 'interactive',
     autoTitles: true,
+    suggestNext: true,
     onboarded: true,
     keySource: 'environment',
     hasKey: { gateway: true, anthropic: false },

@@ -132,7 +132,7 @@ Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the bu
 4. A message for non-Python errors.
 5. Result and Code tabs. A question answered in words shows only the answer, without tabs.
 
-Under Result: the answer, the outputs, the variables the run created, and suggestions. Suggestions show only on the cell that just finished or the selected one.
+Under Result: the answer, the outputs, the variables the run created, and suggestions. Suggestions show only on the cell that just finished or the selected one, and not at all when `settings.suggestNext` is off, including ones a cell saved earlier.
 
 Between two cells, `CellInserter` in `NotebookView.tsx` draws a 1px line in `foreground/10`, so it's clear where one ends. It sits in the cells' column, right of the 44 px gutter that holds the run count, and stops 12 px short of each side, so it's a little narrower than the cells. There is none after the last cell. Hovering the gap raises the line to `foreground/20` and shows the Prompt and Note buttons centred on it. They sit on the page background, so the line breaks around them.
 
@@ -194,7 +194,7 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 | Section | Component | Holds |
 | --- | --- | --- |
 | Models | `ModelSettings` | Provider, key, model id, effort |
-| Agent | `AgentSettings` | Approvals (package installs, shell and network code), cell names |
+| Agent | `AgentSettings` | Approvals (package installs, shell and network code), cell names, suggested next prompts |
 | Python | `PythonSettings` | The managed environment and a Python path |
 
 It sits over the area under the top bar with the screen below still mounted and `inert`, so the setup's step, the notebook's scroll and the resizable columns come back as they were. Command mode and the Cmd+number keys stay off while it's up. Esc goes back, unless a select or menu is open, or a text field has focus, which it leaves instead.

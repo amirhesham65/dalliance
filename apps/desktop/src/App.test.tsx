@@ -381,6 +381,39 @@ describe('question cells', () => {
     expect(reads).toBe(2)
   })
 
+  it('hides the suggested next prompts, even ones a cell already has, when Settings turns them off', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result({ answer: 'August led.', suggestions: ['Plot revenue by month'] }))
+    let settings = fakeSettings()
+    const updates: unknown[] = []
+    api.getSettings = async () => settings
+    api.updateSettings = async (u) => {
+      updates.push(u)
+      settings = { ...settings, ...u } as typeof settings
+      return settings
+    }
+    setApi(api)
+    render(<App />)
+
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Revenue by month')
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
+    expect(await screen.findByRole('list', { name: 'Suggested next prompts' })).toBeInTheDocument()
+
+    act(() => actions.openSettings('agent'))
+    const select = await screen.findByRole('combobox', { name: 'Suggested next prompts' })
+    expect(select).toHaveTextContent('Show them')
+    // Radix's select opens from the keyboard in jsdom, which has no pointer capture
+    select.focus()
+    await user.keyboard('{Enter}')
+    await screen.findByRole('option', { name: "Don't show them" })
+    await user.keyboard('{ArrowDown}{Enter}')
+    expect(updates).toContainEqual({ suggestNext: false })
+    act(() => actions.closeSettings())
+
+    expect(screen.getByText('August led.')).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Suggested next prompts' })).not.toBeInTheDocument()
+  })
+
   it('renames the notebook from its name at the top of the overview', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result())

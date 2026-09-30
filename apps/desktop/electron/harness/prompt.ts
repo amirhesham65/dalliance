@@ -86,6 +86,8 @@ export interface CellPromptContext {
   previousCells: { kind: 'prompt' | 'note'; text: string; code?: string }[]
   existingCode: string | null
   corrections: Correction[]
+  /** False when the user turned the suggested next prompts off, so the agent doesn't spend tokens on them. */
+  suggestNext?: boolean
 }
 
 const MAX_PREVIOUS = 12
@@ -121,6 +123,8 @@ export function buildCellPrompt(ctx: CellPromptContext): string {
       `# Corrections from the user\n${ctx.corrections.map((c) => `- Not "${c.from}". Use: "${c.to}"`).join('\n')}`,
     )
   }
+  // Here, not in the system prompt, so switching it doesn't break the cache
+  if (ctx.suggestNext === false) parts.push('# Follow-up prompts\nThe user turned suggested next prompts off. Leave next empty in finish.')
   parts.push(`# The cell's prompt\n${ctx.prompt}`)
   return parts.join('\n\n')
 }
