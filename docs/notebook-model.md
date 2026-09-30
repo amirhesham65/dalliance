@@ -149,7 +149,7 @@ Change the format with care. Old files must still open, so add fields with defau
 
 ## How a cell was made
 
-Every generation leaves a record on the cell, `PromptCell.provenance`, and the cell's "How this was made" tab shows it in words (see [renderer.md](renderer.md#cells)). `buildProvenance()` in `electron/harness/provenance.ts` builds it when the run ends, and it comes back as `CellRunResult.provenance`. The types are in `packages/shared/src/notebook.ts`.
+Every generation leaves a record on the cell, `PromptCell.provenance`, and the cell's "How this was made" view, behind a button among the cell's actions, shows it in words (see [renderer.md](renderer.md#cells)). `buildProvenance()` in `electron/harness/provenance.ts` builds it when the run ends, and it comes back as `CellRunResult.provenance`. The types are in `packages/shared/src/notebook.ts`.
 
 | Field | Holds |
 | --- | --- |
