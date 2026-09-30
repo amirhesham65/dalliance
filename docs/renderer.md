@@ -105,7 +105,7 @@ The main process menu owns the global shortcuts. The renderer owns the rest.
 | Shift+Cmd+Enter | Menu | Run all |
 | Cmd+. | Menu | Interrupt |
 | Cmd+B | Renderer, shown in the menu | Toggle the overview and side pane |
-| Cmd+1 to Cmd+6 | Renderer, shown in the menu | Brief, Variables, History, Files, Pinned, Activity |
+| Cmd+1 to Cmd+6 | Renderer, shown in the menu | Brief, Variables & Environment, History, Files, Pinned, Activity |
 | Shift+Enter | Editor or command mode | Run and move to the next cell, adding one at the end |
 | Cmd+Enter | Editor or command mode | Run in place |
 | Alt+Enter | Editor | Run and insert a cell below |

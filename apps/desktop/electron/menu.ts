@@ -75,7 +75,7 @@ export function buildMenu(send: (action: MenuAction) => void) {
         { ...item('Toggle Overview', 'toggle-sidebar', 'CmdOrCtrl+B'), registerAccelerator: false },
         { type: 'separator' },
         { ...item('Brief', 'pane-brief', 'CmdOrCtrl+1'), registerAccelerator: false },
-        { ...item('Variables', 'pane-variables', 'CmdOrCtrl+2'), registerAccelerator: false },
+        { ...item('Variables & Environment', 'pane-variables', 'CmdOrCtrl+2'), registerAccelerator: false },
         { ...item('History', 'pane-history', 'CmdOrCtrl+3'), registerAccelerator: false },
         { ...item('Files', 'pane-files', 'CmdOrCtrl+4'), registerAccelerator: false },
         { ...item('Pinned', 'pane-pinned', 'CmdOrCtrl+5'), registerAccelerator: false },

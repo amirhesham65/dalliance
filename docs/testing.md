@@ -50,9 +50,10 @@ These run in Node with Electron mocked, and need nothing installed.
 
 | File | Covers |
 | --- | --- |
-| `electron/session.test.ts` | `NotebookSession`'s kernel lifecycle with a fake `launchKernel`: a notebook opened during the launch warm-up gets a kernel in its own folder, a caller waiting on a stale start gets the current kernel, a start under way is reused, and a kernel that finishes starting after quit is shut down. Also the `.env` guard on `read_file` |
+| `electron/session.test.ts` | `NotebookSession`'s kernel lifecycle with a fake `launchKernel`: a notebook opened during the launch warm-up gets a kernel in its own folder, a caller waiting on a stale start gets the current kernel, a start under way is reused, and a kernel that finishes starting after quit is shut down. Also the `.env` guard on `read_file`, and that the environment view's listing runs in userData and passes on why it failed |
 | `electron/settings.test.ts` | `SettingsStore` reads what an earlier run saved, keeps `settings.json` private (mode 600), and moves a file that doesn't parse or isn't an object aside before starting from the defaults |
 | `electron/atomic-write.test.ts` | `writeFileAtomic` and `writeFileAtomicSync`, each: new and replaced files, file modes, writing through a symlink, a missing folder, and no temporary file left behind when the rename fails |
+| `electron/menu.test.ts` | The View menu names each pane the way the overview does, with its Cmd+number key left to the renderer |
 
 ### The kernel
 
