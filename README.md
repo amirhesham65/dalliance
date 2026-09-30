@@ -27,14 +27,30 @@ Dalliance writes the Python, runs it on a live kernel and keeps the code that wo
 
 ## Why
 
-Jupyter makes you write the code before you see anything. Dalliance keeps the notebook part (cells, a live kernel, rerun, reorder, `.ipynb`) and lets you start from the question. The generated code is always one tab away, and you can edit it.
+General coding agents are built to ship software. Research needs answers you can defend and notebooks a colleague can rerun. Dalliance is a notebook where you start from the question, and every answer comes with the code that made it.
 
-- **It checks its own work.** The agent runs the code, reads the traceback, fixes it and only finishes once the cell succeeds.
-- **It asks instead of guessing.** When a wrong assumption would make the answer useless, the cell asks you a multiple-choice question.
+### It shows how it read your question
+
 - **Assumptions are editable.** The agent underlines how it read your prompt. Click one, correct it, and the cell regenerates.
-- **Reruns are free.** An unchanged prompt reruns its saved code on the kernel with no model call.
-- **Every version is kept.** The History pane restores any earlier run of a cell.
-- **Verify from a clean start.** Verify restarts Python, reruns every cell's saved code and reports what came out the same, what changed and what failed, without touching what you saved. It also flags random calls with no fixed seed.
+- **It asks instead of guessing.** When a wrong reading would make the answer useless, the cell asks you a multiple-choice question.
+- **One brief for the project.** Put definitions, exclusions and the study design in `AGENTS.md`. The agent reads it before every cell.
+
+### Answers come from code that ran
+
+- **It checks its own work.** The agent runs the code, reads the traceback and fixes it. A cell only finishes once its code succeeds.
+- **The Python is always there.** One tab away, to read or edit.
+
+### Reproducible by default
+
+- **Verify from a clean start.** Restart Python, rerun every cell and see what came out the same, what changed and what failed. Random calls with no fixed seed get flagged.
+- **The environment is pinned.** Each save records the Python version, the package versions and a SHA-256 of every file the cells read. Open the notebook later and a banner lists what changed.
+- **Every cell keeps its record.** The notebook stores each cell's prompt, corrections, models and the files it read. History restores any of the last 12 versions.
+- **Reruns are free.** An unchanged prompt reruns its saved code with no model call.
+- **It's plain `.ipynb`.** Jupyter, GitHub and your reviewers open it as it is.
+
+### Your Mac, your model
+
+- **Python runs locally.** The agent reads only the notebook's folder, never `.env` files, and by default asks before code runs shell commands or uses the network.
 - **Any model.** Claude Sonnet 5.5 by default, or anything on the Vercel AI Gateway or the Anthropic API.
 
 <table>
