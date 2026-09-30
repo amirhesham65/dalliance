@@ -11,8 +11,13 @@ concurrency:
 
 jobs:
   check:
-    name: Lint, typecheck, test, build
-    runs-on: ubuntu-latest
+    name: Lint, typecheck, test, build (${{ matrix.os }})
+    # Ubuntu is quick. macOS is where the app ships, and where login shells and Python paths differ.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -20,7 +25,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      # The kernel tests run against a real Python with the packages the app's setup installs.
+      # The kernel tests run against a real Python with the packages the app requires.
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'

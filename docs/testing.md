@@ -1,6 +1,6 @@
 # Testing
 
-Tests use Vitest 5. `pnpm test` at the root runs every package through Turborepo.
+Tests use Vitest 5. `pnpm test` at the root runs every package through Turborepo. CI runs it on Ubuntu and macOS for every pull request, and the release workflow runs it again before building the `.dmg`. See [development.md](development.md#ci).
 
 ```bash
 pnpm test                                             # everything
@@ -17,7 +17,7 @@ pnpm turbo run test --filter @dalliance/shared        # the shared package
 | `packages/shared/src/*.test.ts` | Node | Nothing |
 | `apps/desktop/src/**/*.test.tsx` | jsdom | Nothing |
 | `apps/desktop/electron/**/*.test.ts` | Node, via `// @vitest-environment node` | Nothing, except the two below |
-| `electron/kernel/python-kernel.test.ts` | Node | A system Python 3.9+. Skips without one. CI provides Python 3.12 |
+| `electron/kernel/python-kernel.test.ts` | Node | A system Python 3.9+. Skips without one. CI provides Python 3.12 on Ubuntu and macOS |
 | `electron/e2e.test.ts` | Node | `DALLIANCE_E2E=1`, `AI_GATEWAY_API_KEY`, the network. Costs a few cents |
 
 `apps/desktop/vitest.config.ts` is separate from `vite.config.ts`, so tests never start Electron. The website has no tests.
@@ -47,6 +47,8 @@ const kernel = new FakeKernel((code) => ({ ok: true, outputs: [{ type: 'text', t
 ### The kernel
 
 `python-kernel.test.ts` spawns the real script with the system Python. It checks state across cells, tracebacks, exploratory runs, the variable list, interrupts, restarts and which names a cell assigned. Run it after any change to `dalliance_kernel.py`.
+
+`python-env.test.ts` checks the package lists and the name check `installPackages()` runs before pip, with `spawn` mocked. Its two missing-package cases use the system Python and skip without one.
 
 ### The renderer
 

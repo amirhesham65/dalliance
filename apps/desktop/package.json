@@ -50,7 +50,6 @@
     "typescript": "catalog:",
     "vite": "^8.3.0",
     "vite-plugin-electron": "^1.1.2",
-    "vite-plugin-electron-renderer": "^1.0.0",
     "vitest": "catalog:"
   },
   "main": "dist-electron/main.js",
