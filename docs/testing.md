@@ -20,13 +20,13 @@ pnpm turbo run test --filter @dalliance/shared        # the shared package
 | `electron/kernel/python-kernel.test.ts` | Node | A system Python 3.9+. Skips without one. CI provides Python 3.12 on Ubuntu and macOS |
 | `electron/e2e.test.ts` | Node | `DALLIANCE_E2E=1`, `AI_GATEWAY_API_KEY`, the network. Costs a few cents |
 
-`apps/desktop/vitest.config.ts` is separate from `vite.config.ts`, so tests never start Electron. The website has no tests.
+`apps/desktop/vitest.config.ts` is separate from `vite.config.ts`, so tests never start Electron. The website has no tests. See [website.md](website.md#download-log) for how the download route was checked.
 
 ## The layers
 
 ### Shared model
 
-`ipynb.test.ts` round-trips notebooks through `toIpynb` and `fromIpynb` and reads plain Jupyter files. `leaked.test.ts` covers the tool markup cleanup. Add a case here whenever the file format changes.
+`ipynb.test.ts` round-trips notebooks through `toIpynb` and `fromIpynb` and reads plain Jupyter files. Its `ipynb format version` block checks the version Dalliance writes, and that a file from a newer version is refused. `reading hand-edited or corrupted metadata` feeds in mistyped and malformed `metadata.dalliance` fields and checks each one falls back to a safe default instead of throwing. `leaked.test.ts` covers the tool markup cleanup. Add a case here whenever the file format changes.
 
 ### The harness
 
@@ -44,11 +44,21 @@ const kernel = new FakeKernel((code) => ({ ok: true, outputs: [{ type: 'text', t
 
 `prompt.test.ts`, `title.test.ts` and `workspace.test.ts` test those modules directly. `draft.test.ts` covers session restore.
 
+### The main process
+
+These run in Node with Electron mocked, and need nothing installed.
+
+| File | Covers |
+| --- | --- |
+| `electron/session.test.ts` | `NotebookSession`'s kernel lifecycle with a fake `launchKernel`: a notebook opened during the launch warm-up gets a kernel in its own folder, a caller waiting on a stale start gets the current kernel, a start under way is reused, and a kernel that finishes starting after quit is shut down. Also the `.env` guard on `read_file` |
+| `electron/settings.test.ts` | `SettingsStore` reads what an earlier run saved, keeps `settings.json` private (mode 600), and moves a file that doesn't parse or isn't an object aside before starting from the defaults |
+| `electron/atomic-write.test.ts` | `writeFileAtomic` and `writeFileAtomicSync`, each: new and replaced files, file modes, writing through a symlink, a missing folder, and no temporary file left behind when the rename fails |
+
 ### The kernel
 
-`python-kernel.test.ts` spawns the real script with the system Python. It checks state across cells, tracebacks, exploratory runs, the variable list, interrupts, restarts and which names a cell assigned. Run it after any change to `dalliance_kernel.py`.
+`python-kernel.test.ts` spawns the real script with the system Python. It checks state across cells, tracebacks, exploratory runs, the variable list, interrupts, restarts and which names a cell assigned. Its `PythonKernel hardening` block checks that a value whose `describe()` breaks doesn't kill the kernel, that a request failing outside the cell gets an error answer, that cells import modules from the notebook's folder, that API keys never reach the kernel's environment, and that cells get an empty stdin rather than the request pipe. Run it after any change to `dalliance_kernel.py`.
 
-`python-env.test.ts` checks the package lists and the name check `installPackages()` runs before pip, with `spawn` mocked. Its two missing-package cases use the system Python and skip without one.
+`python-env.test.ts` checks the package lists and the name check `installPackages()` runs before pip, including every archive extension pip accepts, with `spawn` mocked. The mock can fail with pip's PEP 668 output, to check the Settings > Python message. Python discovery runs against a fake Mac through injected `exec`, `exists`, `list` and `path`: Homebrew over Apple's Python, the newest version winning, and `/usr/bin/python3` left alone without the Command Line Tools. The base-package cases check what an old managed environment lacks and that only that gets installed. Its two missing-package cases use the system Python and skip without one.
 
 ### The renderer
 
@@ -67,7 +77,7 @@ const { api, requests, responses } = fakeApi(async (request, emit) => {
 setApi(api)
 ```
 
-`notebook-store.test.ts` tests actions and the run queue. `App.test.tsx` renders the whole app with Testing Library and drives it like a user: running cells, answering questions, D D and Undo, table folding, suggestions, history, the brief, pinning, the model picker, titles, the Settings screen and Cmd+A. `Welcome.test.tsx` covers the setup and start page.
+`notebook-store.test.ts` tests actions and the run queue, including a prompt or code edited while its cell runs, which is kept and used next time, and turning an empty prompt cell into a note without an Undo. `App.test.tsx` renders the whole app with Testing Library and drives it like a user: running cells, answering questions, D D and Undo, M on a cell with code and Undo bringing it back as it was, a failed save that stays on screen instead of being dropped, a cell that fails to draw behind the error boundary while the rest of the notebook stays up, table folding, suggestions, history, the brief, pinning, the model picker, titles, the Settings screen and Cmd+A. `Welcome.test.tsx` covers the setup and start page.
 
 The store is a module-level singleton. Call `setApi()` and `actions.load()` at the start of each test so state from the last one doesn't leak in.
 

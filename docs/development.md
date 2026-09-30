@@ -63,6 +63,10 @@ The website's `typecheck` runs `next typegen` first, so Next's route types exist
 
 The kernel script is imported with `?raw`, so edits to `dalliance_kernel.py` need a main process rebuild and a kernel restart before they take effect.
 
+## The renderer bundle
+
+`build.rolldownOptions.output.codeSplitting` in `vite.config.ts` puts vendor code in its own chunks: `react` (React, React DOM, the scheduler), `ui` (Radix, cmdk, the resizable panels), `icons` (lucide) and `vendor` for any other package. The app's own code stays in `index`, and the demo notebook is a lazy chunk. Every chunk stays under Vite's 500 kB warning, the largest being `react` at about 220 kB. A new dependency lands in `vendor` unless it matches a group. If a build warns about chunk size again, give the package that grew its own group rather than raising the limit.
+
 ## Looking at the UI without Electron
 
 ```bash
@@ -102,4 +106,5 @@ UI text, model prompts and docs use one voice: short sentences, plain words, sen
 - Imperative subject lines, like "Package the desktop app as a universal macOS .dmg".
 - A body that says what changed and why, wrapped at about 72 characters.
 - Work on a branch, open a pull request into `main`, and merge it with a merge commit.
+- Commits from outside contributors carry a `Signed-off-by` line, the Developer Certificate of Origin. See [CONTRIBUTING.md](../CONTRIBUTING.md).
 - Never credit an AI assistant as author or co-author, in commits, PRs, comments or docs. See [AGENTS.md](../AGENTS.md).

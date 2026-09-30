@@ -7,6 +7,8 @@ import { site } from '@/lib/site'
 const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL
 const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN
 const redis = url && token ? new Redis({ url, token }) : null
+/** The log keeps the newest entries only, so the free plan's storage never fills up */
+const KEEP = 10_000
 
 export function GET(request: NextRequest) {
   const ua = userAgent(request)
@@ -24,8 +26,16 @@ export function GET(request: NextRequest) {
       os: ua.os.name ?? null,
       device: ua.device.type ?? 'desktop',
     }
-    // After the response, so a slow or failing write never holds up the download
-    after(() => redis.lpush('downloads', entry).catch((error) => console.error('download log failed', error)))
+    // After the response, so a slow or failing write never holds up the download. One transaction, so the
+    // list is trimmed in the same step it grows
+    after(() =>
+      redis
+        .multi()
+        .lpush('downloads', entry)
+        .ltrim('downloads', 0, KEEP - 1)
+        .exec()
+        .catch((error) => console.error('download log failed', error)),
+    )
   }
   return Response.redirect(site.downloadUrl, 307)
 }

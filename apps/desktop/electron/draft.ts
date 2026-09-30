@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import path from 'node:path'
-import type { DraftState, RestoredSession } from '@dalliance/shared/ipc'
+import type { DraftState, RestoreFailure, RestoredSession } from '@dalliance/shared/ipc'
 import { fromIpynb, toIpynb } from '@dalliance/shared/ipynb'
 import { writeFileAtomicSync } from './atomic-write'
 
@@ -34,22 +34,39 @@ export class DraftStore {
     this.timer = setTimeout(() => this.flush(), WRITE_DELAY_MS)
   }
 
-  /** The notebook to show when the window loads, or null for a fresh one. */
-  restore(): RestoredSession | null {
+  /**
+   * The notebook to show when the window loads, or null for a fresh one. A notebook that is there but won't open,
+   * such as one a newer version of Dalliance saved, comes back as a RestoreFailure so the user learns why.
+   */
+  restore(): RestoredSession | RestoreFailure | null {
     if (this.live) return { ...this.live, kernelKept: true }
     const saved = this.read()
     if (!saved) return null
     const onDisk = saved.path != null && existsSync(saved.path)
+    // A clean notebook comes from its file, so changes made outside the app show up
+    const fromFile = onDisk && (!saved.dirty || saved.ipynb == null)
+    if (!fromFile && saved.ipynb == null) return null
     try {
-      // A clean notebook comes from its file, so changes made outside the app show up
-      if (onDisk && (!saved.dirty || saved.ipynb == null)) {
-        return { path: saved.path, dirty: false, notebook: fromIpynb(JSON.parse(readFileSync(saved.path!, 'utf-8'))), kernelKept: false }
-      }
-      if (saved.ipynb != null) return { path: onDisk ? saved.path : null, dirty: true, notebook: fromIpynb(saved.ipynb), kernelKept: false }
-    } catch {
-      // A notebook that no longer parses isn't worth failing startup over
+      if (fromFile) return { path: saved.path, dirty: false, notebook: fromIpynb(JSON.parse(readFileSync(saved.path!, 'utf-8'))), kernelKept: false }
+      return { path: onDisk ? saved.path : null, dirty: true, notebook: fromIpynb(saved.ipynb), kernelKept: false }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      if (fromFile) return { path: saved.path, error: `Couldn't reopen ${path.basename(saved.path!)}. ${reason}` }
+      // The unsaved copy lives only in session.json. Keep it out of the way of the next draft, so it isn't lost.
+      const aside = this.setAside()
+      return { path: null, error: `Couldn't reopen your unsaved notebook. ${reason}${aside ? ` A copy is in ${aside}.` : ''}` }
     }
-    return null
+  }
+
+  /** Move session.json aside. Returns where it went, or null when it couldn't be moved. */
+  private setAside(): string | null {
+    const aside = `${this.file}.unrestored-${Date.now()}`
+    try {
+      renameSync(this.file, aside)
+      return aside
+    } catch {
+      return null
+    }
   }
 
   /** Don't Save: the next launch opens the file as it is on disk, without these changes. */

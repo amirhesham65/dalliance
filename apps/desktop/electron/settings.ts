@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { safeStorage } from 'electron'
-import type { Effort, Provider, SettingsUpdate, SettingsView } from '@dalliance/shared/ipc'
+import type { Effort, KeyStorage, Provider, SettingsUpdate, SettingsView } from '@dalliance/shared/ipc'
 import { writeFileAtomicSync } from './atomic-write'
 import { DEFAULT_MODELS, type ModelConfig } from './harness/model'
 
@@ -22,7 +22,13 @@ interface Stored {
 
 const MAX_RECENT = 8
 
-export const ENV_KEYS: Record<Provider, string> = { gateway: 'AI_GATEWAY_API_KEY', anthropic: 'ANTHROPIC_API_KEY' }
+import { ENV_KEYS } from './env-keys'
+export { ENV_KEYS }
+
+const PROVIDERS: Provider[] = ['gateway', 'anthropic']
+
+/** A decrypted key is printable ASCII without spaces. Anything else is what a different keychain identity yields. */
+const looksLikeKey = (key: string) => /^[\x21-\x7e]+$/.test(key)
 
 const DEFAULTS: Stored = {
   provider: 'gateway',
@@ -41,11 +47,13 @@ export class SettingsStore {
   private readonly file: string
   /** Keys found in the user's login shell. Kept here, not in process.env, so the kernel never inherits them. */
   private shellKeys: Partial<Record<Provider, string>> = {}
+  /** Providers whose unreadable key was already logged, so the log gets one line each, not one per view. */
+  private warned = new Set<Provider>()
 
   constructor(dir: string) {
     mkdirSync(dir, { recursive: true })
     this.file = path.join(dir, 'settings.json')
-    this.data = { ...DEFAULTS }
+    this.data = structuredClone(DEFAULTS)
     if (existsSync(this.file)) {
       let stored: Partial<Stored>
       try {
@@ -56,7 +64,7 @@ export class SettingsStore {
         return
       }
       // Settings from before the first-run setup existed: anyone who has opened a notebook is past it
-      this.data = { ...DEFAULTS, onboarded: (stored.recent?.length ?? 0) > 0, ...stored }
+      this.data = { ...structuredClone(DEFAULTS), onboarded: (stored.recent?.length ?? 0) > 0, ...stored }
     }
   }
 
@@ -78,19 +86,37 @@ export class SettingsStore {
     writeFileAtomicSync(this.file, JSON.stringify(this.data, null, 2), { mode: 0o600 })
   }
 
-  private storedKey(provider: Provider): string | null {
+  /**
+   * The saved key, or `unreadable` when one is saved but can't be decrypted. That happens when an update changes
+   * the app's keychain identity, or the keychain is gone. The key is still in the file; only pasting it again helps.
+   */
+  private storedKey(provider: Provider): { key: string | null; unreadable: boolean } {
     const value = this.data.keys[provider]
-    if (!value) return null
-    if (value.startsWith('plain:')) return value.slice(6)
+    if (!value) return { key: null, unreadable: false }
+    if (value.startsWith('plain:')) return { key: value.slice(6) || null, unreadable: false }
+    let reason = 'it decrypted to something that is not a key'
     try {
-      return safeStorage.decryptString(Buffer.from(value, 'base64'))
-    } catch {
-      return null
+      const key = safeStorage.decryptString(Buffer.from(value, 'base64'))
+      if (looksLikeKey(key)) return { key, unreadable: false }
+    } catch (err) {
+      reason = String(err)
     }
+    if (!this.warned.has(provider)) {
+      this.warned.add(provider)
+      console.warn(`The saved ${provider} key could not be read (${reason}). It has to be entered again.`)
+    }
+    return { key: null, unreadable: true }
+  }
+
+  /** How the provider's key is kept: the saved key's form, or how a new key would be saved. */
+  private keyStorage(provider: Provider): KeyStorage {
+    const value = this.data.keys[provider]
+    if (value) return value.startsWith('plain:') ? 'plain' : 'keychain'
+    return safeStorage.isEncryptionAvailable() ? 'keychain' : 'plain'
   }
 
   apiKey(provider: Provider): { key: string | null; source: SettingsView['keySource'] } {
-    const stored = this.storedKey(provider)
+    const stored = this.storedKey(provider).key
     if (stored) return { key: stored, source: 'settings' }
     const env = process.env[ENV_KEYS[provider]]
     if (env) return { key: env, source: 'environment' }
@@ -153,6 +179,8 @@ export class SettingsStore {
       onboarded: this.data.onboarded,
       keySource: this.apiKey(this.data.provider).source,
       hasKey: { gateway: this.apiKey('gateway').key != null, anthropic: this.apiKey('anthropic').key != null },
+      unreadableKeys: PROVIDERS.filter((p) => this.storedKey(p).unreadable),
+      keyStorage: { gateway: this.keyStorage('gateway'), anthropic: this.keyStorage('anthropic') },
     }
   }
 
@@ -171,6 +199,7 @@ export class SettingsStore {
     if (update.apiKey) {
       const { provider, key } = update.apiKey
       const trimmed = key.trim()
+      this.warned.delete(provider)
       if (!trimmed) delete this.data.keys[provider]
       else if (safeStorage.isEncryptionAvailable()) this.data.keys[provider] = safeStorage.encryptString(trimmed).toString('base64')
       else this.data.keys[provider] = `plain:${trimmed}`

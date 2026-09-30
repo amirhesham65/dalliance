@@ -20,11 +20,15 @@ export interface HarnessDeps {
   modelId?: string | null
   emit: (event: RunEvent) => void
   askUser: (question: string, options: string[]) => Promise<string | null>
-  requestApproval: (title: string, detail: string) => Promise<boolean>
-  needsApproval: (packages: string[]) => boolean
+  /** Asks a person. `keys` are what approving trusts for the rest of the session. */
+  requestApproval: (title: string, detail: string, keys: string[]) => Promise<boolean>
+  /** The approval policy, from createApproval(). */
+  needsApproval: (keys: string[]) => boolean
   installPackages: (packages: string[]) => Promise<string>
   signal: AbortSignal
   exploreTimeoutMs?: number
+  /** How long one run_cell may take before the kernel is interrupted. Defaults to 10 minutes. */
+  runTimeoutMs?: number
   /** Upper bound on model steps for one cell. */
   maxSteps?: number
 }
@@ -83,6 +87,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     needsApproval: deps.needsApproval,
     installPackages: deps.installPackages,
     exploreTimeoutMs: deps.exploreTimeoutMs,
+    runTimeoutMs: deps.runTimeoutMs,
   })
 
   const agent = new ToolLoopAgent<never, CellTools>({
@@ -119,10 +124,34 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
 
   let text = ''
   let error: string | null = null
+  let step = 0
+  let stepStarted = Date.now()
   try {
     const result = await agent.stream({ prompt, abortSignal: deps.signal })
     for await (const part of result.fullStream) {
       switch (part.type) {
+        case 'start-step':
+          step += 1
+          stepStarted = Date.now()
+          break
+        case 'finish-step': {
+          const { usage } = part
+          await deps.bus.emit('step', {
+            cellId: request.cellId,
+            step,
+            modelId: part.response.modelId || deps.modelId || undefined,
+            finishReason: part.finishReason,
+            durationMs: Date.now() - stepStarted,
+            usage: {
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
+              cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+              reasoningTokens: usage.outputTokenDetails?.reasoningTokens,
+            },
+          })
+          break
+        }
         case 'text-delta':
           text += part.text
           break
@@ -223,6 +252,7 @@ function describeResult(toolName: string, output: unknown): { label?: string; de
     case 'list_files':
       return { label: 'Listed files' }
     case 'run_cell':
+      if (text.startsWith('The cell timed out')) return { label: 'Ran the cell', detail: `Stopped after ${text.match(/after ([^.]+) and/)?.[1] ?? 'too long'}`, failed: true }
       return text.startsWith('The cell failed')
         ? { label: 'Ran the cell', detail: firstLine(text.split('\n')[1] ?? ''), failed: true }
         : { label: 'Ran the cell', detail: text.match(/in (\d+) ms/)?.[0] }

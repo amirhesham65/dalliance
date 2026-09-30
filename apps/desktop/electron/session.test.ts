@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { IPC, type KernelState } from '@dalliance/shared/ipc'
 import { FakeKernel } from './kernel/fake-kernel'
 import type { KernelInfo } from './kernel/kernel'
-import { NotebookSession, isSecretPath } from './session'
+import { NotebookSession } from './session'
 import type { SettingsStore } from './settings'
 
 /** A kernel that remembers its folder and whether it was shut down. */
@@ -120,19 +120,11 @@ describe('NotebookSession kernel lifecycle', () => {
   })
 })
 
-describe('the .env guard', () => {
-  it.each(['.env', '.ENV', '.env.local', 'config/.env', 'config\\.env', 'C:\\work\\.Env.production', '/abs/path/.env.test'])('blocks %s', async (p) => {
-    expect(isSecretPath(p)).toBe(true)
+describe('built-in extensions', () => {
+  // The cases live in harness/extensions.test.ts. This checks the session installs them on its bus.
+  it('guards .env files on the session bus', async () => {
     const { s } = session(async (cwd) => new FolderKernel(cwd))
-    expect(await s.bus.emit('tool_call', { cellId: 'c1', toolName: 'read_file', input: { path: p } })).toMatchObject({ blocked: true })
-  })
-
-  it.each(['env', '.envrc', 'data/.environment', 'notes.env', 'orders.csv', 'my.env/data.csv'])('allows %s', (p) => {
-    expect(isSecretPath(p)).toBe(false)
-  })
-
-  it('only guards read_file', async () => {
-    const { s } = session(async (cwd) => new FolderKernel(cwd))
-    expect(await s.bus.emit('tool_call', { cellId: 'c1', toolName: 'list_files', input: { path: '.env' } })).toEqual({ blocked: false })
+    expect(await s.bus.emit('tool_call', { cellId: 'c1', toolName: 'read_file', input: { path: 'config\\.Env.local' } })).toMatchObject({ blocked: true })
+    expect(await s.bus.emit('tool_call', { cellId: 'c1', toolName: 'read_file', input: { path: 'environment.csv' } })).toEqual({ blocked: false })
   })
 })

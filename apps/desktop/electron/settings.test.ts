@@ -5,12 +5,29 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SettingsStore } from './settings'
 
-vi.mock('electron', () => ({ safeStorage: { isEncryptionAvailable: () => false } }))
+// A stand-in keychain: "encrypts" by prefixing, and a test can make decryption fail or return garbage
+const keychain = vi.hoisted(() => ({
+  available: false,
+  decrypt: (data: Buffer) => data.toString('utf-8').replace(/^enc:/, ''),
+}))
+vi.mock('electron', () => ({
+  safeStorage: {
+    isEncryptionAvailable: () => keychain.available,
+    encryptString: (text: string) => Buffer.from(`enc:${text}`, 'utf-8'),
+    decryptString: (data: Buffer) => keychain.decrypt(data),
+  },
+}))
+const decrypt = keychain.decrypt
 
 const dir = () => mkdtempSync(path.join(tmpdir(), 'dalliance-settings-'))
 
 describe('SettingsStore', () => {
-  afterEach(() => vi.restoreAllMocks())
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllEnvs()
+    keychain.available = false
+    keychain.decrypt = decrypt
+  })
 
   it('reads what an earlier run saved', () => {
     const folder = dir()
@@ -44,5 +61,80 @@ describe('SettingsStore', () => {
     settings.update({ autoTitles: false })
     expect(JSON.parse(readFileSync(path.join(folder, 'settings.json'), 'utf-8'))).toMatchObject({ autoTitles: false })
     expect(readFileSync(path.join(folder, aside[0]), 'utf-8')).toBe(contents)
+  })
+
+  describe('keys', () => {
+    const noEnvKeys = () => {
+      vi.stubEnv('AI_GATEWAY_API_KEY', '')
+      vi.stubEnv('ANTHROPIC_API_KEY', '')
+    }
+
+    it('keeps a key in the keychain when there is one', () => {
+      noEnvKeys()
+      keychain.available = true
+      const folder = dir()
+      new SettingsStore(folder).update({ apiKey: { provider: 'gateway', key: ' vck_123 ' } })
+      expect(JSON.parse(readFileSync(path.join(folder, 'settings.json'), 'utf-8')).keys.gateway).not.toContain('vck_123')
+
+      const settings = new SettingsStore(folder)
+      expect(settings.apiKey('gateway')).toEqual({ key: 'vck_123', source: 'settings' })
+      expect(settings.view()).toMatchObject({ keySource: 'settings', unreadableKeys: [], keyStorage: { gateway: 'keychain', anthropic: 'keychain' } })
+    })
+
+    it('says a key is stored as plain text when there is no keychain', () => {
+      noEnvKeys()
+      const folder = dir()
+      expect(new SettingsStore(folder).view().keyStorage).toEqual({ gateway: 'plain', anthropic: 'plain' })
+      new SettingsStore(folder).update({ apiKey: { provider: 'anthropic', key: 'sk-ant-1' } })
+      // A keychain showing up later doesn't change how the saved key is kept
+      keychain.available = true
+      const view = new SettingsStore(folder).view()
+      expect(view.keyStorage).toEqual({ gateway: 'keychain', anthropic: 'plain' })
+      expect(view.hasKey.anthropic).toBe(true)
+    })
+
+    it.each([
+      [
+        'decryption fails',
+        () => {
+          throw new Error('Error while decrypting the ciphertext provided to safeStorage.decryptString.')
+        },
+      ],
+      ['decryption yields garbage', () => '\uFFFD\u0000\uFFFD'],
+      ['decryption yields nothing', () => ''],
+    ])('reports a saved key it cannot read when %s', (_what, broken) => {
+      noEnvKeys()
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      keychain.available = true
+      const folder = dir()
+      new SettingsStore(folder).update({ apiKey: { provider: 'gateway', key: 'vck_123' } })
+
+      // After an update that changed the app's keychain identity
+      keychain.decrypt = broken
+      const settings = new SettingsStore(folder)
+      expect(settings.apiKey('gateway')).toEqual({ key: null, source: null })
+      expect(settings.view()).toMatchObject({ keySource: null, hasKey: { gateway: false }, unreadableKeys: ['gateway'], keyStorage: { gateway: 'keychain' } })
+      settings.view()
+      expect(warn).toHaveBeenCalledOnce()
+
+      // Pasting it again fixes it
+      keychain.decrypt = decrypt
+      expect(settings.update({ apiKey: { provider: 'gateway', key: 'vck_456' } })).toMatchObject({ keySource: 'settings', unreadableKeys: [] })
+    })
+
+    it('falls back to the environment when the saved key cannot be read', () => {
+      noEnvKeys()
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      keychain.available = true
+      const folder = dir()
+      new SettingsStore(folder).update({ apiKey: { provider: 'anthropic', key: 'sk-ant-1' } })
+      keychain.decrypt = () => {
+        throw new Error('no keychain access')
+      }
+      vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-env')
+      const settings = new SettingsStore(folder)
+      expect(settings.apiKey('anthropic')).toEqual({ key: 'sk-ant-env', source: 'environment' })
+      expect(settings.view().unreadableKeys).toEqual(['anthropic'])
+    })
   })
 })

@@ -38,7 +38,12 @@ const api: DallianceApi = {
   restoreSession: () => ipcRenderer.invoke(IPC.restoreSession),
   saveDraft: (state) => ipcRenderer.send(IPC.saveDraft, state),
   setDocumentState: (state) => ipcRenderer.send(IPC.documentState, state),
-  onMenu: (listener) => subscribe(IPC.menu, listener),
+  onMenu: (listener) => {
+    const off = subscribe(IPC.menu, listener)
+    // Now a menu action can land, the main process may send one it held back, like opening a file from Finder
+    ipcRenderer.send(IPC.menuReady)
+    return off
+  },
 }
 
 contextBridge.exposeInMainWorld('dalliance', api)

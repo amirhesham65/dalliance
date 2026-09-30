@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createAnthropic } from '@ai-sdk/anthropic'
@@ -9,15 +9,17 @@ import { describe, expect, it } from 'vitest'
 import type { RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
 import { FakeKernel } from '../kernel/fake-kernel'
 import { createApproval } from './approval'
-import { EventBus } from './events'
+import { type EventData, EventBus } from './events'
+import { installExtensions } from './extensions'
 import { agentProviderOptions } from './model'
 import { type HarnessDeps, friendlyError, runCell } from './run-cell'
+import { RUN_TIMEOUT_MS, duration } from './tools'
 
 type Step = { tool: string; input: Record<string, unknown>; thinking?: string } | { text: string }
 
 const usage = {
-  inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
-  outputTokens: { total: 5, text: 5, reasoning: 0 },
+  inputTokens: { total: 10, noCache: 4, cacheRead: 5, cacheWrite: 1 },
+  outputTokens: { total: 5, text: 3, reasoning: 2 },
 }
 
 /** A model that plays back one scripted step per call: a tool call or a text reply. */
@@ -193,6 +195,38 @@ describe('runCell with generation', () => {
     expect(JSON.stringify(prompts[1])).toContain('Blocked: .env files are private.')
   })
 
+  it('asks before code uses the network, through the same approval as installs', async () => {
+    const approvals: [string, string, string[]][] = []
+    const kernel = new FakeKernel()
+    const { model, prompts } = scriptedModel([{ tool: 'run_cell', input: { code: 'import requests\nrates = requests.get(URL).json()' } }, { text: 'Okay.' }])
+    const { deps } = harness(model, kernel, {
+      requestApproval: async (...args) => {
+        approvals.push(args)
+        return false
+      },
+    })
+    installExtensions(deps.bus, { logDir: mkdtempSync(path.join(tmpdir(), 'dalliance-log-')) })
+    const result = await runCell(request(), deps)
+    expect(approvals).toEqual([['Let the agent use the network?', 'import requests', ['code:network']]])
+    expect(kernel.executed).toEqual([])
+    expect(JSON.stringify(prompts[1])).toContain('Blocked: the user declined letting the code use the network')
+    expect(result.activity[0]).toMatchObject({ status: 'error' })
+  })
+
+  it('runs network code without asking in background mode', async () => {
+    let asked = false
+    const kernel = new FakeKernel()
+    const { model } = scriptedModel([{ tool: 'explore', input: { code: 'import requests' } }, { text: 'Okay.' }])
+    const { deps } = harness(model, kernel, {
+      needsApproval: createApproval({ mode: 'background' }),
+      requestApproval: async () => (asked = true),
+    })
+    installExtensions(deps.bus, { logDir: mkdtempSync(path.join(tmpdir(), 'dalliance-log-')) })
+    await runCell(request(), deps)
+    expect(asked).toBe(false)
+    expect(kernel.executed).toEqual([{ code: 'import requests', store: false }])
+  })
+
   it('reports Stopped when the run is aborted', async () => {
     const controller = new AbortController()
     controller.abort()
@@ -200,6 +234,42 @@ describe('runCell with generation', () => {
     const { deps } = harness(model, new FakeKernel(), { signal: controller.signal })
     const result = await runCell(request(), deps)
     expect(result).toMatchObject({ ok: false, error: 'Stopped.' })
+  })
+})
+
+describe('observability', () => {
+  it('reports every step with its model, finish reason, duration and token usage', async () => {
+    const { model } = scriptedModel([{ tool: 'run_cell', input: { code: 'x = 1\nx' } }, { tool: 'finish', input: { interpretation: '', answer: '' } }])
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })))
+    const order: string[] = []
+    const steps: EventData[] = []
+    deps.bus.on('tool_result', ({ toolName }) => void order.push(`result ${toolName}`))
+    deps.bus.on('step', (data) => {
+      order.push(`step ${data.step}`)
+      steps.push(data)
+    })
+    await runCell(request(), deps)
+    expect(order).toEqual(['result run_cell', 'step 1', 'result finish', 'step 2'])
+    expect(steps[0]).toEqual({
+      cellId: 'c1',
+      step: 1,
+      modelId: 'mock-model-id',
+      finishReason: 'tool-calls',
+      durationMs: expect.any(Number),
+      usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 5, cacheWriteTokens: 1, reasoningTokens: 2 },
+    })
+  })
+
+  it('writes the steps to agent.jsonl through the built-in log', async () => {
+    const { model } = scriptedModel([{ tool: 'finish', input: { interpretation: '', answer: 'Nothing to run.' } }])
+    const { deps } = harness(model, new FakeKernel())
+    const logDir = mkdtempSync(path.join(tmpdir(), 'dalliance-log-'))
+    const { log } = installExtensions(deps.bus, { logDir })
+    await runCell(request(), deps)
+    await log.idle()
+    const events = readFileSync(log.file, 'utf-8').trim().split('\n').map((l) => JSON.parse(l))
+    expect(events.map((e) => e.event)).toEqual(['run_start', 'tool_call', 'tool_result', 'step', 'run_end'])
+    expect(events[3]).toMatchObject({ step: 1, finishReason: 'tool-calls', usage: { cacheReadTokens: 5, cacheWriteTokens: 1 } })
   })
 })
 
@@ -212,6 +282,38 @@ describe('runCell without generation', () => {
     expect(calls()).toBe(0)
     expect(result).toMatchObject({ ok: true, generated: false, code: '6 * 7', executionCount: 1 })
     expect(events).toContainEqual({ type: 'output', output: { type: 'text', text: '42' } })
+  })
+})
+
+describe('parallel tool calls', () => {
+  it('makes finish wait for a run_cell sent in the same step', async () => {
+    const chunks = [
+      { type: 'stream-start' as const, warnings: [] },
+      { type: 'tool-call' as const, toolCallId: 'call-1', toolName: 'run_cell', input: JSON.stringify({ code: 'total = orders.total.sum()\ntotal' }) },
+      { type: 'tool-call' as const, toolCallId: 'call-2', toolName: 'finish', input: JSON.stringify({ interpretation: '', answer: '' }) },
+      { type: 'finish' as const, finishReason: { unified: 'tool-calls' as const, raw: 'tool_use' }, usage },
+    ]
+    const text = [
+      { type: 'stream-start' as const, warnings: [] },
+      { type: 'text-start' as const, id: 't' },
+      { type: 'text-delta' as const, id: 't', delta: 'Stuck.' },
+      { type: 'text-end' as const, id: 't' },
+      { type: 'finish' as const, finishReason: { unified: 'stop' as const, raw: 'end_turn' }, usage },
+    ]
+    let calls = 0
+    // One step with both calls, then plain text, so a refused finish would leave the cell unfinished
+    const model = new MockLanguageModelV4({ doStream: async () => ({ stream: simulateReadableStream({ chunks: (calls++ === 0 ? chunks : text) as never[] }) }) })
+    const kernel = new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '42' }] }))
+    const execute = kernel.execute.bind(kernel)
+    kernel.execute = async (code, options) => {
+      await new Promise((r) => setTimeout(r, 50))
+      return execute(code, options)
+    }
+    const { deps } = harness(model, kernel)
+    const result = await runCell(request(), deps)
+    expect(result).toMatchObject({ ok: true, code: 'total = orders.total.sum()\ntotal', outputs: [{ type: 'text', text: '42' }], error: null })
+    expect(result.activity.map((a) => a.label)).toEqual(['Ran the cell', 'Finished'])
+    expect(calls).toBe(1)
   })
 })
 
@@ -229,6 +331,63 @@ describe('safety limits', () => {
     await runCell(request(), { ...deps, exploreTimeoutMs: 50 } as HarnessDeps)
     expect(interrupted).toBe(true)
     expect(JSON.stringify(prompts[1])).toContain('Exploration must be quick')
+  })
+})
+
+describe('the run_cell time limit', () => {
+  /** A kernel whose runs of `slow` code only end when interrupted, the way Ctrl+C ends a stuck cell. */
+  function stuckKernel(onInterrupt: 'returns' | 'throws') {
+    const kernel = new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] }))
+    const execute = kernel.execute.bind(kernel)
+    let interrupts = 0
+    kernel.interrupt = () => void interrupts++
+    kernel.execute = async (code, options) => {
+      if (!code.includes('slow')) return execute(code, options)
+      kernel.executed.push({ code, store: options.store })
+      await new Promise<void>((resolve) => {
+        const poll = setInterval(() => interrupts > 0 && (clearInterval(poll), resolve()), 5)
+      })
+      if (onInterrupt === 'throws') throw new Error('The kernel was killed.')
+      return { ok: false, outputs: [{ type: 'error', ename: 'KeyboardInterrupt', evalue: '', traceback: ['KeyboardInterrupt'] }], executionCount: 1, durationMs: 60, assigned: [] }
+    }
+    return { kernel, interrupts: () => interrupts }
+  }
+
+  it.each(['returns', 'throws'] as const)('interrupts a run that takes too long and tells the model, when the kernel %s', async (onInterrupt) => {
+    const { kernel, interrupts } = stuckKernel(onInterrupt)
+    const { model, prompts } = scriptedModel([
+      { tool: 'run_cell', input: { code: 'slow_model.fit(everything)' } },
+      { tool: 'finish', input: { interpretation: '', answer: '' } },
+      { text: 'It is too slow.' },
+    ])
+    const { deps } = harness(model, kernel, { runTimeoutMs: 40 })
+    const result = await runCell(request(), deps)
+    expect(interrupts()).toBe(1)
+    const told = JSON.stringify(prompts[1])
+    expect(told).toContain('The cell timed out after 1 second and was stopped.')
+    // Bounded: a fixed message, not the kernel's output
+    expect(told).not.toContain('KeyboardInterrupt')
+    // finish refuses the timed-out run
+    expect(JSON.stringify(prompts[2])).toContain('The last run_cell failed')
+    expect(result).toMatchObject({ ok: false, code: 'slow_model.fit(everything)' })
+    expect(result.activity[0]).toMatchObject({ label: 'Ran the cell', detail: 'Stopped after 1 second', status: 'error' })
+  })
+
+  it('leaves runs inside the limit alone', async () => {
+    const { kernel, interrupts } = stuckKernel('returns')
+    const { model } = scriptedModel([{ tool: 'run_cell', input: { code: 'x = 1\nx' } }, { tool: 'finish', input: { interpretation: '', answer: '' } }])
+    const { deps } = harness(model, kernel, { runTimeoutMs: 200 })
+    const result = await runCell(request(), deps)
+    expect(result.ok).toBe(true)
+    await new Promise((r) => setTimeout(r, 250))
+    expect(interrupts()).toBe(0)
+  })
+
+  it('defaults to ten minutes', () => {
+    expect(RUN_TIMEOUT_MS).toBe(600_000)
+    expect(duration(RUN_TIMEOUT_MS)).toBe('10 minutes')
+    expect(duration(60_000)).toBe('1 minute')
+    expect(duration(45_000)).toBe('45 seconds')
   })
 })
 
@@ -330,6 +489,8 @@ describe('caching', () => {
     expect(bodies).toHaveLength(2)
     for (const body of bodies) {
       expect(body.cache_control).toEqual({ type: 'ephemeral' })
+      // One tool call per step
+      expect(body.tool_choice).toEqual({ type: 'auto', disable_parallel_tool_use: true })
       expect((body.system as { cache_control?: unknown }[]).at(-1)?.cache_control).toEqual({ type: 'ephemeral' })
     }
     // The second step resends the first step's messages unchanged, so it reads them from the cache

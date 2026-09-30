@@ -4,7 +4,7 @@ import path from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Readable } from 'node:stream'
 import type { Output } from '@dalliance/shared/notebook'
-import { ENV_KEYS } from '../settings'
+import { ENV_KEYS } from '../env-keys'
 import type { ExecuteOptions, ExecuteResult, Kernel, KernelInfo, KernelStatus, VariableInfo } from './kernel'
 import kernelSource from './dalliance_kernel.py?raw'
 
@@ -22,7 +22,12 @@ export interface PythonKernelOptions {
   scratchDir: string
   env?: NodeJS.ProcessEnv
   onStatus?: (info: KernelInfo) => void
+  /** How long a run may keep going after interrupt() before the process is killed. */
+  interruptGraceMs?: number
 }
+
+/** What a request that was still running gets when interrupt() had to kill the kernel. */
+export const KILLED_AFTER_INTERRUPT = "The kernel didn't stop, so it was restarted. Variables were lost."
 
 export class PythonKernel implements Kernel {
   private child: ChildProcess | null = null
@@ -35,6 +40,8 @@ export class PythonKernel implements Kernel {
   private nextId = 0
   private ready: Promise<void> = Promise.resolve()
   private stderrTail = ''
+  /** Kills the process if the interrupted request is still running when it fires. */
+  private escalation: ReturnType<typeof setTimeout> | null = null
   private readonly options: PythonKernelOptions
 
   constructor(options: PythonKernelOptions) {
@@ -93,6 +100,7 @@ export class PythonKernel implements Kernel {
           pending.onOutput?.(output)
         } else {
           this.pending.delete(String(msg.id))
+          this.clearEscalation()
           pending.resolve(msg)
         }
       })
@@ -104,6 +112,7 @@ export class PythonKernel implements Kernel {
       child.on('exit', (code, signal) => {
         if (this.child !== child) return
         this.child = null
+        this.clearEscalation()
         if (this.status !== 'dead') {
           const why = this.stderrTail.trim() || `exited with ${signal ?? `code ${code}`}`
           this.error = `The Python kernel stopped: ${why}`
@@ -162,8 +171,34 @@ export class PythonKernel implements Kernel {
     return (msg.variables as VariableInfo[]) ?? []
   }
 
+  /**
+   * Send SIGINT, like Ctrl+C. A run that is still going after the grace period, because it swallowed the
+   * KeyboardInterrupt or sits in C code that never checks for signals, gets the process killed instead:
+   * pending requests reject with KILLED_AFTER_INTERRUPT and the status goes dead, so the next use starts a new one.
+   */
   interrupt() {
-    if (this.child && this.status === 'busy') this.child.kill('SIGINT')
+    const child = this.child
+    if (!child || this.status !== 'busy') return
+    child.kill('SIGINT')
+    if (this.escalation) return
+    this.escalation = setTimeout(() => {
+      this.escalation = null
+      if (this.child === child && this.pending.size > 0) this.kill(child)
+    }, this.options.interruptGraceMs ?? 5000)
+  }
+
+  private clearEscalation() {
+    if (this.escalation) clearTimeout(this.escalation)
+    this.escalation = null
+  }
+
+  private kill(child: ChildProcess) {
+    this.child = null
+    this.error = KILLED_AFTER_INTERRUPT
+    this.setStatus('dead')
+    for (const p of this.pending.values()) p.reject(new Error(KILLED_AFTER_INTERRUPT))
+    this.pending.clear()
+    child.kill('SIGKILL')
   }
 
   async restart() {
@@ -175,6 +210,7 @@ export class PythonKernel implements Kernel {
     const child = this.child
     if (!child) return
     this.child = null
+    this.clearEscalation()
     this.setStatus('dead')
     this.error = null
     for (const p of this.pending.values()) p.reject(new Error('The kernel was restarted.'))

@@ -2,7 +2,24 @@
  * Lifecycle events around tool calls (course module 11). Extensions subscribe;
  * a tool_call handler can block the call, and its reason goes back to the model as the result.
  */
-export type HarnessEvent = 'run_start' | 'tool_call' | 'tool_result' | 'run_end'
+export type HarnessEvent = 'run_start' | 'tool_call' | 'tool_result' | 'step' | 'run_end'
+
+/** A request for a person to allow something, answered by the same policy as package installs. */
+export interface ApprovalRequest {
+  title: string
+  detail: string
+  /** What approving trusts for the rest of the session: package names, or `code:shell` and `code:network`. */
+  keys: string[]
+}
+
+/** Token counts for one model call. Undefined where the provider doesn't report them. */
+export interface StepUsage {
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+  reasoningTokens?: number
+}
 
 export interface EventData {
   cellId: string
@@ -11,6 +28,20 @@ export interface EventData {
   output?: unknown
   ok?: boolean
   error?: string
+  /**
+   * On tool_call: asks the approval policy, and a person when the policy says so. Resolves true when allowed.
+   * JSON drops functions, so the log never sees it.
+   */
+  approve?: (request: ApprovalRequest) => Promise<boolean>
+  /** On step: which model call of the run this was, from 1. */
+  step?: number
+  /** On step: the model that answered. */
+  modelId?: string
+  /** On step: why the model stopped, like `tool-calls` or `stop`. */
+  finishReason?: string
+  /** On step: wall time from the request to the end of the step's tool calls. */
+  durationMs?: number
+  usage?: StepUsage
 }
 
 export type EventResult = { block: true; reason: string } | void

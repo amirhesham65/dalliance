@@ -2,11 +2,15 @@
 
 The whole contract is in `packages/shared/src/ipc.ts`. Three files implement it:
 
-- `electron/main.ts` registers the handlers with `ipcMain`.
+- `electron/main.ts` registers the handlers with its `handle()` and `on()` wrappers around `ipcMain`.
 - `electron/preload.ts` maps each `DallianceApi` method onto a channel and exposes the object as `window.dalliance`.
 - `src/store/notebook-store.ts` and the components call `getApi()`.
 
 Channel names are in the `IPC` constant. Never type a channel string by hand.
+
+## Who may call
+
+Every handler goes through `handle()` or `on()` in `main.ts`, never `ipcMain` directly. They check the message with `isTrustedSender()` from `electron/ipc-sender.ts`: it must come from the top frame of the app's window, and that frame must show the app's own page. That page is the Vite dev server's origin in development, and the packaged `dist/index.html` file otherwise, whatever the hash or query. Anything else, such as an iframe or a page the window somehow reached, is logged with `console.warn`. An `invoke` from it rejects, and a `send` is dropped.
 
 ## Calls
 
@@ -26,14 +30,14 @@ Channel names are in the `IPC` constant. Never type a channel string by hand.
 | `checkKey(provider, key)` | invoke | `checkKey` | Asks the provider whether a key works, without saving it. A `KeyCheck` with the balance or the reason |
 | `pythonState()` | invoke | `session.pythonState` | Which Python, which version, missing packages |
 | `setupPython()` | invoke | `session.setupPython` | Creates the managed venv, then restarts the kernel |
-| `openNotebook()` | invoke | dialog, `openFile` | Open dialog, parse, restart the kernel in that folder. A kernel still starting in the old folder shuts itself down |
+| `openNotebook()` | invoke | dialog, `openFile` | Open dialog, parse, restart the kernel in that folder. A kernel still starting in the old folder shuts itself down. A file the OS asked to open takes the dialog's place, see [Opening files from the OS](#opening-files-from-the-os) |
 | `openRecent(path)` | invoke | `openFile` | Same without a dialog. Only opens a path in `settings.recent`, and returns null for any other. Drops the entry if the file is gone |
 | `recentNotebooks()` | invoke | `settings.recent` | Up to 8 that still exist |
 | `saveNotebook(path, notebook)` | invoke | dialog, `writeFileAtomic` | Save, or Save As when `path` is null. A `path` that isn't an absolute `.ipynb` path gets the Save dialog too. Returns the path or null |
-| `confirmDiscard()` | invoke | dialog | True when the document is clean or the user discards |
+| `confirmDiscard()` | invoke | dialog | True when the document is clean or the user discards. Keeping the changes also drops a file the OS asked to open |
 | `readBrief()`, `writeBrief(text)` | invoke | `session` | The workspace's `AGENTS.md` |
 | `listFiles()` | invoke | `session.files` | Workspace files, empty for broad folders |
-| `restoreSession()` | invoke | `drafts.restore` | The notebook to show at load. See [storage.md](storage.md#session-and-drafts) |
+| `restoreSession()` | invoke | `drafts.restore` | The notebook to show at load, or a `RestoreFailure` with the reason it couldn't reopen, or null. See [storage.md](storage.md#session-and-drafts) |
 | `saveDraft(state)` | send | `drafts.update` | Mirrors the document to the main process |
 | `setDocumentState({ path, dirty })` | send | `updateTitle` | Window title and the macOS edited dot |
 
@@ -63,6 +67,21 @@ Each `on*` method subscribes and returns an unsubscribe function.
 ## Menu actions
 
 `electron/menu.ts` builds the native menu. Each item sends a `MenuAction` string and the renderer's `handleMenu()` in `src/App.tsx` acts on it. The View menu's Cmd+B and Cmd+1 to Cmd+6 items set `registerAccelerator: false`, because the renderer handles those keys itself and the menu only displays them.
+
+## Opening files from the OS
+
+Dalliance runs one instance. `main.ts` takes `app.requestSingleInstanceLock()` at startup, and a second launch quits right away after handing its command line to the first through `second-instance`. The first brings its window forward.
+
+A notebook can arrive three ways: the macOS `open-file` event (a double-click in Finder, a drop on the Dock icon), an `.ipynb` on the first launch's own command line, and one on a second launch's command line. `notebookFromArgv()` in `electron/open-files.ts` picks the last argument ending in `.ipynb` that exists. `open-file` is registered before `ready`, because macOS sends the file that launched the app before then.
+
+Each one goes through the renderer's ordinary Open, so unsaved changes get the Discard prompt:
+
+1. `OpenQueue` keeps the file. Only the latest one is kept.
+2. When the page can take menu actions, the queue sends the `open` menu action, once. The preload's `onMenu()` sends `menu-ready` when the renderer subscribes. A reload or a closed window makes the queue wait for the next one.
+3. The renderer runs `confirmDiscard()`, then `openNotebook()`, which takes the queued file instead of showing the dialog. A file that doesn't parse gets a message box, and `openNotebook()` returns null.
+4. Choosing Cancel in the Discard prompt drops the file, so the next Open shows the dialog.
+
+At launch this runs after `restoreSession()`, so the last notebook comes back first and the file then replaces it.
 
 ## Saving and closing
 

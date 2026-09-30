@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { leakedList, splitLeaked } from '@dalliance/shared/leaked'
 import type { Output } from '@dalliance/shared/notebook'
 import type { ExecuteResult, Kernel } from '../kernel/kernel'
+import { approver } from './approval'
 import type { EventBus } from './events'
 import { clip, formatVariables, outputsToText } from './format'
 import { listFiles, readFileBounded } from './workspace'
@@ -24,17 +25,35 @@ export interface ToolDeps {
   onAttempt: (code: string) => void
   onOutput: (output: Output) => void
   askUser: (question: string, options: string[]) => Promise<string | null>
-  /** Returns true when the user approved. Only called when the approval policy says a person must decide. */
-  requestApproval: (title: string, detail: string) => Promise<boolean>
-  needsApproval: (packages: string[]) => boolean
+  /**
+   * Returns true when the user approved. Only called when the approval policy says a person must decide.
+   * `keys` are what an approval trusts for the rest of the session: package names, or `code:shell` and `code:network`.
+   */
+  requestApproval: (title: string, detail: string, keys: string[]) => Promise<boolean>
+  /** The approval policy: whether allowing these keys needs a person. */
+  needsApproval: (keys: string[]) => boolean
   installPackages: (packages: string[]) => Promise<string>
   exploreTimeoutMs?: number
+  /** How long run_cell may take before the kernel is interrupted. Defaults to RUN_TIMEOUT_MS. */
+  runTimeoutMs?: number
 }
 
 const MAX_EXPLORE_CHARS = 4000
 /** Exploration should take seconds. Anything slower is usually scanning something huge. */
 export const EXPLORE_TIMEOUT_MS = 20_000
 const MAX_RUN_CHARS = 5000
+/** A cell that runs longer than this is almost always stuck or working on far too much data. */
+export const RUN_TIMEOUT_MS = 10 * 60_000
+
+/** "10 minutes", "45 seconds". */
+export function duration(ms: number): string {
+  if (ms >= 60_000) {
+    const minutes = Math.round(ms / 60_000)
+    return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+  }
+  const seconds = Math.max(1, Math.round(ms / 1000))
+  return `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`
+}
 
 /**
  * Tool descriptions are the model's selection API: WHEN TO USE, WHEN NOT TO USE, DO NOT USE FOR.
@@ -43,9 +62,24 @@ const MAX_RUN_CHARS = 5000
 export function createCellTools(deps: ToolDeps) {
   const { kernel, bus, state, cellId } = deps
 
+  const approve = approver(deps.needsApproval, deps.requestApproval)
+  /** run_cell calls still executing. finish waits for them, so it never judges a run that is about to change. */
+  const running = new Set<Promise<unknown>>()
+  const tracked = <T>(promise: Promise<T>): Promise<T> => {
+    running.add(promise)
+    const done = () => running.delete(promise)
+    promise.then(done, done)
+    return promise
+  }
+
   async function guarded<T>(toolName: string, input: unknown, run: () => Promise<T>): Promise<T | string> {
-    const gate = await bus.emit('tool_call', { cellId, toolName, input })
-    if (gate.blocked) return `Blocked: ${gate.reason}`
+    const gate = await bus.emit('tool_call', { cellId, toolName, input, approve })
+    if (gate.blocked) {
+      // Reported as a result too, so the log records how the call ended
+      const output = `Blocked: ${gate.reason}`
+      await bus.emit('tool_result', { cellId, toolName, input, output, ok: false, error: output })
+      return output
+    }
     try {
       const output = await run()
       await bus.emit('tool_result', { cellId, toolName, input, output, ok: true })
@@ -120,16 +154,36 @@ WHEN NOT TO USE: quick looks at data (use explore).
 USAGE: pass the whole cell, not a diff. Only the last successful run is kept. After it succeeds, call finish.`,
       inputSchema: z.object({ code: z.string().describe('The complete Python code for the cell') }),
       execute: ({ code }) =>
-        guarded('run_cell', { code }, async () => {
+        tracked(guarded('run_cell', { code }, async () => {
           state.attempts += 1
           deps.onAttempt(code)
-          const result = await kernel.execute(code, { store: true, onOutput: deps.onOutput })
+          const limit = deps.runTimeoutMs ?? RUN_TIMEOUT_MS
+          let timedOut = false
+          const timer = setTimeout(() => {
+            timedOut = true
+            kernel.interrupt()
+          }, limit)
+          let result: ExecuteResult
+          try {
+            result = await kernel.execute(code, { store: true, onOutput: deps.onOutput })
+          } catch (err) {
+            // A kernel that ignores the interrupt gets killed, and the run fails with it
+            if (!timedOut) throw err
+            result = { ok: false, outputs: [], executionCount: null, durationMs: limit, assigned: [] }
+          } finally {
+            clearTimeout(timer)
+          }
+          if (timedOut) {
+            // Never a run finish can keep, whatever the kernel reported after the interrupt
+            state.lastRun = { code, result: { ...result, ok: false } }
+            return `The cell timed out after ${duration(limit)} and was stopped. Make it faster: work on a sample or fewer rows, use vectorized pandas instead of Python loops, and keep slow steps in their own cell. Then call run_cell again.`
+          }
           state.lastRun = { code, result }
           const text = outputsToText(result.outputs, MAX_RUN_CHARS)
           return result.ok
             ? `Ran successfully in ${result.durationMs} ms.\nOutputs:\n${text}\nIf this answers the prompt, call finish. Otherwise fix the code and call run_cell again.`
             : `The cell failed.\n${text}\nFix the code and call run_cell again.`
-        }),
+        })),
     }),
 
     install_packages: tool({
@@ -139,10 +193,8 @@ WHEN NOT TO USE: the package is already importable, or the standard library can 
       inputSchema: z.object({ packages: z.array(z.string()).min(1).max(5).describe('pip package names') }),
       execute: ({ packages }) =>
         guarded('install_packages', { packages }, async () => {
-          if (deps.needsApproval(packages)) {
-            const approved = await deps.requestApproval(`Install ${packages.join(', ')}?`, `pip install ${packages.join(' ')}`)
-            if (!approved) return `The user declined installing ${packages.join(', ')}. Solve it without these packages, or explain in finish why you can't.`
-          }
+          const approved = await approve({ title: `Install ${packages.join(', ')}?`, detail: `pip install ${packages.join(' ')}`, keys: packages })
+          if (!approved) return `The user declined installing ${packages.join(', ')}. Solve it without these packages, or explain in finish why you can't.`
           const log = await deps.installPackages(packages)
           return `Installed ${packages.join(', ')}.\n${clip(log, 1500, 'end')}`
         }),
@@ -183,6 +235,8 @@ WHEN NOT TO USE: the prompt asks for a computed result and no run_cell has succe
       }),
       execute: (input) =>
         guarded('finish', input, async () => {
+          // Models that call tools in parallel can send finish alongside run_cell. Judge the run once it's done.
+          await Promise.allSettled([...running])
           // Recover the fields a model wrote into the text instead of passing them
           const leakedInterpretation = splitLeaked(input.interpretation)
           const leakedAnswer = splitLeaked(input.answer)
