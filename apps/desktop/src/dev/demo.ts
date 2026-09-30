@@ -167,6 +167,21 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
     { path: '/Users/demo/REGIMEN-2/readout.ipynb', name: 'readout', folder: 'REGIMEN-2', openedAt: Date.now() - 60_000 },
     { path: '/Users/demo/Registry/cohorts.ipynb', name: 'cohorts', folder: 'Registry', openedAt: Date.now() - 3 * 3600_000 },
   ]
+  api.listPackages = async () => {
+    await wait(300)
+    return {
+      python: '/usr/bin/python3',
+      version: '3.12.4',
+      packages: [
+        ['matplotlib', '3.9.2'],
+        ['numpy', '2.1.1'],
+        ['pandas', '2.2.3'],
+        ['scipy', '1.14.1'],
+        ['statsmodels', '0.14.3'],
+      ].map(([name, version]) => ({ name, version })),
+      error: null,
+    }
+  }
   api.listVariables = async () => [
     { name: 'patients', type: 'DataFrame', shape: '412 × 9', detail: 'id, arm, age, stage, months, died, stopped_early, reason, switched' },
     { name: 'summary', type: 'DataFrame', shape: '2 × 5', detail: 'arm, patients, deaths, median_months, survival_24m' },

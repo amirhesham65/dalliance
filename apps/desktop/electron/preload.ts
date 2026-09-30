@@ -19,6 +19,7 @@ const api: DallianceApi = {
   restartKernel: () => ipcRenderer.invoke(IPC.restartKernel),
   kernelState: () => ipcRenderer.invoke(IPC.kernelState),
   listVariables: () => ipcRenderer.invoke(IPC.listVariables),
+  listPackages: () => ipcRenderer.invoke(IPC.listPackages),
   onKernelState: (listener) => subscribe(IPC.kernelStateChanged, listener),
   getSettings: () => ipcRenderer.invoke(IPC.getSettings),
   listModels: () => ipcRenderer.invoke(IPC.listModels),

@@ -12,7 +12,7 @@ src/
     settings/                 the Settings screen and one component per section
     notebook/                 NotebookView, CellView, editors, text renderers
     notebook/outputs/         OutputView: tables, images, text, errors, printed output
-    panes/                    Brief, Variables, History, Files, Pinned, Activity
+    panes/                    Brief, Variables & Environment, History, Files, Pinned, Activity
     welcome/                  first-run setup and the start page
     ui/                       shadcn components, generated. Edit sparingly
   lib/notebook/text.ts        Markdown, answers, @refs, Python highlighting, titles, durations
@@ -163,7 +163,7 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 | Pane | Shows |
 | --- | --- |
 | Brief | The workspace's `AGENTS.md` as a document, editable in place. Starts from a template. `- [ ]` tasks toggle on click |
-| Variables | `listVariables()` from the kernel |
+| Variables & Environment | Two views under a switch. Variables from the kernel through `listVariables()`. Environment is the Python's version and its libraries with versions, through `listPackages()`, searchable. The libraries are read on first use and again after a run, a restart or a Python setup, once they have been shown |
 | History | The selected cell's revisions. Restore brings one back without calling the model |
 | Files | Workspace files, reloaded after every run. Clicking a data file adds a prompt cell to load it |
 | Pinned | Result cards for pinned cells, in pin order |

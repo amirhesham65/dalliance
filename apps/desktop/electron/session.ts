@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { WebContents } from 'electron'
-import { type Brief, type CellRunResult, type FileEntry, IPC, type KernelState, type PythonState, type RunCellRequest, type RunEvent } from '@dalliance/shared/ipc'
+import { type Brief, type CellRunResult, type EnvironmentView, type FileEntry, IPC, type KernelState, type PythonState, type RunCellRequest, type RunEvent } from '@dalliance/shared/ipc'
 import { createApproval, normalize } from './harness/approval'
 import { EventBus } from './harness/events'
 import { installExtensions } from './harness/extensions'
@@ -10,6 +10,7 @@ import { friendlyError, runCell } from './harness/run-cell'
 import { generateTitle, titleModel } from './harness/title'
 import type { Kernel, KernelInfo } from './kernel/kernel'
 import { installPackages, pythonStatus, setupManagedEnv } from './kernel/python-env'
+import { installedPackages } from './kernel/python-packages'
 import { PythonKernel } from './kernel/python-kernel'
 import { isBroadFolder, listFiles } from './harness/workspace'
 import type { SettingsStore } from './settings'
@@ -88,6 +89,18 @@ export class NotebookSession {
   private publishKernel(info: KernelInfo) {
     this.lastKernelState = { status: info.status, python: info.python, cwd: info.cwd, error: info.error }
     this.options.send(IPC.kernelStateChanged, this.lastKernelState)
+  }
+
+  /** The Python in use and its libraries, read from the interpreter itself so a running cell doesn't hold it up. */
+  async environment(): Promise<EnvironmentView> {
+    const status = await this.pythonState()
+    if (!status.python) return { python: null, version: null, packages: [], error: 'No Python found. Open Settings to set up a Python environment.' }
+    try {
+      return { python: status.python, version: status.version, packages: await installedPackages(status.python), error: null }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message.split('\n')[0] : String(err)
+      return { python: status.python, version: status.version, packages: [], error: `Couldn't list the libraries: ${reason}` }
+    }
   }
 
   async pythonState(): Promise<PythonState> {
