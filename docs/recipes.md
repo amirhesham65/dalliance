@@ -30,7 +30,7 @@ Checklists for the changes that touch several files. Each one ends with the test
 
 1. Add the method to `DallianceApi` and a channel name to `IPC` in `packages/shared/src/ipc.ts`. Add any new request or result types there too.
 2. Map it in `electron/preload.ts`. Use `ipcRenderer.invoke` for calls that return something and `ipcRenderer.send` for fire and forget. For main-to-renderer events, use `subscribe()` and return the unsubscribe function.
-3. Register the handler in `registerIpc()` in `electron/main.ts` with `handle()` or `on()`, never `ipcMain` directly, so the sender check runs. Put the logic in `NotebookSession` or `SettingsStore`, not in the handler.
+3. Register the handler in `registerIpc()` in `electron/main.ts` with `handle()` or `on()`, never `ipcMain` directly, so the sender check runs. The listener gets the tab that called, so reach the notebook's state through `tab.session`. Put the logic in `NotebookSession` or `SettingsStore`, not in the handler. Something every tab should hear about goes out with `broadcast()`.
 4. Add it to `fakeApi()` in `src/test/fake-api.ts`. TypeScript fails until you do, and `?demo` uses the same fake.
 5. Call it from the store or a component through `getApi()`.
 6. Add a row to the table in [ipc.md](ipc.md).
@@ -40,7 +40,7 @@ Checklists for the changes that touch several files. Each one ends with the test
 1. Add the field to `SettingsView` and `SettingsUpdate` in `packages/shared/src/ipc.ts`.
 2. In `electron/settings.ts`, add it to `Stored` and `DEFAULTS`, return it from `view()`, and apply it in `update()`. Old settings files don't have it, and the merge over `DEFAULTS` covers that.
 3. Read it where it matters, usually through a getter on `SettingsStore` used by `NotebookSession`.
-4. If changing it needs a side effect, like a kernel restart for `pythonPath`, do that in the `updateSettings` handler in `main.ts`.
+4. If changing it needs a side effect, like restarting every tab's kernel for `pythonPath`, do that in the `updateSettings` handler in `main.ts`. The handler already sends the new view to every tab.
 5. Add a `Row` to the right section in `src/components/settings/`, or a new section: add it to `SETTINGS_SECTIONS` in the store and to `SECTIONS` and the tab contents in `SettingsScreen.tsx`. Controls save through `saveSettings()` as they change. Text fields save on Enter or blur.
 6. Add it to `fakeSettings()` in `src/test/fake-api.ts`.
 

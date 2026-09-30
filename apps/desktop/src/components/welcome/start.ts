@@ -6,10 +6,12 @@ export const modKey = () => (getApi()?.platform === 'darwin' || navigator.platfo
 
 export const pythonReady = (p: PythonState | null) => p?.python != null && p.missingPackages.length === 0
 
-/** Opens a notebook from the start page, asking first if the one behind it has unsaved changes. */
+/**
+ * Opens a notebook from the start page. It lands in this tab only when the tab is an untouched Untitled, and in a
+ * new tab otherwise, so the notebook behind the start page is never replaced. True when it opened here.
+ */
 export async function startWith(fn: () => Promise<OpenedNotebook | null>): Promise<boolean> {
-  const api = getApi()
-  if (!api || !(await api.confirmDiscard())) return false
+  if (!getApi()) return false
   const opened = await fn()
   if (!opened) return false
   actions.load(opened.notebook, opened.path)

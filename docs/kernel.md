@@ -164,11 +164,14 @@ Notes don't count against the budget. The `Output` type in `packages/shared` has
 
 ## Lifecycle
 
-`NotebookSession` in `electron/session.ts` owns the kernel.
+`NotebookSession` in `electron/session.ts` owns the kernel. Every tab has its own session, so every tab has its own kernel, in its own notebook's folder, with its own variables. Cells in different tabs run at the same time, one per kernel.
 
-- `warmUp()` starts it in the background at launch and after every restart.
+- A tab's kernel starts on demand, the first time a cell runs, so opening many tabs stays cheap. Until then the kernel state is `dead` with no error, which the overview shows as "off", and the variable list is empty.
+- `warmUp()` starts it in the background after every restart, and at launch for the tab that shows. Tabs brought back behind it wait for their first run.
 - `ensureKernel()` starts it on demand and shares one start promise between concurrent callers.
-- `openWorkspace(dir)` restarts it in the new notebook's folder and remembers the folder. New and opened notebooks always get a fresh kernel.
+- `openWorkspace(dir)` moves the session to the new notebook's folder and remembers the folder. A kernel running or starting restarts there, so new and opened notebooks always get a fresh kernel. With none yet, nothing starts.
+- `pythonChanged()` runs in every tab after a Python setup or a new Python path, since they all share one. A kernel running or starting restarts on the new Python. One not started stays that way, and an old error such as "No Python found" is cleared.
+- Closing a tab, or the window, calls `shutdown()` on its session. So does quitting, for any left.
 - `moveWorkspace(dir)` runs `os.chdir()` in the live kernel after Save As into another folder, so variables survive.
 - `restart()` bumps a generation counter, shuts the kernel down and warms up a new one. A kernel that was still starting when the restart came is discarded once it's up: it belongs to an older generation and may be in the old folder, so `ensureKernel()` shuts it down and hands its waiters the current one.
 - `interrupt()` sends `SIGINT`, but only while the kernel is busy. The script ignores an interrupt that lands between requests.
@@ -190,9 +193,9 @@ On a Mac, an app started from the Dock gets a `PATH` like `/usr/bin:/bin`, where
 
 It also reports which of `pandas`, `numpy` and `matplotlib` are missing. The renderer shows a banner when any are.
 
-`setupManagedEnv()` creates the venv with the system Python if needed, then pip-installs `BASE_PACKAGES` (the three above plus SciPy, statsmodels, seaborn, scikit-learn and IPython), streaming lines to the renderer over `python-log`. Changing `pythonPath` in Settings restarts the kernel.
+`setupManagedEnv()` creates the venv with the system Python if needed, then pip-installs `BASE_PACKAGES` (the three above plus SciPy, statsmodels, seaborn, scikit-learn and IPython), streaming lines to every tab over `python-log`. Changing `pythonPath` in Settings, or setting up the environment, restarts every tab's kernel in use.
 
-Environments made before `BASE_PACKAGES` grew only have the three required packages. `missingBasePackages(envDir)` reports which base packages the managed environment lacks, as pip names, and `installMissingBasePackages(envDir, onLog)` installs just those and resolves with their names. Both do nothing when there's no managed environment. `NotebookSession` calls `installMissingBasePackages()` the first time a kernel starts on the managed environment in each app session, without waiting for it, and sends its lines over `python-log`. A failure is ignored, so the packages just stay missing.
+Environments made before `BASE_PACKAGES` grew only have the three required packages. `missingBasePackages(envDir)` reports which base packages the managed environment lacks, as pip names, and `installMissingBasePackages(envDir, onLog)` installs just those and resolves with their names. Both do nothing when there's no managed environment. `NotebookSession` calls `installMissingBasePackages()` the first time a kernel starts on the managed environment in each app session, whichever tab it is in, without waiting for it, and sends its lines over `python-log`. A failure is ignored, so the packages just stay missing.
 
 `installPackages()` only accepts package names: `isPackageSpec()` rejects anything that starts like a pip option or a path, and every archive name pip would install as a local file (`.whl`, `.zip`, `.tar`, `.tgz`, `.tar.gz`, `.tbz`, `.tar.bz2`, `.txz`, `.tlz`, `.tar.xz`, `.tar.lz`, `.tar.lzma`). When pip refuses a Homebrew or Debian Python with `externally-managed-environment` (PEP 668), it throws `EXTERNALLY_MANAGED_MESSAGE`, which tells the user to set up the managed environment in Settings > Python. It never passes `--break-system-packages`.
 

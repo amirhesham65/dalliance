@@ -13,6 +13,7 @@ import type {
   RunCellRequest,
   RunEvent,
   SettingsView,
+  TabsState,
   VariableView,
 } from '@dalliance/shared/ipc'
 import {
@@ -103,6 +104,8 @@ export interface NotebookState {
   models: ModelList | null
   /** The message showing at the bottom of the window, if any. */
   notice: Notice | null
+  /** The window's tabs, as the main process last sent them. Null outside the desktop app. */
+  tabs: TabsState | null
 }
 
 let api: DallianceApi | undefined = typeof window === 'undefined' ? undefined : window.dalliance
@@ -160,6 +163,7 @@ export const useNotebook = create<NotebookState>(() => ({
   brief: null,
   models: null,
   notice: null,
+  tabs: null,
 }))
 
 const MAX_LOG = 60

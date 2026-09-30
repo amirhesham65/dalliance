@@ -204,6 +204,31 @@ export interface OpenedNotebook {
   notebook: Notebook
 }
 
+/** What the renderer tells the main process about its notebook, for the tab strip and the window title. */
+export interface DocumentState {
+  path: string | null
+  dirty: boolean
+  /** Whether a cell is queued or running. Optional so older callers still type. */
+  running?: boolean
+}
+
+/** One tab in the window, as the tab strip draws it. */
+export interface TabInfo {
+  id: string
+  /** The notebook's file name without .ipynb, or Untitled. */
+  title: string
+  path: string | null
+  dirty: boolean
+  running: boolean
+}
+
+/** Every tab in the window, in order, which one is showing, and which one is the page that receives this. */
+export interface TabsState {
+  tabs: TabInfo[]
+  activeId: string | null
+  selfId: string | null
+}
+
 export type MenuAction =
   | 'new'
   | 'open'
@@ -247,6 +272,11 @@ export interface DallianceApi {
   pythonState(): Promise<PythonState>
   setupPython(): Promise<PythonState>
   onPythonLog(listener: (line: string) => void): () => void
+  /**
+   * The open calls below all place the notebook the same way. It opens in the calling tab when that tab is an
+   * untouched Untitled, and the result is the notebook for it to load. Otherwise it opens in a new tab, or the tab
+   * that already has the file comes forward, and the result is null, as it is for a cancel or a failure.
+   */
   openNotebook(): Promise<OpenedNotebook | null>
   /** Writes a new notebook file into the folder in use, so it has a path from the start, on a fresh kernel. Null when the folder can't be written to, after the reason is shown. */
   newNotebook(notebook: Notebook): Promise<OpenedNotebook | null>
@@ -263,11 +293,23 @@ export interface DallianceApi {
    */
   renameNotebook(current: string | null, name: string, notebook: Notebook): Promise<RenameResult>
   saveNotebook(path: string | null, notebook: Notebook): Promise<string | null>
-  confirmDiscard(): Promise<boolean>
   restoreSession(): Promise<RestoredSession | RestoreFailure | null>
   saveDraft(state: DraftState): void
-  setDocumentState(state: { path: string | null; dirty: boolean }): void
+  setDocumentState(state: DocumentState): void
   onMenu(listener: (action: MenuAction) => void): () => void
+  /** Settings changed, from any tab. Every page gets the new view. */
+  onSettingsChanged(listener: (view: SettingsView) => void): () => void
+  /** The Python changed for the whole app: set up, or a new path in Settings. */
+  onPythonState(listener: (state: PythonState) => void): () => void
+  /** The window's tabs as they are now. */
+  listTabs(): Promise<TabsState>
+  /** The tabs, whenever one opens, closes, switches, or changes name, unsaved changes or running cells. */
+  onTabs(listener: (state: TabsState) => void): () => void
+  /** Opens a tab on the start page and shows it. */
+  newTab(): Promise<void>
+  /** Closes a tab, asking to save it first when it has unsaved changes. The last tab closes the window. */
+  closeTab(id: string): Promise<void>
+  switchTab(id: string): Promise<void>
 }
 
 export const IPC = {
@@ -297,11 +339,17 @@ export const IPC = {
   listFiles: 'list-files',
   saveNotebook: 'save-notebook',
   renameNotebook: 'rename-notebook',
-  confirmDiscard: 'confirm-discard',
   restoreSession: 'restore-session',
   saveDraft: 'save-draft',
   documentState: 'document-state',
   menu: 'menu',
   /** Sent by the preload when the page subscribes to menu actions, so the main process knows it can send one. */
   menuReady: 'menu-ready',
+  settingsChanged: 'settings-changed',
+  pythonStateChanged: 'python-state-changed',
+  listTabs: 'list-tabs',
+  tabsChanged: 'tabs-changed',
+  newTab: 'new-tab',
+  closeTab: 'close-tab',
+  switchTab: 'switch-tab',
 } as const

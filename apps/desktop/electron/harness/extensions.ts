@@ -111,22 +111,29 @@ export function createRunLog(logDir: string, options: { maxBytes?: number } = {}
   }
 }
 
-/** Appends every event to logs/agent.jsonl, with long strings clipped. Never holds up the run. */
-export function logRuns(bus: EventBus, log: RunLog) {
+/**
+ * Appends every event to logs/agent.jsonl, with long strings clipped. Never holds up the run. `fields` go on every
+ * line, such as the tab the run belongs to, since tabs running at once share one log.
+ */
+export function logRuns(bus: EventBus, log: RunLog, fields: Record<string, string> = {}) {
   for (const event of LOGGED_EVENTS) {
     bus.on(event, (data) => {
-      void log.write(event, data)
+      void log.write(event, { ...fields, ...data })
     })
   }
 }
 
 /**
- * The built-in extensions. `logDir` is where agent.jsonl goes. The log goes first so it sees every call,
- * including the ones a later handler blocks.
+ * The built-in extensions. `logDir` is where agent.jsonl goes, unless `log` is one already open: several buses
+ * writing one file must share one log, so lines stay whole and in order and rotation counts every byte. The log goes
+ * first so it sees every call, including the ones a later handler blocks.
  */
-export function installExtensions(bus: EventBus, options: { logDir: string; maxLogBytes?: number }): { log: RunLog } {
-  const log = createRunLog(options.logDir, { maxBytes: options.maxLogBytes })
-  logRuns(bus, log)
+export function installExtensions(
+  bus: EventBus,
+  options: { logDir: string; maxLogBytes?: number; log?: RunLog; fields?: Record<string, string> },
+): { log: RunLog } {
+  const log = options.log ?? createRunLog(options.logDir, { maxBytes: options.maxLogBytes })
+  logRuns(bus, log, options.fields)
   blockSecretFiles(bus)
   codePolicy(bus)
   return { log }

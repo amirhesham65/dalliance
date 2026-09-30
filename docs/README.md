@@ -41,7 +41,7 @@ docs/                 you are here
 4. **Every tool call goes through `guarded()`** so the event bus can block it and the log sees it.
 5. **The kernel talks on fd 3, not stdout.** Libraries print to stdout freely. Protocol messages go to fd 3 only.
 6. **The renderer never touches Node or `ipcRenderer`.** It gets `window.dalliance`, typed by `DallianceApi` in `packages/shared/src/ipc.ts`.
-7. **One cell runs at a time.** The renderer queues cells and the kernel queues requests. Don't add parallel runs without reworking both.
+7. **One cell runs at a time in each tab.** Every tab has its own page, session and kernel. A tab's renderer queues its cells and its kernel queues requests, while cells in different tabs run at the same time. Don't add parallel runs within a tab without reworking both. See [architecture.md](architecture.md#tabs).
 8. **`.ipynb` stays valid nbformat 4.** Dalliance fields live under `metadata.dalliance`. Jupyter must still open the file.
 9. **No AI attribution** in commits, PRs, comments or docs. See [AGENTS.md](../AGENTS.md).
 
@@ -58,7 +58,8 @@ docs/                 you are here
 | Suggestions | Up to three follow-up prompts the agent proposes. The `next` field of `finish`. |
 | Revision | A saved working version of a cell. Up to 12 per cell. |
 | Stale | Out of date because an earlier cell reran or the kernel restarted. |
-| Workspace | The folder in use, which is the open notebook's folder. It is the kernel's working directory, where new notebooks go, and the only folder the agent can read. |
+| Tab | One notebook in the window, with its own page, `NotebookSession` and kernel. `electron/tabs.ts` keeps the list. |
+| Workspace | The folder in use, which is the tab's notebook's folder. It is that tab's kernel's working directory, where new notebooks from that tab go, and the only folder the agent can read. |
 | Brief | `AGENTS.md` in the workspace. The agent reads it before every cell. |
 | Explore | Running a quick snippet to look at data, without it becoming the cell. |
 | Harness | `apps/desktop/electron/harness/`, the agent loop and its tools. |

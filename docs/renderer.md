@@ -8,7 +8,7 @@ src/
   App.tsx                     menu handling, keyboard modes, the three-column layout
   store/notebook-store.ts     all document and run state, and every action
   components/
-    app/                      TopBar, Sidebar (the overview), IconButton, MakerLogo
+    app/                      TopBar, TabStrip, Sidebar (the overview), IconButton, MakerLogo
     settings/                 the Settings screen and one component per section
     notebook/                 NotebookView, CellView, editors, text renderers
     notebook/outputs/         OutputView: tables, images, text, errors, printed output
@@ -25,7 +25,9 @@ src/
 
 ## The store
 
-`src/store/notebook-store.ts` exports `useNotebook`, a zustand store, and `actions`, plain functions that change it. Components read with selectors, `useNotebook((s) => s.pane)`, and call `actions.*`. Besides the actions, `App.tsx`, `main.tsx` and the Settings sections write bridge results straight into `settings`, `python` and `kernel`.
+`src/store/notebook-store.ts` exports `useNotebook`, a zustand store, and `actions`, plain functions that change it. Components read with selectors, `useNotebook((s) => s.pane)`, and call `actions.*`. Besides the actions, `App.tsx`, `main.tsx` and the Settings sections write bridge results straight into `settings`, `python`, `kernel` and `tabs`.
+
+Every tab is its own page with its own store, so the store only ever holds one notebook. Settings and the Python come from the main process to every tab when any tab changes them, through `onSettingsChanged` and `onPythonState`.
 
 Saved with the notebook: `notebook`. Everything else is session state:
 
@@ -45,6 +47,7 @@ Saved with the notebook: `notebook`. Everything else is session state:
 | `environment`, `environmentLoading`, `environmentStale` | The Python's libraries once the Environment view has asked, whether a read is under way, and whether they may be out of date. See [Side panes](#side-panes) |
 | `variablesView` | Which view the Variables & Environment pane shows |
 | `notice` | The message at the bottom of the window, with an Undo when the change can be taken back. See [Notices and errors](#notices-and-errors) |
+| `tabs` | The window's tabs as the main process last sent them, for the strip. Null outside the desktop app. See [Tabs](#tabs) |
 
 `getApi()` and `setApi()` wrap `window.dalliance`, so tests and the demo can swap in a fake.
 
@@ -66,7 +69,7 @@ The notices for D D and M offer Undo through the same stack. Their button undoes
 
 ### The run queue
 
-`queue` and `pump()` live at module level. `actions.run(id)` pushes an id unless it's already queued or running. `pump()` runs one cell at a time: it builds the request, awaits `api.runCell()`, and calls `finish()`. Events for the running cell arrive through `applyRunEvent()`. When the queue empties, the store refreshes variables and calls `environmentChanged()`, since a cell may have installed a library.
+`queue` and `pump()` live at module level, so each tab's page has its own. `actions.run(id)` pushes an id unless it's already queued or running. `pump()` runs one cell at a time in its tab, while other tabs run theirs: it builds the request, awaits `api.runCell()`, and calls `finish()`. Events for the running cell arrive through `applyRunEvent()`. When the queue empties, the store refreshes variables and calls `environmentChanged()`, since a cell may have installed a library.
 
 `pump()` passes the cell as it was sent to `finish()`. The user can keep typing while the agent works. If the prompt or the code changed during the run, their edits stay, `generatedFrom` is the prompt that was sent, and the cell ends `edited` instead of `done`. The next run then regenerates for the new prompt, or runs their code. History keeps the version that ran.
 
@@ -99,7 +102,9 @@ The main process menu owns the global shortcuts. The renderer owns the rest.
 
 | Keys | Where | Does |
 | --- | --- | --- |
-| Cmd+N, Cmd+O, Shift+Cmd+O, Cmd+S, Shift+Cmd+S | Menu | New, Open, Open Folder, Save, Save As |
+| Cmd+N, Cmd+O, Shift+Cmd+O, Cmd+S, Shift+Cmd+S | Menu | New, Open, Open Folder, Save, Save As. New and the Opens use a new tab, unless this tab is an untouched Untitled |
+| Cmd+T, Cmd+W, Shift+Cmd+W | Menu | New tab on the start page, close the tab, close the window. See [Tabs](#tabs) |
+| Ctrl+Tab, Ctrl+Shift+Tab, Shift+Cmd+], Shift+Cmd+[ | Menu | Next tab, previous tab, wrapping round |
 | Cmd+Z, Shift+Cmd+Z | Menu, and command mode | Undo, Redo. In a text field, the field's own undo. Elsewhere, notebook edits. See [Undo and redo](#undo-and-redo) |
 | Cmd+, | Menu | Settings |
 | Shift+Cmd+Enter | Menu | Run all |
@@ -183,7 +188,19 @@ A bridge call the user started should never fail silently. `actions.notifyFailur
 
 ## The notebook name
 
-The notebook's name at the top of the overview, above the folder and the kernel state, is a button that turns into a text field, `NotebookName` in `components/app/`: Enter or leaving the field calls `renameNotebook()`, Esc, or leaving the field empty, keeps the old name, and a name that can't be used stays in the field with the reason under it. The tab in the top bar is unchanged and opens the recent notebooks, with New notebook, Open and Open folder. The field is read-only while the rename is in flight rather than disabled, so it keeps focus and a refused name still answers Enter and Esc. A rename only changes `path`, so the undo stack and any notice showing are left alone.
+The notebook's name at the top of the overview, above the folder and the kernel state, is a button that turns into a text field, `NotebookName` in `components/app/`: Enter or leaving the field calls `renameNotebook()`, Esc, or leaving the field empty, keeps the old name, and a name that can't be used stays in the field with the reason under it. The tab in the strip takes the new name once the page reports it. The field is read-only while the rename is in flight rather than disabled, so it keeps focus and a refused name still answers Enter and Esc. A rename only changes `path`, so the undo stack and any notice showing are left alone.
+
+## Tabs
+
+The top bar draws the window's tabs with `TabStrip` in `components/app/`, in place of the one notebook tab it had before. Every tab's page draws the same strip from `tabs`, which the main process sends with `onTabs`, so the strip looks the same whichever tab shows. See [ipc.md](ipc.md#tabs) for where the list lives and where a notebook opens.
+
+Each tab shows the notebook's name, cut short with the full path in its tooltip, a dot for unsaved changes, and a pulsing dot while a cell is queued or running. Its close cross shows on the tab showing and on hover. A click shows a tab, a middle click or the cross closes it, and + opens a new tab on the start page. Closing a tab with changes asks Save / Don't Save / Cancel from the main process.
+
+It follows the WAI-ARIA tabs pattern with manual activation: the strip is a `tablist` named "Notebooks", each tab a `tab` with `aria-selected`, and only one tab is in the Tab order. Left and Right move focus, wrapping round, and Home and End go to the ends. Enter or Space shows the focused tab, and Delete closes it. Focus moving never switches on its own, since switching moves keyboard focus to another page. Each tab's name says "unsaved changes" or "running" in words, and the dots are `aria-hidden`. The focus ring is the one buttons use.
+
+`App.tsx` reports its own tab with `setDocumentState({ path, dirty, running })` whenever one of them changes. `running` counts queued cells, so the dot doesn't flicker between the cells of a Run all. The strip shows on the start page too, since a new tab opens there, but not during the first-run setup.
+
+Dragging tabs to reorder them isn't there yet.
 
 ## Settings
 
@@ -203,7 +220,7 @@ Changes save as they're made. Selects save on change. The model id and the Pytho
 
 ## First run and the start page
 
-`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. The key step links to each provider's keys page, switches provider to match a pasted key, and checks the key before saving it, see [storage.md](storage.md#settings-and-keys). Skipping any step still sets `onboarded`. The start page offers new, open, open folder, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New goes through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, and Open folder asks for a folder first, then does the same in it, so nothing the start page opens is unsaved. File > Open Folder and the notebook tab's menu do the same, and both name the folder in use with `folderName()`.
+`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. The key step links to each provider's keys page, switches provider to match a pasted key, and checks the key before saving it, see [storage.md](storage.md#settings-and-keys). Skipping any step still sets `onboarded`. The start page offers new, open, open folder, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New goes through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, and Open folder asks for a folder first, then does the same in it, so nothing the start page opens is unsaved. File > Open Folder does the same, and the start page names the folder in use with `folderName()`. `startWith()` loads what comes back only when the notebook opened in this tab, which happens only when the tab is an untouched Untitled. Over a notebook, from Help > Welcome, it opens in a new tab and this one keeps its notebook, so nothing needs a Discard prompt.
 
 ## Theming
 
@@ -223,7 +240,7 @@ App-specific tokens on top of shadcn's:
 
 The quiet text colours, `--muted-foreground` and `--faint`, meet WCAG AA, 4.5:1, on `--background` and `--raised` in both themes. `--faint` sits close to the limit so it stays quieter than muted text. Check the ratios before changing either.
 
-`electron/main.ts` hardcodes the canvas colours for the window background and the Windows title bar overlay. Change both together.
+`electron/main.ts` hardcodes the canvas colours for the window and tab view backgrounds and the Windows title bar overlay. Change them together.
 
 Fonts are bundled through Fontsource: Inter for UI, JetBrains Mono for code, Source Serif 4 for answers, the brief and headings on the setup screens. `src/fonts.css` declares only their Latin and Latin Extended files, so the build skips the Greek, Cyrillic and Vietnamese ones and other scripts fall back to system fonts. A `short` custom variant tightens spacing for windows under 760 px tall.
 
@@ -243,7 +260,7 @@ Without Electron there's no `window.dalliance`. `main.tsx` then checks the URL:
 
 | URL | Shows |
 | --- | --- |
-| `/?demo` | A clinical trial notebook with results. The last cell asks a question when run |
+| `/?demo` | A clinical trial notebook with results, in the first of three tabs. The last cell asks a question when run. The other tabs are only in the strip: switching moves the highlight and nothing else |
 | `/?demo&welcome` | The start page |
 | `/?demo&setup` | The first-run setup with no key and no Python. Any key saves, except one containing `bad` |
 | anything else | The app with no bridge. Runs fail with "Running cells needs the desktop app." |

@@ -2,7 +2,7 @@
  * A pretend desktop bridge for looking at the UI in a plain browser: open the renderer with ?demo.
  * Nothing here runs inside Electron, where window.dalliance is the real bridge.
  */
-import { fakeApi, fakeSettings, result } from '@/test/fake-api'
+import { fakeApi, fakeSettings, fakeTabs, result } from '@/test/fake-api'
 import type { PythonState, RunEvent } from '@dalliance/shared/ipc'
 import { type Notebook, type Output, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
@@ -150,6 +150,24 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
   api.respond = (id, answer) => {
     pending.get(id)?.(answer)
     pending.delete(id)
+  }
+  // A few notebooks open in tabs. The demo has one page, so switching only moves the highlight.
+  const tabs = fakeTabs([
+    { id: 'tab-1', title: 'readout', path: '/Users/demo/REGIMEN-2/readout.ipynb', dirty: false, running: false },
+    { id: 'tab-2', title: 'cohorts', path: '/Users/demo/Registry/cohorts.ipynb', dirty: true, running: false },
+    {
+      id: 'tab-3',
+      title: 'Adverse events by grade and arm, first 24 months',
+      path: '/Users/demo/REGIMEN-2/Adverse events by grade and arm, first 24 months.ipynb',
+      dirty: false,
+      running: true,
+    },
+  ])
+  Object.assign(api, tabs.api)
+  // The first tab is this page, so it follows the notebook as the real one does
+  api.setDocumentState = ({ path, dirty, running = false }) => {
+    const title = path ? (path.split('/').pop() ?? path).replace(/\.ipynb$/, '') : 'Untitled'
+    tabs.set({ tabs: tabs.get().tabs.map((t) => (t.id === 'tab-1' ? { ...t, title, path, dirty, running } : t)) })
   }
   const brief = { path: '/Users/demo/REGIMEN-2/AGENTS.md', text: null as string | null }
   api.platform = 'darwin'

@@ -4,7 +4,7 @@ import type { WebContents } from 'electron'
 import { type Brief, type CellRunResult, type EnvironmentView, type FileEntry, IPC, type KernelState, type PythonState, type RunCellRequest, type RunEvent } from '@dalliance/shared/ipc'
 import { createApproval, normalize } from './harness/approval'
 import { EventBus } from './harness/events'
-import { installExtensions } from './harness/extensions'
+import { type RunLog, installExtensions } from './harness/extensions'
 import { MissingKeyError, resolveModel } from './harness/model'
 import { friendlyError, runCell } from './harness/run-cell'
 import { generateTitle, titleModel } from './harness/title'
@@ -25,11 +25,24 @@ interface SessionOptions {
   launchKernel?: (cwd: string, onStatus: (info: KernelInfo) => void) => Promise<Kernel>
   /** Lists a Python's libraries. Defaults to `installedPackages`; tests pass a fake. */
   listPackages?: typeof installedPackages
+  /** The tab this session belongs to. Every line it adds to agent.jsonl names it. */
+  tabId?: string
+  /** The run log every tab shares. Without one, the session opens its own in userData/logs. */
+  log?: RunLog
+  /** State every tab's session shares, since they share one Python. */
+  shared?: SharedPythonState
+}
+
+/** What the sessions of all tabs share about the Python they run on. */
+export interface SharedPythonState {
+  /** Whether this app session has already topped up the managed environment's base packages. */
+  baseChecked: boolean
 }
 
 /**
- * Owns the kernel and the harness for the open notebook.
- * One cell runs at a time; the renderer queues Run all.
+ * Owns the kernel and the harness for one tab's notebook. Each tab has its own session, kernel and folder.
+ * One cell runs at a time in a session; the renderer queues Run all. Cells in different tabs run at the same time.
+ * The kernel starts on demand, the first time a cell runs, unless the launch warms up the first tab's.
  */
 export class NotebookSession {
   private kernel: Kernel | null = null
@@ -44,8 +57,7 @@ export class NotebookSession {
   private trust = new Set<string>()
   private nextRequest = 0
   private lastKernelState: KernelState
-  /** Whether this app session has already topped up the managed environment's base packages. */
-  private baseChecked = false
+  private readonly shared: SharedPythonState
   readonly bus = new EventBus()
   private readonly options: SessionOptions
 
@@ -54,9 +66,10 @@ export class NotebookSession {
     // A remembered Documents or home folder came from a notebook kept there. Without that notebook, start in the default.
     this.workspace = folderForNewNotebook(options.settings.workspaceDir ?? options.defaultWorkspace, options.defaultWorkspace)
     this.lastKernelState = { status: 'dead', python: null, cwd: this.workspace, error: null }
+    this.shared = options.shared ?? { baseChecked: false }
 
     // Keep .env files private, and log every run to logs/agent.jsonl
-    installExtensions(this.bus, { logDir: path.join(options.userData, 'logs') })
+    installExtensions(this.bus, { logDir: path.join(options.userData, 'logs'), log: options.log, fields: options.tabId ? { tab: options.tabId } : undefined })
   }
 
   private get briefPath() {
@@ -123,18 +136,36 @@ export class NotebookSession {
 
   /**
    * A managed environment made before the base package list grew lacks the newer packages. Install them once
-   * per app session, in the background, so the kernel doesn't wait. A failure only means they stay missing.
+   * per app session, not once per tab, in the background, so the kernel doesn't wait. A failure only means they
+   * stay missing.
    */
   private topUpBasePackages() {
-    if (this.baseChecked) return
-    this.baseChecked = true
+    if (this.shared.baseChecked) return
+    this.shared.baseChecked = true
     void installMissingBasePackages(this.envDir, this.logPython).catch(() => {})
   }
 
+  /**
+   * Creates the managed environment, or adds what it lacks. The environment is the whole app's, so the caller
+   * then calls `pythonChanged()` on every tab's session.
+   */
   async setupPython(): Promise<PythonState> {
     await setupManagedEnv(this.envDir, this.logPython)
-    await this.restart()
     return this.pythonState()
+  }
+
+  /** Whether a kernel is running or starting, as opposed to not started yet or stopped by a close. */
+  get hasKernel(): boolean {
+    return (this.kernel != null && this.kernel.info().status !== 'dead') || this.kernelStarting != null
+  }
+
+  /**
+   * The Python changed: set up, or a new path in Settings. A kernel in use restarts on it. One not started yet stays
+   * that way, and an error from the old Python, such as none being found, is cleared so it stops showing.
+   */
+  async pythonChanged() {
+    if (this.hasKernel) await this.restart()
+    else if (this.lastKernelState.error) this.publishKernel({ status: 'dead', python: null, executable: null, cwd: this.workspace, error: null })
   }
 
   private async ensureKernel(): Promise<Kernel> {
@@ -198,11 +229,16 @@ export class NotebookSession {
     return this.workspace
   }
 
-  /** A new or opened notebook gets a fresh kernel in its own folder. The folder is remembered for the next launch. */
-  async openWorkspace(dir: string | null) {
+  /**
+   * A new or opened notebook gets a fresh kernel in its own folder. A kernel in use restarts there. With none yet,
+   * the first run starts one, so opening many tabs stays cheap. The folder is remembered for the next launch unless
+   * `remember` is false, as for tabs brought back at launch behind the one showing.
+   */
+  async openWorkspace(dir: string | null, { remember = true }: { remember?: boolean } = {}) {
     this.workspace = dir ?? this.options.defaultWorkspace
-    this.options.settings.setWorkspaceDir(this.workspace)
-    await this.restart()
+    if (remember) this.options.settings.setWorkspaceDir(this.workspace)
+    if (this.hasKernel) await this.restart()
+    else this.publishKernel({ status: 'dead', python: null, executable: null, cwd: this.workspace, error: null })
   }
 
   /** After Save As into another folder, move the running kernel there without losing its state. */

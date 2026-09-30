@@ -1,10 +1,11 @@
-import type { CellRunResult, DallianceApi, RunCellRequest, RunEvent, SettingsView } from '@dalliance/shared/ipc'
+import type { CellRunResult, DallianceApi, RunCellRequest, RunEvent, SettingsView, TabInfo, TabsState } from '@dalliance/shared/ipc'
 
 type RunHandler = (request: RunCellRequest, emit: (event: RunEvent) => void) => Promise<CellRunResult> | CellRunResult
 
 /** A stand-in for the Electron bridge. Tests decide what each run returns. */
 export function fakeApi(onRun: RunHandler) {
   const runListeners = new Set<(cellId: string, event: RunEvent) => void>()
+  const tabs = fakeTabs([{ id: 'tab-1', title: 'Untitled', path: null, dirty: false, running: false }])
   const requests: RunCellRequest[] = []
   const responses: [string, unknown][] = []
   const api: DallianceApi = {
@@ -62,13 +63,54 @@ export function fakeApi(onRun: RunHandler) {
     listFiles: async () => [],
     renameNotebook: async (current, name) => ({ path: `${(current ?? '/tmp/x.ipynb').replace(/[^/]*$/, '')}${name}.ipynb`, saved: current == null }),
     saveNotebook: async () => '/tmp/test.ipynb',
-    confirmDiscard: async () => true,
     restoreSession: async () => null,
     saveDraft: () => {},
     setDocumentState: () => {},
     onMenu: () => () => {},
+    onSettingsChanged: () => () => {},
+    onPythonState: () => () => {},
+    ...tabs.api,
   }
-  return { api, requests, responses }
+  return { api, requests, responses, tabs }
+}
+
+/**
+ * A tab list that behaves like the main process's, without any pages behind it: switching only moves the
+ * highlight, closing drops the tab, and a new tab is an Untitled on the end.
+ */
+export function fakeTabs(initial: TabInfo[], selfId = initial[0]?.id ?? null) {
+  let state: TabsState = { tabs: initial, activeId: initial[0]?.id ?? null, selfId }
+  const listeners = new Set<(state: TabsState) => void>()
+  const calls: [string, string?][] = []
+  let next = initial.length + 1
+  const set = (update: Partial<TabsState>) => {
+    state = { ...state, ...update }
+    listeners.forEach((l) => l(state))
+  }
+  const api: Pick<DallianceApi, 'listTabs' | 'onTabs' | 'newTab' | 'closeTab' | 'switchTab'> = {
+    listTabs: async () => state,
+    onTabs: (l) => {
+      listeners.add(l)
+      return () => listeners.delete(l)
+    },
+    newTab: async () => {
+      calls.push(['new'])
+      const tab = { id: `tab-${next++}`, title: 'Untitled', path: null, dirty: false, running: false }
+      set({ tabs: [...state.tabs, tab], activeId: tab.id })
+    },
+    closeTab: async (id) => {
+      calls.push(['close', id])
+      const i = state.tabs.findIndex((t) => t.id === id)
+      if (i < 0 || state.tabs.length === 1) return
+      const tabs = state.tabs.filter((t) => t.id !== id)
+      set({ tabs, activeId: state.activeId === id ? tabs[Math.min(i, tabs.length - 1)].id : state.activeId })
+    },
+    switchTab: async (id) => {
+      calls.push(['switch', id])
+      set({ activeId: id })
+    },
+  }
+  return { api, calls, set, get: () => state }
 }
 
 export function fakeSettings(): SettingsView {

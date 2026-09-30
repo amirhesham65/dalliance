@@ -99,6 +99,25 @@ describe('the run log', () => {
     expect(statSync(path.join(logDir, 'agent.jsonl.1')).size).toBe(3000)
   })
 
+  it('tags each line with its tab when tabs share one log, keeping every line whole and in order', async () => {
+    const { bus, lines, log } = setup()
+    const other = new EventBus()
+    installExtensions(other, { logDir: 'unused', log, fields: { tab: 'tab-2' } })
+    const first = new EventBus()
+    installExtensions(first, { logDir: 'unused', log, fields: { tab: 'tab-1' } })
+    await first.emit('run_start', { cellId: 'a', input: 'x'.repeat(3000) })
+    await other.emit('run_start', { cellId: 'b', input: 'Total' })
+    await first.emit('run_end', { cellId: 'a' })
+    await bus.emit('run_end', { cellId: 'c' })
+    await log.idle()
+    expect(lines().map((l) => [l.event, l.tab, l.cellId])).toEqual([
+      ['run_start', 'tab-1', 'a'],
+      ['run_start', 'tab-2', 'b'],
+      ['run_end', 'tab-1', 'a'],
+      ['run_end', undefined, 'c'],
+    ])
+  })
+
   it('carries on after a failed write', async () => {
     const logDir = path.join(mkdtempSync(path.join(tmpdir(), 'dalliance-ext-')), 'logs')
     const log = createRunLog(logDir)

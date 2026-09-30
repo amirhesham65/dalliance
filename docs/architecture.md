@@ -22,11 +22,32 @@ flowchart LR
 
 | Process | Code | Owns |
 | --- | --- | --- |
-| Renderer | `apps/desktop/src/` | The open notebook, the run queue, live run state, layout, every pixel |
-| Main | `apps/desktop/electron/` | Files and dialogs, settings and keys, the agent loop, the kernel's lifecycle |
-| Kernel | `apps/desktop/electron/kernel/dalliance_kernel.py` | One Python namespace that lives across cells |
+| Renderer | `apps/desktop/src/` | One page per tab: its notebook, run queue, live run state, layout, every pixel |
+| Main | `apps/desktop/electron/` | The window and its tabs, files and dialogs, settings and keys, the agent loop, the kernels' lifecycle |
+| Kernel | `apps/desktop/electron/kernel/dalliance_kernel.py` | One Python namespace per tab that lives across cells |
 
 The renderer holds the document. The main process holds everything with side effects. The kernel holds Python state. `packages/shared` holds the types that cross those lines.
+
+## Tabs
+
+One window holds several notebooks, each in its own tab. Every tab is a whole copy of the renderer page, so the store, the run queue and every component stay one notebook's, as they were before tabs.
+
+```
+BaseWindow
+├── WebContentsView  tab-1  renderer page  ─ NotebookSession ─ kernel in tab-1's folder
+├── WebContentsView  tab-2  renderer page  ─ NotebookSession ─ kernel in tab-2's folder (started on first run)
+└── ...
+```
+
+- `electron/tabs.ts` keeps the list: `Tabs` holds each tab's view, its `NotebookSession`, what its page last said about its notebook (path, unsaved changes, cells running), and the close flow. It takes a `TabHost` with the Electron parts, so its tests run on fakes.
+- Only the active tab's view is attached to the window. Switching removes one view and adds the other, sized to the window's content area and focused, so keys go to it. A hidden tab's page keeps running, and so do its cells.
+- The main process owns the list and sends it to every page over `tabs-changed`. Each page draws the same strip in its top bar. See [ipc.md](ipc.md#tabs).
+- Every IPC handler gets the tab whose page sent the call. The runner, the kernel, the folder, the brief and the draft are all that tab's.
+- A tab's kernel starts on its first run, not when the tab opens, so many tabs stay cheap. Only the tab showing at launch warms its kernel up straight away. Closing a tab shuts its kernel down, as does closing the window. See [kernel.md](kernel.md#lifecycle).
+- Settings, keys and the Python are the app's. A change from any tab goes to every page, and a new Python restarts every kernel in use.
+- Opening a notebook uses the tab it came from when that tab is an untouched Untitled (no file, no changes), brings forward the tab that already has the file, and otherwise opens a new tab. Nothing ever replaces a notebook in place, so no open needs a Discard prompt.
+
+Each tab costs a renderer process, about what one window cost before, plus a Python process once it has run a cell. That is the price of keeping the renderer single-notebook. Tabs brought back at launch load their pages straight away.
 
 ## What happens when a cell runs
 
@@ -62,7 +83,7 @@ Step by step:
 
 1. `actions.run(id)` in `src/store/notebook-store.ts` adds the cell to a module-level queue and marks it `queued`.
 2. `pump()` takes one cell at a time. It decides `generate` with `needsGeneration()` from `packages/shared/src/notebook.ts` and builds a `RunCellRequest` with every earlier cell as context.
-3. `window.dalliance.runCell()` goes over IPC to `NotebookSession.runCell()` in `electron/session.ts`.
+3. `window.dalliance.runCell()` goes over IPC to the tab's `NotebookSession.runCell()` in `electron/session.ts`.
 4. The session resolves the model when the cell needs generating, starts the kernel if needed, fires off a title request, and calls `runCell()` in `electron/harness/run-cell.ts`.
 5. With `generate: false` the harness runs the saved code once on the kernel. No model call.
 6. With `generate: true` a `ToolLoopAgent` runs until `finish` succeeds or it hits 24 steps. Tool calls and outputs stream to the renderer as `RunEvent`s.
@@ -89,10 +110,10 @@ apps/desktop/src        DOM only, never imports electron/
 
 The renderer is treated as untrusted web content.
 
-- `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false` in `electron/main.ts`.
+- `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false` for every tab's view in `electron/main.ts`.
 - `electron/preload.ts` exposes one object, `window.dalliance`, and never `ipcRenderer` itself. Sandboxed preloads must be CommonJS, so Vite writes `preload.cjs`.
 - Links with `https://` open in the default browser. Every other new window is denied, and in-app navigation is blocked.
-- The main process answers IPC only from the top frame of its own window showing the app's own page. See [ipc.md](ipc.md#who-may-call).
+- The main process answers IPC only from the top frame of one of its tab views showing the app's own page. See [ipc.md](ipc.md#who-may-call).
 - Packaged builds get a strict Content Security Policy from the `dalliance-csp` plugin in `vite.config.ts`. The dev server skips it because React Fast Refresh needs inline scripts.
 - API keys are encrypted with Electron `safeStorage`, which uses the macOS keychain. See [storage.md](storage.md).
 - File paths from the renderer aren't trusted. `saveNotebook()` only writes to an absolute path ending in `.ipynb` and shows the Save dialog for anything else. `openRecent()` only opens a path already in `settings.recent`.
@@ -110,9 +131,10 @@ The agent is fenced in by the harness rather than by the OS:
 
 | State | Lives in | Survives |
 | --- | --- | --- |
-| The notebook document | Renderer store, mirrored to the main process as a draft | Window reload and relaunch. See [storage.md](storage.md#session-and-drafts) |
-| Live run state (`runs`, activity, questions) | Renderer store | Nothing. A reload interrupts the running cell |
-| Python variables | Kernel process | Window reload. Not a relaunch or a restart |
+| The open tabs, their order and the one showing | `Tabs` in the main process, mirrored to `session.json` | Relaunch. See [storage.md](storage.md#session-and-drafts) |
+| The notebook document | The tab's renderer store, mirrored to the main process as a draft | Tab reload and relaunch |
+| Live run state (`runs`, activity, questions) | The tab's renderer store | Nothing. A reload interrupts the running cell |
+| Python variables | The tab's kernel process | Tab reload. Not a relaunch, a restart, or closing the tab or the window |
 | Settings and keys | `settings.json` in userData | Everything |
 | Layout, sidebar open | `localStorage` in the renderer | Relaunch |
-| Package trust for installs | `NotebookSession.trust` | The app session |
+| Package trust for installs | `NotebookSession.trust`, per tab | The tab |

@@ -38,7 +38,6 @@ const api: DallianceApi = {
   listFiles: () => ipcRenderer.invoke(IPC.listFiles),
   renameNotebook: (current, name, notebook) => ipcRenderer.invoke(IPC.renameNotebook, current, name, notebook),
   saveNotebook: (path, notebook) => ipcRenderer.invoke(IPC.saveNotebook, path, notebook),
-  confirmDiscard: () => ipcRenderer.invoke(IPC.confirmDiscard),
   restoreSession: () => ipcRenderer.invoke(IPC.restoreSession),
   saveDraft: (state) => ipcRenderer.send(IPC.saveDraft, state),
   setDocumentState: (state) => ipcRenderer.send(IPC.documentState, state),
@@ -48,6 +47,13 @@ const api: DallianceApi = {
     ipcRenderer.send(IPC.menuReady)
     return off
   },
+  onSettingsChanged: (listener) => subscribe(IPC.settingsChanged, listener),
+  onPythonState: (listener) => subscribe(IPC.pythonStateChanged, listener),
+  listTabs: () => ipcRenderer.invoke(IPC.listTabs),
+  onTabs: (listener) => subscribe(IPC.tabsChanged, listener),
+  newTab: () => ipcRenderer.invoke(IPC.newTab),
+  closeTab: (id) => ipcRenderer.invoke(IPC.closeTab, id),
+  switchTab: (id) => ipcRenderer.invoke(IPC.switchTab, id),
 }
 
 contextBridge.exposeInMainWorld('dalliance', api)

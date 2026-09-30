@@ -189,13 +189,13 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 
 `cacheReadTokens` is the quickest check that [caching](#context-and-caching) works: after the first step of a cell it should be most of `inputTokens`.
 
-`installExtensions()` in `extensions.ts` registers the built-in ones. `NotebookSession` calls it once, on its own bus:
+`installExtensions()` in `extensions.ts` registers the built-in ones. Each tab's `NotebookSession` calls it once, on its own bus, passing the one `RunLog` every tab shares and its tab id:
 
 - `blockSecretFiles()` blocks `read_file` on `.env` and `.env.*`. `isSecretPath()` matches the file name in any case, after either separator, so `config\.Env.local` is blocked and `environment.csv` or `.envrc` are not.
 - `codePolicy()` reads the code `explore` and `run_cell` are about to run. See below.
-- `logRuns()` appends every event to `logs/agent.jsonl` in userData, with strings clipped to 2,000 characters. It is registered first, so it sees calls a later handler blocks.
+- `logRuns()` appends every event to `logs/agent.jsonl` in userData, with strings clipped to 2,000 characters and a `tab` field naming the tab, since cells in several tabs can run at once. It is registered first, so it sees calls a later handler blocks.
 
-The log comes from `createRunLog()`. Each event is turned into its line at once, then written through one promise chain, so lines land in the order the events happened even when writes are slow. A failed write drops that line and the next one tries again. When the next line would take the file past 5 MB (`MAX_LOG_BYTES`), `agent.jsonl` is renamed to `agent.jsonl.1`, replacing the old backup, and a new file starts. So the log never takes more than about 10 MB. The size is read from disk once and then counted, so rotation costs no extra `stat` per line.
+The log comes from `createRunLog()`. Each event is turned into its line at once, then written through one promise chain, so lines land in the order the events happened even when writes are slow. A failed write drops that line and the next one tries again. When the next line would take the file past 5 MB (`MAX_LOG_BYTES`), `agent.jsonl` is renamed to `agent.jsonl.1`, replacing the old backup, and a new file starts. So the log never takes more than about 10 MB. The size is read from disk once and then counted, so rotation costs no extra `stat` per line. That count is why the tabs share one log rather than open one each: two logs on one file would each miss the other's bytes, and their lines could land out of order.
 
 Add new policy here rather than inside a tool. A `tool_call` handler that needs a person calls `data.approve({ title, detail, keys })`, which runs the approval flow above.
 

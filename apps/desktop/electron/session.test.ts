@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC, type KernelState } from '@dalliance/shared/ipc'
 import { FakeKernel } from './kernel/fake-kernel'
 import type { KernelInfo } from './kernel/kernel'
-import { NotebookSession } from './session'
+import { NotebookSession, type SharedPythonState } from './session'
 import type { SettingsStore } from './settings'
 
 // Only the sessions below that don't pass launchKernel reach these: the real launcher with a fake Python
@@ -142,6 +142,35 @@ describe('NotebookSession kernel lifecycle', () => {
     expect(launches).toBe(1)
   })
 
+  it('leaves the kernel of a notebook opened in a new tab unstarted until something needs it', async () => {
+    const { starts, launchKernel } = slowLauncher()
+    const { s, sent } = session(launchKernel)
+    await s.openWorkspace('/notebooks/sales')
+    await tick()
+    expect(starts).toEqual([])
+    expect(sent).toEqual([{ status: 'dead', python: null, cwd: '/notebooks/sales', error: null }])
+    expect(await s.variables()).toEqual([])
+
+    const first = (s as unknown as { ensureKernel(): Promise<FolderKernel> }).ensureKernel()
+    await tick()
+    starts[0].finish()
+    expect((await first).cwd).toBe('/notebooks/sales')
+  })
+
+  it('restarts a kernel in use when the Python changes, and leaves one never started alone', async () => {
+    const { starts, launchKernel } = slowLauncher()
+    const warm = session(launchKernel, '/notebooks/warm').s
+    const lazy = session(launchKernel, '/notebooks/lazy').s
+    warm.warmUp()
+    await tick()
+    starts[0].finish()
+    await tick()
+    await Promise.all([warm.pythonChanged(), lazy.pythonChanged()])
+    await tick()
+    expect(starts.map((x) => x.cwd)).toEqual(['/notebooks/warm', '/notebooks/warm'])
+    expect(starts[0].kernel.stopped).toBe(true)
+  })
+
   it('shuts down a kernel that finishes starting after quit', async () => {
     const { starts, launchKernel } = slowLauncher()
     const { s } = session(launchKernel)
@@ -202,12 +231,13 @@ describe('NotebookSession environment', () => {
 describe('base packages in an older managed environment', () => {
   const userData = () => mkdtempSync(path.join(tmpdir(), 'dalliance-session-'))
   const start = (s: NotebookSession) => (s as unknown as { ensureKernel(): Promise<unknown> }).ensureKernel()
-  function realSession(dir: string) {
+  function realSession(dir: string, shared?: SharedPythonState) {
     const logs: string[] = []
     const s = new NotebookSession({
       settings: { pythonPath: null } as unknown as SettingsStore,
       userData: dir,
       defaultWorkspace: '/default',
+      shared,
       send: (channel, line) => {
         if (channel === IPC.pythonLog) logs.push(line as string)
       },
@@ -238,6 +268,14 @@ describe('base packages in an older managed environment', () => {
     await start(s)
     expect(python.topUps).toHaveLength(1)
     finish()
+  })
+
+  it('installs them once for every tab, not once per tab', async () => {
+    const dir = userData()
+    const shared = { baseChecked: false }
+    await start(realSession(dir, shared).s)
+    await start(realSession(dir, shared).s)
+    expect(python.topUps).toHaveLength(1)
   })
 
   it('leaves a Python that is not the managed environment alone', async () => {
