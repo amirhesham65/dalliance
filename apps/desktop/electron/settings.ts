@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { safeStorage } from 'electron'
 import type { Effort, Provider, SettingsUpdate, SettingsView } from '@dalliance/shared/ipc'
+import { writeFileAtomicSync } from './atomic-write'
 import { DEFAULT_MODELS, type ModelConfig } from './harness/model'
 
 interface Stored {
@@ -46,18 +47,35 @@ export class SettingsStore {
     this.file = path.join(dir, 'settings.json')
     this.data = { ...DEFAULTS }
     if (existsSync(this.file)) {
+      let stored: Partial<Stored>
       try {
-        const stored = JSON.parse(readFileSync(this.file, 'utf-8')) as Partial<Stored>
-        // Settings from before the first-run setup existed: anyone who has opened a notebook is past it
-        this.data = { ...DEFAULTS, onboarded: (stored.recent?.length ?? 0) > 0, ...stored }
-      } catch {
-        // A corrupt settings file falls back to the defaults
+        stored = JSON.parse(readFileSync(this.file, 'utf-8'))
+        if (typeof stored !== 'object' || stored == null || Array.isArray(stored)) throw new Error('not a JSON object')
+      } catch (err) {
+        this.setAside(err)
+        return
       }
+      // Settings from before the first-run setup existed: anyone who has opened a notebook is past it
+      this.data = { ...DEFAULTS, onboarded: (stored.recent?.length ?? 0) > 0, ...stored }
+    }
+  }
+
+  /**
+   * A settings file that can't be read falls back to the defaults. It's moved aside first, so the next save
+   * doesn't overwrite the stored keys and recent notebooks it may still hold.
+   */
+  private setAside(reason: unknown) {
+    const aside = `${this.file}.corrupt-${Date.now()}`
+    try {
+      renameSync(this.file, aside)
+      console.warn(`settings.json could not be read (${String(reason)}). Moved it to ${aside} and started from the defaults.`)
+    } catch (err) {
+      console.warn(`settings.json could not be read (${String(reason)}), and moving it aside failed (${String(err)}).`)
     }
   }
 
   private save() {
-    writeFileSync(this.file, JSON.stringify(this.data, null, 2), { mode: 0o600 })
+    writeFileAtomicSync(this.file, JSON.stringify(this.data, null, 2), { mode: 0o600 })
   }
 
   private storedKey(provider: Provider): string | null {
