@@ -47,6 +47,7 @@ Saved with the notebook: `notebook`. Everything else is session state:
 | `variablesView` | Which view the Variables & Environment pane shows |
 | `notice` | The message at the bottom of the window, with an Undo when the change can be taken back. See [Notices and errors](#notices-and-errors) |
 | `verify`, `verifyAsking` | The last Verify run's report, and whether its confirmation is showing. See [Verify](#verify) |
+| `pinChanges` | What differs from the notebook's pins, for the banner over the notebook. Empty when nothing does, or once dismissed. See [Layout](#layout) |
 
 `getApi()` and `setApi()` wrap `window.dalliance`, so tests and the demo can swap in a fake.
 
@@ -108,6 +109,8 @@ The overview sits in its own outer group, so opening a side pane never changes i
 Below 1200 px wide, `NARROW_WINDOW` in `App.tsx`, there is no room for a side pane column without squeezing the notebook to its minimum. `PaneOverlay` then draws the side pane over the notebook's left edge, 400 px wide at most, with a light scrim over the rest. Esc closes it and puts focus back where it was. A click on the scrim closes it and leaves focus with the notebook. Esc inside a text field, menu or dialog stays with that control. `useMediaQuery()` in `hooks/use-media-query.ts` follows the width.
 
 A banner above the workspace asks for a key, a Python or missing packages when the settings or Python state say so. It has a cross on its right. Dismissing it hides that message for the session: it comes back if the message changes, or once the problem has been fixed and returns.
+
+Under it, `PinChangesBanner` in `components/notebook/` says what changed since the notebook was saved, from `pinChanges`: "Changed since this notebook was saved: pandas 2.1.0, now 2.2.3; data/visits.csv has changed." `describePinChange()` in `lib/pins.ts` words each change. It lists three and folds the rest behind an "and 2 more" button, and it isn't there at all when nothing changed. Its cross calls `dismissPinChanges()`, which hides it until the next check. `load()` starts a check for a notebook with pins without waiting for it, and `checkPins()` runs one on demand and returns the changes, which is what Verify should await before it restarts the kernel. A check for a notebook that another has replaced since is dropped. See [notebook-model.md](notebook-model.md#pins).
 
 ## Keyboard
 

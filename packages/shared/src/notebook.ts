@@ -203,10 +203,42 @@ export interface NoteCell {
 
 export type Cell = PromptCell | NoteCell
 
+/** An installed distribution and its version, as `importlib.metadata` names it. */
+export interface PinnedPackage {
+  name: string
+  version: string
+}
+
+/**
+ * A data file the cells read, as it was when the notebook was saved. `hash` is null for a file too big to hash, or
+ * one that couldn't be read, and `note` says which.
+ */
+export type PinnedFile =
+  | { path: string; size: number; hash: string }
+  | { path: string; size: number; hash: null; note: string }
+
+/**
+ * The Python, the packages and the data files the notebook's cells ran with, recorded on save. Saved under the
+ * notebook's metadata.dalliance.pins. See docs/notebook-model.md.
+ */
+export interface Pins {
+  /** The Python version, like 3.12.4. Null when no kernel has run the cells yet. */
+  python: string | null
+  /** The distributions the cells imported and the ones those load, sorted by name. */
+  packages: PinnedPackage[]
+  /** Files inside the workspace the cells read, relative with `/`, in notebook order. */
+  files: PinnedFile[]
+}
+
+/** Files larger than this are recorded with their size and a note, not hashed. */
+export const MAX_HASHED_BYTES = 1024 ** 3
+
 export interface Notebook {
   cells: Cell[]
-  /** The file's notebook metadata as found (kernelspec, widget state...), minus `dalliance.version`. Absent for a new notebook. */
+  /** The file's notebook metadata as found (kernelspec, widget state...), minus `dalliance.version` and `dalliance.pins`. Absent for a new notebook. */
   metadata?: JsonObject
+  /** The environment and data files the notebook was last saved with. Absent until a save records them. */
+  pins?: Pins
 }
 
 let counter = 0

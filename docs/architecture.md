@@ -74,8 +74,8 @@ Questions and approvals from the agent pause the loop. The session sends a `ques
 
 ```
 @dalliance/shared   imported by both sides, no Node or DOM APIs
-  notebook.ts       Cell, Output, Provenance, needsGeneration, parseInterpretation
-  ipynb.ts          toIpynb, fromIpynb
+  notebook.ts       Cell, Output, Provenance, Pins, needsGeneration, parseInterpretation
+  ipynb.ts          toIpynb, fromIpynb, pinsFromNb
   ipc.ts            DallianceApi, RunEvent, request and result types, IPC channel names
   leaked.ts         splitLeaked, leakedList: recovers tool markup a model wrote into text
   normalize.ts      normalizeOutputs, canonicalOutputs: outputs without their run-to-run noise, for hashing and comparing
@@ -99,7 +99,7 @@ The renderer is treated as untrusted web content.
 - Packaged builds get a strict Content Security Policy from the `dalliance-csp` plugin in `vite.config.ts`. The dev server skips it because React Fast Refresh needs inline scripts.
 - API keys are encrypted with Electron `safeStorage`, which uses the macOS keychain. See [storage.md](storage.md).
 - In builds with Dalliance Cloud, the account's session and tokens stay in the main process too. The renderer only sees the name, email and plan. See [cloud.md](cloud.md#security).
-- File paths from the renderer aren't trusted. `saveNotebook()` only writes to an absolute path ending in `.ipynb` and shows the Save dialog for anything else. `openRecent()` only opens a path already in `settings.recent`.
+- File paths from the renderer aren't trusted. `saveNotebook()` only writes to an absolute path ending in `.ipynb` and shows the Save dialog for anything else. `openRecent()` only opens a path already in `settings.recent`. `checkPins()` only reads files inside the folder in use, by relative paths.
 
 The agent is fenced in by the harness rather than by the OS:
 

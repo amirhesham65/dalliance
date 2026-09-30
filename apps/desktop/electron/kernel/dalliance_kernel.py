@@ -6,10 +6,12 @@ so anything a library prints straight to the real stdout cannot corrupt the prot
 
 Request:  {"id": "...", "op": "execute", "code": "...", "store": true}
           {"id": "...", "op": "variables"}
+          {"id": "...", "op": "environment"}
 Replies:  {"id": "...", "type": "output", "output": {...}}   zero or more
           {"id": "...", "type": "done", "ok": true, "executionCount": 3, "durationMs": 12,
            "assigned": [...], "filesRead": {"paths": ["data/orders.csv"], "truncated": false}}
           {"id": "...", "type": "variables", "variables": [...]}
+          {"id": "...", "type": "environment", "python": "3.12.4", "packages": [{"name": "pandas", "version": "2.2.3"}]}
 
 Only the writer thread writes to fd 3, and SIGINT raises KeyboardInterrupt only while a cell's
 code runs, so a Stop can neither tear a reply line nor lose a request's last reply.
@@ -324,6 +326,136 @@ def start_file_reads():
         return None
 
 
+# --- Imported packages ---------------------------------------------------------------------
+
+MAX_PACKAGES = 500  # distributions an environment reply lists
+
+# Top-level modules the executes imported: the names their import statements give, and every top-level module
+# that first loaded while one ran. What the kernel itself loads at startup, like IPython, isn't in it.
+imported_modules = set()
+
+STDLIB_NAMES = getattr(sys, "stdlib_module_names", None)  # Python 3.10 and up
+REQUIREMENT_NAME = re.compile(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
+EXTRA_MARKER = re.compile(r";.*\bextra\s*==")
+
+
+def top_level_modules():
+    return {name.partition(".")[0] for name in list(sys.modules)}
+
+
+def import_statements(code):
+    """Top-level module names the code's import statements name. Code that doesn't parse names none."""
+    try:
+        tree = ast.parse(shell.transform_cell(code) if shell is not None else code)
+    except Exception:  # a SyntaxError, or anything IPython's transformers raise
+        return set()
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name.partition(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.partition(".")[0])
+    return names
+
+
+def is_stdlib(name):
+    if STDLIB_NAMES is not None:
+        return name in STDLIB_NAMES
+    if name in sys.builtin_module_names:
+        return True
+    path = getattr(sys.modules.get(name), "__file__", None) or ""
+    return path.startswith(STDLIB) and "site-packages" not in path and "dist-packages" not in path
+
+
+# module_providers() reads every installed distribution, 100 ms or more. Kept until a folder on sys.path changes,
+# which an install or an uninstall does.
+providers_cache = (None, None)
+
+
+def path_stamp():
+    stamp = []
+    for entry in sys.path:
+        try:
+            stamp.append((entry, os.stat(entry or ".").st_mtime_ns))
+        except OSError:
+            pass
+    return tuple(stamp)
+
+
+def module_providers(metadata):
+    """Top-level module names to the distributions that provide them. Python 3.9 has no packages_distributions()."""
+    global providers_cache
+    stamp = path_stamp()
+    if providers_cache[0] == stamp:
+        return providers_cache[1]
+    providers = find_providers(metadata)
+    providers_cache = (stamp, providers)
+    return providers
+
+
+def find_providers(metadata):
+    if hasattr(metadata, "packages_distributions"):
+        return metadata.packages_distributions()
+    import inspect
+
+    providers = {}
+    for dist in metadata.distributions():
+        names = set((dist.read_text("top_level.txt") or "").split())
+        if not names:
+            for file in dist.files or ():
+                top = file.parts[0] if len(file.parts) > 1 else inspect.getmodulename(file.name)
+                if top and "." not in top:
+                    names.add(top)
+        for name in names:
+            providers.setdefault(name, []).append(dist.metadata["Name"])
+    return providers
+
+
+def distribution_key(name):
+    """A distribution name as pip compares them (PEP 503): python_dateutil and Python-Dateutil are the same."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def environment():
+    """The Python version, and the distributions behind what the executes imported, with the loaded ones they need.
+
+    A package counts when an execute imported it, and so does each package it requires that is loaded too, so pandas
+    brings numpy. Requirements behind an extra don't count, and neither does the standard library.
+    """
+    import importlib.metadata as metadata
+
+    providers = module_providers(metadata)
+    loaded = {}  # distribution key to its name, for every distribution with a loaded top-level module
+    for module in top_level_modules():
+        if not is_stdlib(module):
+            for name in providers.get(module, ()):
+                if name:
+                    loaded.setdefault(distribution_key(name), name)
+    todo = [
+        distribution_key(name)
+        for module in imported_modules
+        if module in sys.modules and not is_stdlib(module)
+        for name in providers.get(module, ())
+        if name
+    ]
+    found = {}
+    while todo and len(found) < MAX_PACKAGES:
+        key = todo.pop()
+        if key in found or key not in loaded:
+            continue
+        try:
+            dist = metadata.distribution(loaded[key])
+        except Exception:
+            continue
+        found[key] = {"name": dist.metadata["Name"] or loaded[key], "version": dist.version or ""}
+        for requirement in dist.requires or ():
+            match = REQUIREMENT_NAME.match(requirement)
+            if match and not EXTRA_MARKER.search(requirement):
+                todo.append(distribution_key(match.group(1)))
+    packages = sorted(found.values(), key=lambda p: p["name"].lower())
+    return {"id": current_id, "type": "environment", "python": sys.version.split()[0], "packages": packages}
+
+
 # --- Rich outputs --------------------------------------------------------------------------
 
 
@@ -421,15 +553,12 @@ def table_outputs(frame):
 
 def rich_outputs(value):
     """Turn the value of a cell's last expression into outputs, like Jupyter's Out[n]."""
-    try:
-        import pandas as pd
-
-        if isinstance(value, pd.DataFrame):
-            return table_outputs(value)
-        if isinstance(value, pd.Series):
-            return table_outputs(value.to_frame(name=value.name if value.name is not None else "value"))
-    except ImportError:
-        pass
+    # A value can only be a table once something loaded pandas, and importing it here would count as the cell's
+    pd = sys.modules.get("pandas")
+    if pd is not None and isinstance(value, pd.DataFrame):
+        return table_outputs(value)
+    if pd is not None and isinstance(value, pd.Series):
+        return table_outputs(value.to_frame(name=value.name if value.name is not None else "value"))
     if is_matplotlib(value):
         return []  # figures are collected separately
     if shell is not None:
@@ -1021,6 +1150,7 @@ def run(code, store):
         execution_count += 1
     budget = Budget()
     reads = file_reads = start_file_reads()
+    modules_before = top_level_modules()
     before = {name: id(value) for name, value in namespace.items()}
     stdout, stderr = Stream("stdout", current_id, budget), Stream("stderr", current_id, budget)
     real_out, real_err = sys.stdout, sys.stderr
@@ -1056,6 +1186,8 @@ def run(code, store):
         file_reads = None
         sys.stdout, sys.stderr = real_out, real_err
         del pending_values[:]
+    imported_modules.update(top_level_modules() - modules_before)
+    imported_modules.update(import_statements(code))
     for output in budget.notes():
         emit(output)
     duration = int((time.perf_counter() - started) * 1000)
@@ -1161,6 +1293,8 @@ def handle(request):
         return run(request.get("code", ""), bool(request.get("store", True)))
     if request.get("op") == "variables":
         return variables()
+    if request.get("op") == "environment":
+        return environment()
     return {"id": current_id, "type": "done", "ok": False, "executionCount": None, "durationMs": 0}
 
 

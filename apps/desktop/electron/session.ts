@@ -1,7 +1,21 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { WebContents } from 'electron'
-import { type Brief, type CellRunResult, type EnvironmentView, type FileEntry, IPC, type KernelState, type PythonState, type RunCellRequest, type RunCost, type RunEvent } from '@dalliance/shared/ipc'
+import {
+  type Brief,
+  type CellRunResult,
+  type EnvironmentView,
+  type FileEntry,
+  IPC,
+  type KernelState,
+  type PinChange,
+  type PythonState,
+  type RunCellRequest,
+  type RunCost,
+  type RunEvent,
+} from '@dalliance/shared/ipc'
+import type { Notebook, Pins } from '@dalliance/shared/notebook'
+import { FileHasher } from './file-hash'
 import { createApproval, normalize } from './harness/approval'
 import { EventBus } from './harness/events'
 import { installExtensions } from './harness/extensions'
@@ -9,12 +23,13 @@ import { type ModelCall, costOf } from './harness/cost'
 import { type ModelConfig, ModelSetupError, resolveModel } from './harness/model'
 import { friendlyError, runCell } from './harness/run-cell'
 import { generateTitle, titleModel } from './harness/title'
-import type { Kernel, KernelInfo } from './kernel/kernel'
+import type { Kernel, KernelEnvironment, KernelInfo } from './kernel/kernel'
 import { installMissingBasePackages, installPackages, pythonStatus, setupManagedEnv } from './kernel/python-env'
 import { installedPackages } from './kernel/python-packages'
 import { PythonKernel } from './kernel/python-kernel'
 import { isBroadFolder, listFiles } from './harness/workspace'
 import { folderForNewNotebook } from './notebook-files'
+import { comparePins, pinNotebook, pinnedPath } from './pins'
 import type { SettingsStore } from './settings'
 
 interface SessionOptions {
@@ -26,7 +41,12 @@ interface SessionOptions {
   launchKernel?: (cwd: string, onStatus: (info: KernelInfo) => void) => Promise<Kernel>
   /** Lists a Python's libraries. Defaults to `installedPackages`; tests pass a fake. */
   listPackages?: typeof installedPackages
+  /** Hashes data files for the pins. Tests pass one with a small size limit. */
+  hasher?: FileHasher
 }
+
+/** How long a save waits for the kernel to say what it imported before it keeps the pins it has. */
+const ENVIRONMENT_TIMEOUT_MS = 5000
 
 /**
  * Owns the kernel and the harness for the open notebook.
@@ -47,6 +67,11 @@ export class NotebookSession {
   private lastKernelState: KernelState
   /** Whether this app session has already topped up the managed environment's base packages. */
   private baseChecked = false
+  /** The files each cell's last run in the current kernel read, by cell id. Cleared with every new kernel. */
+  private ran = new Map<string, string[]>()
+  /** The current kernel's last answer about what it imported, for a save while a cell runs. */
+  private lastEnvironment: KernelEnvironment | null = null
+  private readonly hasher: FileHasher
   readonly bus = new EventBus()
   private readonly options: SessionOptions
 
@@ -55,6 +80,7 @@ export class NotebookSession {
     // A remembered Documents or home folder came from a notebook kept there. Without that notebook, start in the default.
     this.workspace = folderForNewNotebook(options.settings.workspaceDir ?? options.defaultWorkspace, options.defaultWorkspace)
     this.lastKernelState = { status: 'dead', python: null, cwd: this.workspace, error: null }
+    this.hasher = options.hasher ?? new FileHasher()
 
     // Keep .env files private, and log every run to logs/agent.jsonl
     installExtensions(this.bus, { logDir: path.join(options.userData, 'logs') })
@@ -163,6 +189,7 @@ export class NotebookSession {
         return this.ensureKernel()
       }
       this.kernel = kernel
+      this.forgetRuns()
       return kernel
     })().finally(() => {
       if (this.kernelStarting?.promise === promise) this.kernelStarting = null
@@ -269,6 +296,9 @@ export class NotebookSession {
       }
     }
 
+    // What the cell's runs read goes into the notebook's pins on save. Hash it now, so the save finds it ready
+    const tracked = this.tracking(kernel, request.cellId)
+
     const controller = new AbortController()
     this.controller = controller
     const ask = (event: (requestId: string) => RunEvent) =>
@@ -283,7 +313,7 @@ export class NotebookSession {
       const result = await runCell(request, {
         model: model!,
         providerOptions,
-        kernel,
+        kernel: tracked,
         workspaceDir: this.workspace,
         bus: this.bus,
         pythonVersion,
@@ -334,6 +364,78 @@ export class NotebookSession {
     return costOf(calls, config).catch(() => undefined)
   }
 
+  /**
+   * The kernel as a run sees it, noting what each cell run (not an explore) read. The last one wins, which for a
+   * generation is the final attempt. Those files are hashed in the background.
+   */
+  private tracking(kernel: Kernel, cellId: string): Kernel {
+    return {
+      info: () => kernel.info(),
+      execute: async (code, options) => {
+        const result = await kernel.execute(code, options)
+        if (options.store && this.kernel === kernel) {
+          const paths = result.filesRead?.paths ?? []
+          this.ran.set(cellId, paths)
+          this.hasher.warm(paths.map((p) => pinnedPath(this.workspace, p)).filter((p): p is string => p != null))
+        }
+        return result
+      },
+      variables: () => kernel.variables(),
+      environment: () => kernel.environment(),
+      interrupt: () => kernel.interrupt(),
+      restart: () => kernel.restart(),
+      shutdown: () => kernel.shutdown(),
+    }
+  }
+
+  private forgetRuns() {
+    this.ran = new Map()
+    this.lastEnvironment = null
+  }
+
+  /**
+   * What the kernel imported, for the pins. A kernel running a cell would only answer once the cell ends, so a
+   * save then uses its last answer. Null when there is no kernel, or it never answered.
+   */
+  private async kernelEnvironment(): Promise<KernelEnvironment | null> {
+    const kernel = this.kernel
+    if (!kernel || kernel.info().status === 'dead') return null
+    if (kernel.info().status === 'busy') return this.lastEnvironment
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), ENVIRONMENT_TIMEOUT_MS)))
+    const answer = await Promise.race([kernel.environment().catch(() => null), timeout]).finally(() => clearTimeout(timer))
+    if (answer && this.kernel === kernel) this.lastEnvironment = answer
+    return answer ?? this.lastEnvironment
+  }
+
+  /**
+   * The notebook with its pins recorded: the Python, the packages its cells imported and the data files they read.
+   * See docs/notebook-model.md#pins. Recording never stops a save: if it fails, the notebook keeps the pins it had.
+   */
+  async pin(notebook: Notebook): Promise<Notebook> {
+    try {
+      const pins = await pinNotebook({
+        notebook,
+        dir: this.workspace,
+        environment: await this.kernelEnvironment(),
+        ran: this.ran,
+        fingerprint: (file) => this.hasher.fingerprint(file),
+      })
+      const next: Notebook = { ...notebook }
+      if (pins) next.pins = pins
+      else delete next.pins
+      return next
+    } catch (err) {
+      console.warn(`Couldn't record the notebook's environment: ${err instanceof Error ? err.message : String(err)}`)
+      return notebook
+    }
+  }
+
+  /** What changed since the pins were recorded, in the folder in use and the Python the kernel runs on. */
+  async checkPins(pins: Pins): Promise<PinChange[]> {
+    return comparePins(pins, { dir: this.workspace, environment: await this.environment(), fingerprint: (file) => this.hasher.fingerprint(file) })
+  }
+
   respond(requestId: string, answer: string | boolean | null) {
     const resolve = this.pending.get(requestId)
     this.pending.delete(requestId)
@@ -359,6 +461,7 @@ export class NotebookSession {
     this.generation++
     const old = this.kernel
     this.kernel = null
+    this.forgetRuns()
     await old?.shutdown()
     this.warmUp()
   }
