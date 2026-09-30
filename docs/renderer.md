@@ -132,6 +132,8 @@ Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the bu
 
 Under Result: the answer, the outputs, the variables the run created, and suggestions. Suggestions show only on the cell that just finished or the selected one.
 
+Between two cells, `CellInserter` in `NotebookView.tsx` draws a 1px line in `foreground/10`, so it's clear where one ends. It sits in the cells' column, right of the 44 px gutter that holds the run count, and stops 12 px short of each side, so it's a little narrower than the cells. There is none after the last cell. Hovering the gap raises the line to `foreground/20` and shows the Prompt and Note buttons centred on it. They sit on the page background, so the line breaks around them.
+
 `HighlightedEditor` is a transparent `<textarea>` over a mirror that renders the highlighting. The two share one box so the caret lines up. With `indent`, Tab and Shift+Tab indent lines through `execCommand` so Undo still works.
 
 `OutputList` in `outputs/OutputView.tsx` merges adjacent `stream` chunks, and folds printed text away when the cell has a real result. Tables fold when the cell has an answer or a chart. `tablesOpen()` in the shared model decides, and the user's choice in `showTables` overrides it.
