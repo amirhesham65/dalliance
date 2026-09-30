@@ -33,11 +33,12 @@ Every handler goes through `handle()` or `on()` in `main.ts`, never `ipcMain` di
 | `setupPython()` | invoke | `session.setupPython` | Creates the managed venv, then restarts the kernel |
 | `openNotebook()` | invoke | dialog, `openFile` | Open dialog, parse, restart the kernel in that folder. A kernel still starting in the old folder shuts itself down. A file the OS asked to open takes the dialog's place, see [Opening files from the OS](#opening-files-from-the-os) |
 | `newNotebook(notebook)` | invoke | `createNotebook` | Writes the notebook as `Untitled.ipynb` in the folder in use, or in the default folder when that is a broad one like Documents, restarts the kernel there, returns the path. A folder that has gone is made again. When the write fails, a dialog says why and the result is null |
-| `renameNotebook(current, name, notebook)` | invoke | `renameNotebookFile`, `notebookPathIn` | Renames the file in its folder and moves its recent entry and draft. `current` must be an absolute `.ipynb` path, as for `saveNotebook`, and any other comes back as an error. With no file yet, writes the notebook under that name where `newNotebook` would, never over a file that is there. Returns a `RenameResult`: the path, or an `error` for a bad name, a taken one, or a disk that refuses. Never throws |
+| `renameNotebook(current, name, notebook)` | invoke | `renameNotebookFile`, `notebookPathIn` | Renames the file in its folder and moves its recent entry and draft. `current` must be an absolute `.ipynb` path, as for `saveNotebook`, and any other comes back as an error. With no file yet, writes the notebook under that name where `newNotebook` would, never over a file that is there, with its pins recorded as a save would. Returns a `RenameResult`: the path, and the pins when it wrote the file, or an `error` for a bad name, a taken one, or a disk that refuses. Never throws |
 | `openFolder(notebook)` | invoke | dialog, `createNotebook` | Asks for a folder, which the dialog can create, then does what `newNotebook` does in it. Null when cancelled, or when the write fails |
 | `openRecent(path)` | invoke | `openFile` | Same without a dialog. Only opens a path in `settings.recent`, and returns null for any other. Drops the entry if the file is gone |
 | `recentNotebooks()` | invoke | `settings.recent` | Up to 8 that still exist |
-| `saveNotebook(path, notebook)` | invoke | dialog, `writeFileAtomic` | Save, or Save As when `path` is null. A `path` that isn't an absolute `.ipynb` path gets the Save dialog too. Returns the path or null |
+| `saveNotebook(path, notebook)` | invoke | dialog, `session.pin`, `writeFileAtomic` | Save, or Save As when `path` is null. A `path` that isn't an absolute `.ipynb` path gets the Save dialog too. Records the notebook's pins first, see [notebook-model.md](notebook-model.md#pins). Returns a `SavedNotebook`, the path and the pins it recorded, or null when the dialog was cancelled |
+| `checkPins(pins)` | invoke | `session.checkPins` | What differs from the pins now, as `PinChange[]`, empty when nothing does. The pins are type-checked with `pinsFromNb()` first, and a path that is absolute or leaves the folder in use is never read. Reads the interpreter and the files, never the kernel, so a running cell doesn't hold it up |
 | `confirmDiscard()` | invoke | dialog | True when the document is clean or the user discards. Keeping the changes also drops a file the OS asked to open |
 | `readBrief()`, `writeBrief(text)` | invoke | `session` | The workspace's `AGENTS.md` |
 | `listFiles()` | invoke | `session.files` | Workspace files, empty for broad folders |
@@ -106,7 +107,7 @@ Closing a dirty window shows Save / Don't Save / Cancel from the main process.
 - Save sets `allowCloseAfterSave` and sends the `save` menu action. The renderer calls `saveNotebook()`, and the main process closes the window once the file is written. Every save clears the flag when it ends, whether it landed, was cancelled or failed, so a later ordinary Save never closes the window.
 - Don't Save calls `drafts.forgetChanges()`, so the next launch reopens the file as it is on disk.
 
-`saveNotebook()` records the saved state in the draft store itself, then moves the kernel's working directory. The window might close before the renderer's own report arrives.
+`saveNotebook()` records the pins, writes the file, records the saved state in the draft store itself, then moves the kernel's working directory. The window might close before the renderer's own report arrives.
 
 Quitting runs the same dialog for the window. `before-quit` only flushes the draft. The kernel shuts down in `will-quit`, once every window has closed, so Cancel leaves the notebook open with its kernel alive.
 

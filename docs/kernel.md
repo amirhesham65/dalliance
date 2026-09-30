@@ -36,6 +36,7 @@ Requests:
 ```json
 {"id": "7", "op": "execute", "code": "orders.head()", "store": true}
 {"id": "8", "op": "variables"}
+{"id": "9", "op": "environment"}
 ```
 
 Replies:
@@ -45,15 +46,16 @@ Replies:
 {"id": "7", "type": "output", "output": {"type": "table", "...": "..."}}
 {"id": "7", "type": "done", "ok": true, "executionCount": 3, "durationMs": 41, "assigned": [...], "filesRead": {"paths": ["orders.csv"], "truncated": false}}
 {"id": "8", "type": "variables", "variables": [...]}
+{"id": "9", "type": "environment", "python": "3.12.4", "packages": [{"name": "numpy", "version": "2.1.3"}, {"name": "pandas", "version": "2.2.3"}]}
 ```
 
-`ready` arrives once at startup. Its `ipython` is the IPython version cells run through, or `null` on the plain path. An execute sends zero or more `output` messages, then one `done`. Its `filesRead` is what the run read, see [Files read](#files-read).
+`ready` arrives once at startup. Its `ipython` is the IPython version cells run through, or `null` on the plain path. An execute sends zero or more `output` messages, then one `done`. Its `filesRead` is what the run read, see [Files read](#files-read). `environment` answers with the Python version and the packages the executes imported, see [Imported packages](#imported-packages).
 
 `PythonKernel.request()` chains every request on a promise queue, so they run one at a time in order, like a Jupyter shell channel.
 
 The script's request loop catches any exception per request. A request that fails outside the cell's own `try` gets an `error` output and a `done` with `ok: false`, and the kernel keeps running.
 
-`handle()` returns a request's last reply and the loop sends it, so every request gets exactly one `done` or `variables`. The `SIGINT` handler, `on_interrupt()`, raises `KeyboardInterrupt` only while `interruptible` is set, which `run()` does just for the cell's own code, figures and value. An interrupt that lands between requests or while the kernel sends a reply is ignored, so it can't skip the reply and leave the request hanging.
+`handle()` returns a request's last reply and the loop sends it, so every request gets exactly one `done`, `variables` or `environment`. The `SIGINT` handler, `on_interrupt()`, raises `KeyboardInterrupt` only while `interruptible` is set, which `run()` does just for the cell's own code, figures and value. An interrupt that lands between requests or while the kernel sends a reply is ignored, so it can't skip the reply and leave the request hanging.
 
 ## Executing code
 
@@ -95,7 +97,26 @@ A `pd.read_csv()` inside a cell never goes through the agent's tools, so the har
 - The hook never raises into the code that opened the file. Audit hooks can't be removed, so it stays installed and does nothing between requests.
 - It sees what Python opens. A C library that opens files itself, without Python's `open`, and a path that reaches the folder through a symlink from outside it, aren't counted.
 
-`PythonKernel.execute()` hands it on as `ExecuteResult.filesRead: { paths, truncated }`. It is optional, so a kernel that doesn't report it still fits the interface. The harness puts it in the cell's record of how it was made (see [notebook-model.md](notebook-model.md#how-a-cell-was-made)). Anything else that needs the files a run read, such as hashing the data a notebook depends on, should take them from here.
+`PythonKernel.execute()` hands it on as `ExecuteResult.filesRead: { paths, truncated }`. It is optional, so a kernel that doesn't report it still fits the interface. The harness puts it in the cell's record of how it was made (see [notebook-model.md](notebook-model.md#how-a-cell-was-made)), and the session keeps each cell run's list for the notebook's pins, which hash the data the cells read (see [notebook-model.md](notebook-model.md#pins)). Anything else that needs the files a run read should take them from here.
+
+## Imported packages
+
+The notebook's pins record the versions of the packages its cells used (see [notebook-model.md](notebook-model.md#pins)). Only the kernel knows what they imported, so it answers the `environment` request with `environment()`.
+
+Every execute, cell run or `explore`, adds to `imported_modules` for the life of the kernel:
+
+- the top-level names its `import` and `from ... import` statements give, read with `ast` from the code, or on the IPython path from the code after `transform_cell()`. Code that doesn't parse adds none. Relative imports don't count.
+- every top-level module that first loaded while it ran, which catches `importlib.import_module()` and what a library loads on demand, like pyarrow behind `pd.read_parquet()`.
+
+What the kernel loads for itself at startup, IPython and matplotlib's styling, isn't in it. Nor is pandas when a value only looks like a table: `rich_outputs()` takes pandas from `sys.modules` instead of importing it, since a value can only be a DataFrame once something loaded pandas.
+
+`environment()` maps those names to distributions with `importlib.metadata.packages_distributions()`, then adds each package they require, following `Requires-Dist` without the ones behind an extra, as long as that package is loaded too. So `import pandas` pins pandas along with numpy, python-dateutil and the rest of what it requires, but not matplotlib, which pandas only lists under an extra, even though the kernel loaded it at startup. A name that failed to import, or is in `sys.stdlib_module_names`, doesn't count. Python 3.9 has neither function, so there the kernel reads each distribution's `top_level.txt` or file list itself, and counts a module as standard library when it is built in or lives in the standard library folder outside `site-packages`.
+
+- The reply lists `{ name, version }` sorted by name, with the name as the distribution's metadata spells it, at most `MAX_PACKAGES` = 500.
+- Reading every installed distribution takes 100 ms or more, so `module_providers()` keeps the map until the modification time of a folder on `sys.path` changes, which an install or an uninstall does.
+- It waits behind a running execute like every request. The session never asks while a cell runs, see [notebook-model.md](notebook-model.md#recording-them).
+
+`PythonKernel.environment()` returns it as a `KernelEnvironment`. `FakeKernel` reports whatever its `packages` field holds.
 
 ## IPython
 
@@ -226,6 +247,7 @@ interface Kernel {
   info(): KernelInfo
   execute(code: string, options: { store: boolean; onOutput? }): Promise<ExecuteResult>  // ok, outputs, executionCount, durationMs, assigned, filesRead?
   variables(): Promise<VariableInfo[]>
+  environment(): Promise<KernelEnvironment>  // python, packages
   interrupt(): void
   restart(): Promise<void>
   shutdown(): Promise<void>

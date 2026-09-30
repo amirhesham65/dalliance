@@ -25,7 +25,7 @@ export function NotebookName({ name, path }: { name: string; path: string | null
       const { notebook } = useNotebook.getState()
       const result = await api.renameNotebook(path, next, notebook)
       if ('error' in result) return setError(result.error)
-      actions.renamed(result.path, result.saved)
+      actions.renamed(result.path, result.saved, result.pins)
       cancel()
     } catch (err) {
       setError(`Couldn't rename the notebook: ${err instanceof Error ? err.message : String(err)}`)

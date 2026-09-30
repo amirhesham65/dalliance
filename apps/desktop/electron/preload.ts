@@ -38,6 +38,7 @@ const api: DallianceApi = {
   listFiles: () => ipcRenderer.invoke(IPC.listFiles),
   renameNotebook: (current, name, notebook) => ipcRenderer.invoke(IPC.renameNotebook, current, name, notebook),
   saveNotebook: (path, notebook) => ipcRenderer.invoke(IPC.saveNotebook, path, notebook),
+  checkPins: (pins) => ipcRenderer.invoke(IPC.checkPins, pins),
   confirmDiscard: () => ipcRenderer.invoke(IPC.confirmDiscard),
   restoreSession: () => ipcRenderer.invoke(IPC.restoreSession),
   saveDraft: (state) => ipcRenderer.send(IPC.saveDraft, state),

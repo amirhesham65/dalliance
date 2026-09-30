@@ -1,4 +1,4 @@
-import type { Output } from '@dalliance/shared/notebook'
+import type { Output, PinnedPackage } from '@dalliance/shared/notebook'
 
 export interface VariableInfo {
   name: string
@@ -27,6 +27,14 @@ export interface FilesRead {
   truncated: boolean
 }
 
+/** The kernel's Python and the packages its executes imported. See docs/kernel.md. */
+export interface KernelEnvironment {
+  /** The Python version, like 3.12.4. */
+  python: string
+  /** The distributions behind what the executes imported, and the loaded ones they require, sorted by name. */
+  packages: PinnedPackage[]
+}
+
 export interface ExecuteOptions {
   /** Cell runs advance the execution counter and set `_`; exploratory runs by the agent don't. */
   store: boolean
@@ -51,6 +59,8 @@ export interface Kernel {
   info(): KernelInfo
   execute(code: string, options: ExecuteOptions): Promise<ExecuteResult>
   variables(): Promise<VariableInfo[]>
+  /** What the notebook's pins record about the Python. Waits behind a running execute, like every request. */
+  environment(): Promise<KernelEnvironment>
   /** Stop the running execution, like Ctrl+C in Jupyter. */
   interrupt(): void
   restart(): Promise<void>

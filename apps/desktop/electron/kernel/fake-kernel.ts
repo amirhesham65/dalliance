@@ -1,5 +1,5 @@
-import type { Output } from '@dalliance/shared/notebook'
-import type { ExecuteOptions, ExecuteResult, Kernel, KernelInfo, VariableInfo } from './kernel'
+import type { Output, PinnedPackage } from '@dalliance/shared/notebook'
+import type { ExecuteOptions, ExecuteResult, Kernel, KernelEnvironment, KernelInfo, VariableInfo } from './kernel'
 
 type Handler = (code: string) => { ok: boolean; outputs: Output[]; assigned?: VariableInfo[]; filesRead?: string[] }
 
@@ -7,6 +7,8 @@ type Handler = (code: string) => { ok: boolean; outputs: Output[]; assigned?: Va
 export class FakeKernel implements Kernel {
   executed: { code: string; store: boolean }[] = []
   vars: VariableInfo[] = []
+  /** What environment() reports the executes imported. */
+  packages: PinnedPackage[] = []
   private count = 0
   private readonly handler: Handler
 
@@ -34,6 +36,10 @@ export class FakeKernel implements Kernel {
 
   async variables() {
     return this.vars
+  }
+
+  async environment(): Promise<KernelEnvironment> {
+    return { python: this.info().python ?? '', packages: this.packages }
   }
 
   interrupt() {}

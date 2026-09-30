@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline'
 import type { Readable } from 'node:stream'
 import type { Output } from '@dalliance/shared/notebook'
 import { ENV_KEYS } from '../env-keys'
-import type { ExecuteOptions, ExecuteResult, FilesRead, Kernel, KernelInfo, KernelStatus, VariableInfo } from './kernel'
+import type { ExecuteOptions, ExecuteResult, FilesRead, Kernel, KernelEnvironment, KernelInfo, KernelStatus, VariableInfo } from './kernel'
 import kernelSource from './dalliance_kernel.py?raw'
 
 interface Pending {
@@ -175,6 +175,17 @@ export class PythonKernel implements Kernel {
   async variables(): Promise<VariableInfo[]> {
     const { msg } = await this.request({ op: 'variables' })
     return (msg.variables as VariableInfo[]) ?? []
+  }
+
+  async environment(): Promise<KernelEnvironment> {
+    const { msg } = await this.request({ op: 'environment' })
+    const packages = Array.isArray(msg.packages) ? (msg.packages as unknown[]) : []
+    return {
+      python: typeof msg.python === 'string' ? msg.python : (this.python ?? ''),
+      packages: packages
+        .filter((p): p is { name: string; version: unknown } => typeof (p as { name?: unknown } | null)?.name === 'string')
+        .map((p) => ({ name: p.name, version: typeof p.version === 'string' ? p.version : '' })),
+    }
   }
 
   /**

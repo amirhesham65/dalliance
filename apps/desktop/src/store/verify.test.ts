@@ -29,6 +29,25 @@ function load(...cells: Parameters<typeof actions.load>[0]['cells']) {
 beforeEach(() => setApi(undefined))
 
 describe('verify', () => {
+  it("checks the notebook's pins before it restarts Python, so the banner says what differs", async () => {
+    const { api } = fakeApi((req) => result({ generated: false, code: req.code, outputs: text('1') }))
+    const order: string[] = []
+    const changes = [{ kind: 'package' as const, name: 'pandas', was: '2.1.0', now: '2.2.3' }]
+    api.checkPins = async () => {
+      order.push('check')
+      return changes
+    }
+    api.restartKernel = async () => void order.push('restart')
+    setApi(api)
+    actions.load({ cells: [ran('a', 'a = 1\na', '1')], pins: { python: '3.12.4', packages: [{ name: 'pandas', version: '2.1.0' }], files: [] } }, null)
+    await settle()
+    order.length = 0
+    await actions.verify()
+    await settle()
+    expect(order.slice(0, 2)).toEqual(['check', 'restart'])
+    expect(useNotebook.getState().pinChanges).toEqual(changes)
+  })
+
   it('asks first, and does nothing until confirmed', () => {
     const { api, requests } = fakeApi(() => result())
     setApi(api)

@@ -5,6 +5,7 @@ import { IconButton } from '@/components/app/IconButton'
 import { Sidebar } from '@/components/app/Sidebar'
 import { TopBar } from '@/components/app/TopBar'
 import { NotebookView } from '@/components/notebook/NotebookView'
+import { PinChangesBanner } from '@/components/notebook/PinChangesBanner'
 import { SidePane } from '@/components/panes/SidePanes'
 import { SettingsScreen } from '@/components/settings/SettingsScreen'
 import { WelcomeScreen } from '@/components/welcome/Welcome'
@@ -35,7 +36,7 @@ export default function App() {
       const { path, notebook } = useNotebook.getState()
       try {
         const saved = await api.saveNotebook(as ? null : path, notebook)
-        if (saved) actions.markSaved(saved)
+        if (saved) actions.markSaved(saved.path, saved.pins)
       } catch (err) {
         actions.notifyFailure("Couldn't save the notebook", err)
       }
@@ -197,6 +198,7 @@ export default function App() {
                     </IconButton>
                   </div>
                 )}
+                <PinChangesBanner />
                 <Workspace />
               </>
             )}

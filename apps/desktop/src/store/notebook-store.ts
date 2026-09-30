@@ -11,6 +11,7 @@ import type {
   EnvironmentView,
   ModelList,
   PaneName,
+  PinChange,
   PythonState,
   RunCellRequest,
   RunCost,
@@ -23,6 +24,7 @@ import {
   type CreatedVariable,
   type Notebook,
   type Output,
+  type Pins,
   type PromptCell,
   MAX_REVISIONS,
   MIN_TITLE_PROMPT,
@@ -182,6 +184,8 @@ export interface NotebookState {
   verify: VerifyReport | null
   /** Whether Verify's confirmation is showing. */
   verifyAsking: boolean
+  /** What differs from the notebook's pins, for the banner over the notebook. Empty when nothing did, or once dismissed. */
+  pinChanges: PinChange[]
 }
 
 let api: DallianceApi | undefined = typeof window === 'undefined' ? undefined : window.dalliance
@@ -244,6 +248,7 @@ export const useNotebook = create<NotebookState>(() => ({
   notice: null,
   verify: null,
   verifyAsking: false,
+  pinChanges: [],
 }))
 
 const MAX_LOG = 60
@@ -257,6 +262,16 @@ function addLog(entry: Omit<LogEntry, 'id' | 'at'>): number {
 
 // Bumped when a notebook loads, so credits counted for the last one don't land in this one's total
 let spendEpoch = 0
+// Bumped when a notebook loads, so a pin check for the last one doesn't show over this one
+let pinEpoch = 0
+
+/** The notebook with the pins a save recorded. Null means the save had none to record. */
+function withPins(notebook: Notebook, pins: Pins | null): Notebook {
+  const next = { ...notebook }
+  if (pins) next.pins = pins
+  else delete next.pins
+  return next
+}
 
 /**
  * Add a cost to the notebook's total and, for a run, to its log entry. Dalliance Cloud's credits are counted by
@@ -513,6 +528,7 @@ export const actions = {
     // A Verify run belongs to the last notebook
     verifyRuns.clear()
     verifyEpoch++
+    pinEpoch++
     set({
       screen: 'notebook',
       canReturn: false,
@@ -533,8 +549,11 @@ export const actions = {
       notice: null,
       verify: null,
       verifyAsking: false,
+      pinChanges: [],
     })
     void actions.loadBrief()
+    // Opening never waits for this. The banner shows only if something changed
+    if (notebook.pins) void actions.checkPins()
   },
 
   /** The start page. From the menu it keeps the notebook to go back to; at launch there is none. */
@@ -556,14 +575,18 @@ export const actions = {
     set({ settingsPage: null })
   },
 
-  /** The notebook file got a new name. Its edits are as saved or unsaved as they were, unless the rename wrote the file. */
-  renamed(path: string, saved: boolean) {
-    set(saved ? { path, dirty: false } : { path })
+  /**
+   * The notebook file got a new name. Its edits are as saved or unsaved as they were, unless the rename wrote the
+   * file, which recorded its pins too.
+   */
+  renamed(path: string, saved: boolean, pins?: Pins | null) {
+    set((s) => (saved ? { path, dirty: false, ...(pins !== undefined ? { notebook: withPins(s.notebook, pins) } : {}) } : { path }))
   },
 
-  markSaved(path: string) {
+  /** The notebook was written to `path`, with the pins the save recorded. */
+  markSaved(path: string, pins?: Pins | null) {
     const moved = get().path !== path
-    set({ path, dirty: false })
+    set((s) => ({ path, dirty: false, ...(pins !== undefined ? { notebook: withPins(s.notebook, pins) } : {}) }))
     // Save As into another folder means another AGENTS.md
     if (moved) void actions.loadBrief()
   },
@@ -597,6 +620,29 @@ export const actions = {
   /** A bridge call failed. Say what the user was trying to do and why it didn't work. */
   notifyFailure(what: string, err: unknown) {
     actions.notify(`${what}. ${errorText(err)}`, { tone: 'error' })
+  },
+
+  /**
+   * Compare the notebook's pins with the Python, its packages and the data files now, show what changed in the banner
+   * over the notebook, and return it. Loading a notebook calls this, and Verify should await it before it restarts
+   * the kernel, so the report can say what differs. Never throws: a check that fails finds nothing.
+   */
+  async checkPins(): Promise<PinChange[]> {
+    const { pins } = get().notebook
+    const epoch = pinEpoch
+    if (!api || !pins) {
+      set({ pinChanges: [] })
+      return []
+    }
+    const changes = await api.checkPins(pins).catch(() => [])
+    // Another notebook loaded while this one was checked
+    if (epoch === pinEpoch) set({ pinChanges: changes })
+    return changes
+  },
+
+  /** Hide the banner saying what changed since the notebook was saved, until the next check. */
+  dismissPinChanges() {
+    set({ pinChanges: [] })
   },
 
   /** Hide the message, or only the given one so a newer message stays up. */
@@ -1196,13 +1242,19 @@ function setVerifyCell(id: string, patch: Partial<VerifyCell>) {
   setVerify((r) => ({ ...r, cells: r.cells.map((c) => (c.id === id ? { ...c, ...patch } : c)) }))
 }
 
+/** How long Verify waits for the pins check, which may be hashing a changed file, before it restarts anyway. */
+const PIN_CHECK_MS = 5000
+
 /**
- * Runs once the user confirms Verify, before Python restarts. This is the place for checks that compare the
- * notebook with the machine it runs on now, such as the Python, its libraries and the data files the cells read.
- * There are none yet. A check must not hold Verify up for long: it can show a notice or a banner, and Verify
- * goes ahead even if it throws.
+ * Runs once the user confirms Verify, before Python restarts. It checks the notebook's pins against this machine,
+ * so the banner says what differs (the Python, a library, a data file) before the rerun shows what that changed.
+ * It must not hold Verify up for long, so it waits PIN_CHECK_MS at most, and Verify goes ahead even if it throws.
  */
-async function beforeVerify(): Promise<void> {}
+async function beforeVerify(): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<void>((resolve) => (timer = setTimeout(resolve, PIN_CHECK_MS)))
+  await Promise.race([actions.checkPins(), deadline]).finally(() => clearTimeout(timer))
+}
 
 /** Restart Python and mark the cells that ran out of date. Resolves with why it failed, or null. */
 async function restartPython(): Promise<string | null> {
