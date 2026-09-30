@@ -20,11 +20,15 @@ const render = () =>
 /** Pick up the notebook that was open before a reload or the last quit, then keep the main process up to date. */
 async function restore(api: NonNullable<typeof window.dalliance>) {
   const session = await api.restoreSession().catch(() => null)
-  if (session) {
+  if (session && 'notebook' in session) {
     actions.load(session.notebook, session.path, session.dirty)
     // The kernel outlived the reload, so its variables are still there to list
     if (session.kernelKept) void actions.refreshVariables().catch(() => {})
-  } else actions.showWelcome(false)
+  } else {
+    actions.showWelcome(false)
+    // The last notebook is there but won't open, say from a newer version of the app. Say so rather than drop it.
+    if (session) actions.notify(session.error, { tone: 'error' })
+  }
   let timer: ReturnType<typeof setTimeout> | undefined
   const send = () => {
     clearTimeout(timer)

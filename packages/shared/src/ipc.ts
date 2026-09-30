@@ -170,6 +170,15 @@ export interface RestoredSession extends DraftState {
   kernelKept: boolean
 }
 
+/**
+ * The last notebook is there but couldn't be reopened, for example because a newer version of Dalliance saved it.
+ * The renderer shows the start page with `error`. It has no `notebook`, which tells it apart from a RestoredSession.
+ */
+export interface RestoreFailure {
+  path: string | null
+  error: string
+}
+
 export interface OpenedNotebook {
   path: string | null
   notebook: Notebook
@@ -221,7 +230,7 @@ export interface DallianceApi {
   listFiles(): Promise<FileEntry[]>
   saveNotebook(path: string | null, notebook: Notebook): Promise<string | null>
   confirmDiscard(): Promise<boolean>
-  restoreSession(): Promise<RestoredSession | null>
+  restoreSession(): Promise<RestoredSession | RestoreFailure | null>
   saveDraft(state: DraftState): void
   setDocumentState(state: { path: string | null; dirty: boolean }): void
   onMenu(listener: (action: MenuAction) => void): () => void

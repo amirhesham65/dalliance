@@ -239,7 +239,8 @@ function registerIpc() {
 
   ipcMain.handle(IPC.restoreSession, async () => {
     const restored = drafts.restore()
-    if (!restored) return null
+    // Nothing to reopen, or a notebook that won't open: the renderer shows the start page, with the reason if any
+    if (!restored || !('notebook' in restored)) return restored
     // After a reload nothing is left to receive a running cell's result, so stop it rather than let it run unseen
     if (restored.kernelKept) session.interrupt()
     else if (restored.path) await session.openWorkspace(path.dirname(restored.path))
