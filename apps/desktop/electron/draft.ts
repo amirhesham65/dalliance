@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import type { DraftState, RestoredSession } from '@dalliance/shared/ipc'
 import { fromIpynb, toIpynb } from '@dalliance/shared/ipynb'
+import { writeFileAtomicSync } from './atomic-write'
 
 /** What goes to disk: where the notebook lives, and its contents only when there are unsaved changes. */
 interface OnDisk {
@@ -64,7 +65,7 @@ export class DraftStore {
     const { path: file, dirty, notebook } = this.live
     const data: OnDisk = { path: file, dirty, ipynb: dirty ? toIpynb(notebook) : null }
     try {
-      writeFileSync(this.file, JSON.stringify(data))
+      writeFileAtomicSync(this.file, JSON.stringify(data))
     } catch {
       // Losing the draft only means the next launch starts fresh
     }
