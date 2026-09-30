@@ -246,13 +246,10 @@ export class NotebookSession {
           const answer = await ask((requestId) => ({ type: 'question', requestId, question, options }))
           return typeof answer === 'string' ? answer : null
         },
-        requestApproval: async (title, detail) => {
+        requestApproval: async (title, detail, keys) => {
           const approved = (await ask((requestId) => ({ type: 'approval', requestId, title, detail }))) === true
-          if (approved) {
-            // Trust these packages for the rest of the session, so the same install isn't asked twice
-            const names = detail.replace(/^pip install /, '').split(' ')
-            for (const n of names) this.trust.add(normalize(n))
-          }
+          // Trust these packages, or this kind of code, for the rest of the session, so it isn't asked twice
+          if (approved) for (const key of keys) this.trust.add(normalize(key))
           return approved
         },
         needsApproval: createApproval({ mode: this.options.settings.approvalMode }, this.trust),

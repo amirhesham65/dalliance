@@ -20,8 +20,10 @@ export interface HarnessDeps {
   modelId?: string | null
   emit: (event: RunEvent) => void
   askUser: (question: string, options: string[]) => Promise<string | null>
-  requestApproval: (title: string, detail: string) => Promise<boolean>
-  needsApproval: (packages: string[]) => boolean
+  /** Asks a person. `keys` are what approving trusts for the rest of the session. */
+  requestApproval: (title: string, detail: string, keys: string[]) => Promise<boolean>
+  /** The approval policy, from createApproval(). */
+  needsApproval: (keys: string[]) => boolean
   installPackages: (packages: string[]) => Promise<string>
   signal: AbortSignal
   exploreTimeoutMs?: number

@@ -1,18 +1,55 @@
 import { appendFile, mkdir, rename, stat } from 'node:fs/promises'
 import path from 'node:path'
+import { type ConcernKind, inspectCode, isSecretPath } from './code-policy'
 import type { EventBus, HarnessEvent } from './events'
 
-/** A read_file path the agent may not open: `.env` or `.env.*`, in any case, with either kind of separator. */
-export function isSecretPath(p: string): boolean {
-  const base = p.split(/[\\/]/).pop() ?? ''
-  return /^\.env(\..*)?$/i.test(base)
-}
+export { isSecretPath }
 
 /** Keeps .env files private: read_file refuses them, and the reason goes back to the model. */
 export function blockSecretFiles(bus: EventBus) {
   bus.on('tool_call', ({ toolName, input }) => {
     const p = String((input as { path?: string } | undefined)?.path ?? '')
     if (toolName === 'read_file' && isSecretPath(p)) return { block: true, reason: `${p} may hold secrets, so it is off limits.` }
+  })
+}
+
+const ASK: Record<Exclude<ConcernKind, 'secret'>, { title: string; declined: string }> = {
+  shell: {
+    title: 'Let the agent run shell commands?',
+    declined: 'the user declined letting the code run shell commands, subprocesses or pip. Install packages with install_packages, do the rest in plain Python, or explain in finish why you can\'t.',
+  },
+  network: {
+    title: 'Let the agent use the network?',
+    declined: "the user declined letting the code use the network. Work with the data in the notebook's folder, or explain in finish why you can't.",
+  },
+}
+
+/** One line of code for an approval prompt or a block reason. */
+const short = (line: string) => (line.length > 120 ? `${line.slice(0, 119)}…` : line)
+
+/**
+ * Reads the Python that explore and run_cell are about to run. Secret files and the keychain are blocked outright.
+ * Shell commands and the network go through the same approval policy as package installs: never asked in
+ * background mode, asked once per session in interactive mode, and skipped for trusted keys in delegated mode.
+ */
+export function codePolicy(bus: EventBus) {
+  bus.on('tool_call', async ({ toolName, input, approve }) => {
+    if (toolName !== 'explore' && toolName !== 'run_cell') return
+    const concerns = inspectCode(String((input as { code?: unknown } | undefined)?.code ?? ''))
+    const secret = concerns.find((c) => c.kind === 'secret')
+    if (secret) {
+      return {
+        block: true,
+        reason: `the code ${secret.what} (\`${short(secret.line)}\`), which may hold secrets, so it is off limits. Do the task without it. If the user needs that step, say in finish that they can write it into the cell themselves.`,
+      }
+    }
+    for (const kind of ['shell', 'network'] as const) {
+      const hit = concerns.find((c) => c.kind === kind)
+      if (!hit) continue
+      // Outside a run there is nobody to ask, so the answer is no
+      const allowed = approve ? await approve({ title: ASK[kind].title, detail: short(hit.line), keys: [`code:${kind}`] }) : false
+      if (!allowed) return { block: true, reason: ASK[kind].declined }
+    }
   })
 }
 
@@ -91,5 +128,6 @@ export function installExtensions(bus: EventBus, options: { logDir: string; maxL
   const log = createRunLog(options.logDir, { maxBytes: options.maxLogBytes })
   logRuns(bus, log)
   blockSecretFiles(bus)
+  codePolicy(bus)
   return { log }
 }

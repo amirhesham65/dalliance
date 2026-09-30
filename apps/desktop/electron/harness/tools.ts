@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { leakedList, splitLeaked } from '@dalliance/shared/leaked'
 import type { Output } from '@dalliance/shared/notebook'
 import type { ExecuteResult, Kernel } from '../kernel/kernel'
+import { approver } from './approval'
 import type { EventBus } from './events'
 import { clip, formatVariables, outputsToText } from './format'
 import { listFiles, readFileBounded } from './workspace'
@@ -24,9 +25,13 @@ export interface ToolDeps {
   onAttempt: (code: string) => void
   onOutput: (output: Output) => void
   askUser: (question: string, options: string[]) => Promise<string | null>
-  /** Returns true when the user approved. Only called when the approval policy says a person must decide. */
-  requestApproval: (title: string, detail: string) => Promise<boolean>
-  needsApproval: (packages: string[]) => boolean
+  /**
+   * Returns true when the user approved. Only called when the approval policy says a person must decide.
+   * `keys` are what an approval trusts for the rest of the session: package names, or `code:shell` and `code:network`.
+   */
+  requestApproval: (title: string, detail: string, keys: string[]) => Promise<boolean>
+  /** The approval policy: whether allowing these keys needs a person. */
+  needsApproval: (keys: string[]) => boolean
   installPackages: (packages: string[]) => Promise<string>
   exploreTimeoutMs?: number
 }
@@ -43,8 +48,10 @@ const MAX_RUN_CHARS = 5000
 export function createCellTools(deps: ToolDeps) {
   const { kernel, bus, state, cellId } = deps
 
+  const approve = approver(deps.needsApproval, deps.requestApproval)
+
   async function guarded<T>(toolName: string, input: unknown, run: () => Promise<T>): Promise<T | string> {
-    const gate = await bus.emit('tool_call', { cellId, toolName, input })
+    const gate = await bus.emit('tool_call', { cellId, toolName, input, approve })
     if (gate.blocked) {
       // Reported as a result too, so the log records how the call ended
       const output = `Blocked: ${gate.reason}`
@@ -144,10 +151,8 @@ WHEN NOT TO USE: the package is already importable, or the standard library can 
       inputSchema: z.object({ packages: z.array(z.string()).min(1).max(5).describe('pip package names') }),
       execute: ({ packages }) =>
         guarded('install_packages', { packages }, async () => {
-          if (deps.needsApproval(packages)) {
-            const approved = await deps.requestApproval(`Install ${packages.join(', ')}?`, `pip install ${packages.join(' ')}`)
-            if (!approved) return `The user declined installing ${packages.join(', ')}. Solve it without these packages, or explain in finish why you can't.`
-          }
+          const approved = await approve({ title: `Install ${packages.join(', ')}?`, detail: `pip install ${packages.join(' ')}`, keys: packages })
+          if (!approved) return `The user declined installing ${packages.join(', ')}. Solve it without these packages, or explain in finish why you can't.`
           const log = await deps.installPackages(packages)
           return `Installed ${packages.join(', ')}.\n${clip(log, 1500, 'end')}`
         }),

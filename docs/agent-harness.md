@@ -9,9 +9,10 @@ The agent lives in `apps/desktop/electron/harness/`. It follows Vercel's [Build 
 | `prompt.ts` | `buildSystemPrompt()` and `buildCellPrompt()` |
 | `model.ts` | Provider setup, effort options, the model list for the picker |
 | `title.ts` | The small model that names cells |
-| `approval.ts` | Whether a package install needs a person |
+| `approval.ts` | Whether an install, or code that runs commands or uses the network, needs a person |
 | `events.ts` | The event bus extensions hook into |
-| `extensions.ts` | The built-in extensions: the `.env` block and the run log |
+| `extensions.ts` | The built-in extensions: the `.env` block, the code policy and the run log |
+| `code-policy.ts` | `inspectCode()`, which finds secret files, shell commands and network use in Python |
 | `format.ts` | `clip()`, `outputsToText()`, `formatVariables()` |
 | `workspace.ts` | File listing and reading inside the notebook's folder |
 
@@ -67,7 +68,7 @@ Every tool body runs inside `guarded(toolName, input, run)`:
 2. Runs the tool.
 3. Emits `tool_result` with the output or the error.
 
-A new tool must use it. The `.env` block and the run log both depend on it.
+A new tool must use it. The `.env` block, the code policy and the run log all depend on it. `guarded()` also passes `approve` with the `tool_call` event, so a handler can ask for approval.
 
 ### Leaked tool markup
 
@@ -150,7 +151,9 @@ type ApprovalConfig =
   | { mode: 'delegated'; trust: string[] }   // ask for anything outside the list
 ```
 
-Settings exposes `interactive` and `background`. `delegated` exists in the code but not in the UI. Once the user approves an install, the session trusts those package names, normalized to lowercase without version specifiers, until the app quits.
+Settings exposes `interactive` and `background`. `delegated` exists in the code but not in the UI.
+
+`createApproval()` answers whether a list of keys needs a person. A key is a package name for an install, or `code:shell` or `code:network` for code (see [The code policy](#the-code-policy)). `approver()` is the one flow both use: ask the policy, and call `requestApproval(title, detail, keys)` only when it says a person must decide. The approval shows in the cell as the title and a one-line detail, like `pip install seaborn` or the line of code. Once the user approves, the session trusts those keys, normalized to lowercase without version specifiers, until the app quits. So an approved package isn't asked about twice, and neither is network use once the user has allowed it.
 
 `installPackages()` in `kernel/python-env.ts` rejects names with characters outside letters, digits and version specifier punctuation before it calls pip.
 
@@ -173,8 +176,27 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 `installExtensions()` in `extensions.ts` registers the built-in ones. `NotebookSession` calls it once, on its own bus:
 
 - `blockSecretFiles()` blocks `read_file` on `.env` and `.env.*`. `isSecretPath()` matches the file name in any case, after either separator, so `config\.Env.local` is blocked and `environment.csv` or `.envrc` are not.
+- `codePolicy()` reads the code `explore` and `run_cell` are about to run. See below.
 - `logRuns()` appends every event to `logs/agent.jsonl` in userData, with strings clipped to 2,000 characters. It is registered first, so it sees calls a later handler blocks.
 
 The log comes from `createRunLog()`. Each event is turned into its line at once, then written through one promise chain, so lines land in the order the events happened even when writes are slow. A failed write drops that line and the next one tries again. When the next line would take the file past 5 MB (`MAX_LOG_BYTES`), `agent.jsonl` is renamed to `agent.jsonl.1`, replacing the old backup, and a new file starts. So the log never takes more than about 10 MB. The size is read from disk once and then counted, so rotation costs no extra `stat` per line.
 
-Add new policy here rather than inside a tool.
+Add new policy here rather than inside a tool. A `tool_call` handler that needs a person calls `data.approve({ title, detail, keys })`, which runs the approval flow above.
+
+### The code policy
+
+`explore` and `run_cell` run whatever Python the model writes, with the user's permissions. `codePolicy()` runs `inspectCode()` on that code first and acts on three kinds of finding:
+
+| Kind | Found by | What happens |
+| --- | --- | --- |
+| Secret files | A string naming `.env` or `.env.*` (same rule as `isSecretPath()`), anything under `.ssh` or `.aws`, an SSH private key such as `id_rsa`, `.netrc`, `_netrc`, `.git-credentials`, `.pgpass`, a `.keychain` file or `Keychains` folder, or `find-generic-password` and friends. Also `load_dotenv()`, `dotenv_values()`, `keyring.get_password()`, and importing `keyring` or `netrc` | Blocked in every mode. The model gets `Blocked: the code reads ~/.ssh (<the line>), which may hold secrets, so it is off limits...` and is told to leave that step to the user |
+| Shell | Importing `subprocess`, `pty`, `pexpect` or `pip`; `subprocess.*`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `os.fork`, `create_subprocess_*`, `pip.main()`, `get_ipython().system()`; a line starting with `!`, `%pip`, `%conda`, `%%bash` and similar | Approval with key `code:shell`, title "Let the agent run shell commands?" |
+| Network | Importing `requests`, `httpx`, `aiohttp`, `urllib3`, `urllib2`, `socket`, `ftplib`, `smtplib`, `telnetlib`, `websocket(s)`, `paramiko`, `pycurl`, `urllib.request` or `http.client`/`http.server`; calls such as `requests.get()`, `httpx.Client()`, `urlopen()`, `urlretrieve()`, `socket.create_connection()` | Approval with key `code:network`, title "Let the agent use the network?" |
+
+Approvals follow the install semantics exactly, through the same `approver()`: `background` never asks and lets the code run, `interactive` asks once and then trusts that kind of code for the session, `delegated` asks unless the key is on its trust list. A no blocks the call with a reason that points the model at `install_packages` or local files. Importing a module counts as well as calling it, since cells share one namespace: a later cell can call `requests.get()` without importing it.
+
+Secret files are blocked rather than put to the user, because `background` mode approves everything, and because once a key is in a tool result it is in the model's history for good. A user who really wants `load_dotenv()` in a cell can type it in; plain runs of saved code don't go through the agent's tools.
+
+To keep false alarms down, `scanPython()` first splits the code into code, comments and string literals, keeping offsets. Module and call patterns only match real code, never comments or strings, and never an attribute, so `logs.socket`, `df.requests.sum()` and `print("use requests")` pass. Only file names are looked for inside strings. `environment.csv`, `.envrc`, `notes.env`, `os.environ`, `urllib.parse`, `from http import HTTPStatus`, `id_rsa_counts.csv` and `requests.head()` all pass. `code-policy.test.ts` lists the cases each way.
+
+It is a speed bump, not a sandbox. It reads the text, so code that builds a module name at run time, or a library that fetches on its own, like `pd.read_csv("https://...")`, gets through.

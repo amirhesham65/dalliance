@@ -194,6 +194,38 @@ describe('runCell with generation', () => {
     expect(JSON.stringify(prompts[1])).toContain('Blocked: .env files are private.')
   })
 
+  it('asks before code uses the network, through the same approval as installs', async () => {
+    const approvals: [string, string, string[]][] = []
+    const kernel = new FakeKernel()
+    const { model, prompts } = scriptedModel([{ tool: 'run_cell', input: { code: 'import requests\nrates = requests.get(URL).json()' } }, { text: 'Okay.' }])
+    const { deps } = harness(model, kernel, {
+      requestApproval: async (...args) => {
+        approvals.push(args)
+        return false
+      },
+    })
+    installExtensions(deps.bus, { logDir: mkdtempSync(path.join(tmpdir(), 'dalliance-log-')) })
+    const result = await runCell(request(), deps)
+    expect(approvals).toEqual([['Let the agent use the network?', 'import requests', ['code:network']]])
+    expect(kernel.executed).toEqual([])
+    expect(JSON.stringify(prompts[1])).toContain('Blocked: the user declined letting the code use the network')
+    expect(result.activity[0]).toMatchObject({ status: 'error' })
+  })
+
+  it('runs network code without asking in background mode', async () => {
+    let asked = false
+    const kernel = new FakeKernel()
+    const { model } = scriptedModel([{ tool: 'explore', input: { code: 'import requests' } }, { text: 'Okay.' }])
+    const { deps } = harness(model, kernel, {
+      needsApproval: createApproval({ mode: 'background' }),
+      requestApproval: async () => (asked = true),
+    })
+    installExtensions(deps.bus, { logDir: mkdtempSync(path.join(tmpdir(), 'dalliance-log-')) })
+    await runCell(request(), deps)
+    expect(asked).toBe(false)
+    expect(kernel.executed).toEqual([{ code: 'import requests', store: false }])
+  })
+
   it('reports Stopped when the run is aborted', async () => {
     const controller = new AbortController()
     controller.abort()

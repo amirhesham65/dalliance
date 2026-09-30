@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { type ApprovalConfig, approver, createApproval, normalize } from './approval'
 import { EventBus } from './events'
 import { createRunLog, installExtensions, isSecretPath } from './extensions'
 
@@ -108,5 +109,79 @@ describe('the run log', () => {
     rmSync(logDir)
     await log.write('run_start', { cellId: 'c3' })
     expect(readFileSync(path.join(logDir, 'agent.jsonl'), 'utf-8')).toContain('"c3"')
+  })
+})
+
+describe('the code policy', () => {
+  /** A bus with the built-in extensions and the real approval flow, trusting what a person approves as the session does. */
+  function policy(config: ApprovalConfig, answer: boolean) {
+    const { bus } = setup()
+    const trust = new Set<string>()
+    const asked: { title: string; detail: string; keys: string[] }[] = []
+    const approve = approver(createApproval(config, trust), async (title, detail, keys) => {
+      asked.push({ title, detail, keys })
+      if (answer) for (const key of keys) trust.add(normalize(key))
+      return answer
+    })
+    const call = (code: string, toolName = 'run_cell') => bus.emit('tool_call', { cellId: 'c1', toolName, input: { code }, approve })
+    return { call, asked }
+  }
+
+  it('blocks secret files in every mode, without asking, and tells the model why', async () => {
+    for (const config of [{ mode: 'interactive' }, { mode: 'background' }, { mode: 'delegated', trust: ['code:shell', 'code:network'] }] as ApprovalConfig[]) {
+      const { call, asked } = policy(config, true)
+      const gate = await call('import pandas as pd\nkeys = open(os.path.expanduser("~/.ssh/id_rsa")).read()')
+      expect(gate.blocked).toBe(true)
+      expect(gate.reason).toBe(
+        'the code reads ~/.ssh (`keys = open(os.path.expanduser("~/.ssh/id_rsa")).read()`), which may hold secrets, so it is off limits. Do the task without it. If the user needs that step, say in finish that they can write it into the cell themselves.',
+      )
+      expect(await call('pd.read_csv("CONFIG\\\\.Env")', 'explore')).toMatchObject({ blocked: true })
+      expect(asked).toEqual([])
+    }
+  })
+
+  it('asks in interactive mode, showing the line, and trusts the answer for the rest of the session', async () => {
+    const { call, asked } = policy({ mode: 'interactive' }, true)
+    expect(await call('import requests\nrequests.get(url).json()')).toEqual({ blocked: false })
+    expect(await call('r = requests.get(other)', 'explore')).toEqual({ blocked: false })
+    expect(asked).toEqual([{ title: 'Let the agent use the network?', detail: 'import requests', keys: ['code:network'] }])
+    // Shell commands are a separate question
+    expect(await call('os.system("ls")')).toEqual({ blocked: false })
+    expect(asked.map((a) => a.title)).toEqual(['Let the agent use the network?', 'Let the agent run shell commands?'])
+  })
+
+  it('blocks with a reason when the user declines, and asks again next time', async () => {
+    const { call, asked } = policy({ mode: 'interactive' }, false)
+    const gate = await call('subprocess.run(["pip", "install", "seaborn"])')
+    expect(gate).toEqual({ blocked: true, reason: expect.stringContaining('the user declined letting the code run shell commands') })
+    expect(gate.reason).toContain('install_packages')
+    await call('subprocess.run(["ls"])')
+    expect(asked).toHaveLength(2)
+  })
+
+  it('never asks in background mode, as with installs', async () => {
+    const { call, asked } = policy({ mode: 'background' }, false)
+    expect(await call('import socket\nimport subprocess')).toEqual({ blocked: false })
+    expect(asked).toEqual([])
+  })
+
+  it('asks in delegated mode only for what is not trusted', async () => {
+    const { call, asked } = policy({ mode: 'delegated', trust: ['code:network'] }, true)
+    expect(await call('import httpx')).toEqual({ blocked: false })
+    expect(asked).toEqual([])
+    await call('!ls')
+    expect(asked.map((a) => a.keys)).toEqual([['code:shell']])
+  })
+
+  it('leaves plain analysis alone and only reads explore and run_cell', async () => {
+    const { call, asked } = policy({ mode: 'interactive' }, false)
+    expect(await call('env = pd.read_csv("environment.csv")\nenv.requests.sum()')).toEqual({ blocked: false })
+    expect(await call('import requests', 'read_file')).toEqual({ blocked: false })
+    expect(asked).toEqual([])
+  })
+
+  it('says no when there is nobody to ask', async () => {
+    const { bus } = setup()
+    expect(await bus.emit('tool_call', { cellId: 'c1', toolName: 'run_cell', input: { code: 'import requests' } })).toMatchObject({ blocked: true })
   })
 })
