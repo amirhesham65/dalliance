@@ -149,7 +149,12 @@ const hasData = python !== null && spawnSync(python, ['-c', 'import pandas, matp
 describe.skipIf(!python)('PythonKernel output budgets', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'dalliance-kernel-'))
   const kernel = new PythonKernel({ python: python!, cwd: dir, scratchDir: dir })
-  beforeAll(() => kernel.start(), 20_000)
+  beforeAll(async () => {
+    await kernel.start()
+    // The first pyplot import on a fresh machine builds matplotlib's font cache, which takes tens of seconds on
+    // macOS. Pay for it here, so the figure test times the budgets and not the cache.
+    if (hasData) await kernel.execute('import matplotlib.pyplot', { store: false })
+  }, 120_000)
   afterAll(() => kernel.shutdown())
 
   const stdout = (outputs: Output[]) =>
