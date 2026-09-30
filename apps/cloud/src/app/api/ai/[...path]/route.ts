@@ -1,7 +1,9 @@
 import { after, type NextRequest } from 'next/server'
+import { filterModelList, modelsOf, qualifyingModels, withZeroDataRetention } from '@/lib/zdr'
 
 // The desktop app's models run through here, on Dalliance's AI Gateway key. Each call is checked against the
-// caller's plan in Convex first, and its cost is recorded there once the gateway reports it. See docs/billing.md
+// caller's plan in Convex first, runs with zero data retention, and its cost is recorded there once the gateway
+// reports it. See docs/billing.md
 export const maxDuration = 300
 
 const GATEWAY = 'https://ai-gateway.vercel.sh'
@@ -19,6 +21,8 @@ const ROUTES: Record<string, 'GET' | 'POST'> = { 'language-model': 'POST', confi
 function refuse(status: number, message: string) {
   return Response.json({ error: { message, type: 'dalliance_account' } }, { status })
 }
+
+const NOT_OFFERED = "This model doesn't run with zero data retention, so Dalliance Cloud doesn't offer it. Choose another model in Settings."
 
 type Authorized = { ok: true; userId: string } | { ok: false; status: number; message: string }
 
@@ -88,14 +92,26 @@ async function forward(request: NextRequest, { params }: { params: Promise<{ pat
   const who = await authorize(token, path === 'config' ? 'account' : 'spend')
   if (!who.ok) return refuse(who.status, who.message)
 
+  const allowed = await qualifyingModels()
+  if (!allowed) return refuse(502, "Couldn't check which models are available. Try again in a moment.")
+
+  let body: string | undefined
+  if (path === 'language-model') {
+    const call = (await request.json().catch(() => null)) as Record<string, unknown> | null
+    if (typeof call !== 'object' || call === null || Array.isArray(call)) return refuse(400, "The model call wasn't valid.")
+    // The model and any gateway fallbacks, so a fallback can't reach a model the list leaves out
+    if (!modelsOf(request.headers.get('ai-language-model-id') ?? '', call).every((id) => allowed.has(id))) return refuse(403, NOT_OFFERED)
+    body = JSON.stringify(withZeroDataRetention(call))
+  }
+
   // No abort signal from the caller: a call that's cut off still runs to the end at the gateway, which bills us
   // for it, so it runs to the end here too and gets recorded
-  const upstream = await fetch(`${GATEWAY}/v4/ai/${path}`, {
-    method: request.method,
-    headers: upstreamHeaders(request),
-    body: request.method === 'POST' ? await request.arrayBuffer() : undefined,
-  }).catch(() => null)
+  const upstream = await fetch(`${GATEWAY}/v4/ai/${path}`, { method: request.method, headers: upstreamHeaders(request), body }).catch(() => null)
   if (!upstream) return refuse(502, "Couldn't reach the model gateway. Try again in a moment.")
+  if (path === 'config' && upstream.ok) {
+    const list = await upstream.json().catch(() => null)
+    return Response.json(filterModelList(list, allowed), { status: upstream.status, headers: clientHeaders(upstream) })
+  }
   if (path !== 'language-model' || !upstream.ok || !upstream.body) return new Response(upstream.body, { status: upstream.status, headers: clientHeaders(upstream) })
 
   const [toClient, toMeter] = upstream.body.tee()
