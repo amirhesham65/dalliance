@@ -49,6 +49,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 describe('model calls through the proxy', () => {
@@ -91,6 +92,50 @@ describe('model calls through the proxy', () => {
     const { request, context } = call('language-model', { model: 'anthropic/claude-sonnet-5.5' })
     expect((await POST(request, context)).status).toBe(502)
     expect(sent).toEqual([])
+  })
+})
+
+describe('with zero data retention switched off on the deployment', () => {
+  it('sends calls without the flag, and still only offers qualifying models', async () => {
+    vi.stubEnv('ZERO_DATA_RETENTION', 'off')
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { POST } = await route()
+    const { request, context } = call('language-model', { model: 'anthropic/claude-sonnet-5.5' })
+    expect((await POST(request, context)).status).toBe(200)
+    expect(sent).toEqual([{ prompt: [] }])
+    const fable = call('language-model', { model: 'anthropic/claude-fable-5.1' })
+    expect((await POST(fable.request, fable.context)).status).toBe(403)
+  })
+
+  it('keeps the flag for any other value', async () => {
+    vi.stubEnv('ZERO_DATA_RETENTION', 'false')
+    const { POST } = await route()
+    const { request, context } = call('language-model', { model: 'anthropic/claude-sonnet-5.5' })
+    await POST(request, context)
+    expect(sent).toEqual([{ prompt: [], providerOptions: { gateway: { zeroDataRetention: true } } }])
+  })
+})
+
+describe('gateway refusals', () => {
+  it('turn the paid-plan refusal of zero data retention into a message about the service, not the key', async () => {
+    const body = { error: { message: 'Zero Data Retention (ZDR) is only available for Pro and Enterprise plans. Current plan: hobby.', type: 'permission_denied', param: { name: 'ZdrUnauthorizedError' } } }
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => (String(input).endsWith('/v4/ai/language-model') ? Response.json(body, { status: 403 }) : gateway(String(input), init))))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { POST } = await route()
+    const { request, context } = call('language-model', { model: 'anthropic/claude-sonnet-5.5' })
+    const res = await POST(request, context)
+    expect(res.status).toBe(503)
+    expect(await res.json()).toEqual({ error: { message: expect.stringMatching(/^Hosted models aren't available right now/), type: 'dalliance_account' } })
+  })
+
+  it('pass any other gateway error through as it came', async () => {
+    const body = { error: { message: 'Rate limited', type: 'rate_limit_exceeded' } }
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL, init?: RequestInit) => (String(input).endsWith('/v4/ai/language-model') ? Response.json(body, { status: 429 }) : gateway(String(input), init))))
+    const { POST } = await route()
+    const { request, context } = call('language-model', { model: 'anthropic/claude-sonnet-5.5' })
+    const res = await POST(request, context)
+    expect(res.status).toBe(429)
+    expect(await res.json()).toEqual(body)
   })
 })
 

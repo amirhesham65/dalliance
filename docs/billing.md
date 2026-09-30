@@ -83,6 +83,10 @@ It holds because of two things the proxy does, in `web/src/lib/zdr.ts`:
 
 A refresh of `/v1/models` that fails keeps the last list. If the list hasn't loaded once since the site started, every model call and the model list get 502, rather than running without the check.
 
+**The gateway only allows it on a paid Vercel plan.** On a Hobby team the gateway refuses every call carrying the flag with 403 `ZdrUnauthorizedError`. The proxy turns that into a 503 that says hosted models aren't available, rather than letting the app read it as a rejected key, and logs `gateway refused zero data retention`. The fix is on Vercel: the team that owns `AI_GATEWAY_API_KEY` needs a Pro or Enterprise plan.
+
+**Before that, `ZERO_DATA_RETENTION=off` on the cloud site sends calls without the flag**, so a deployment on a Hobby team can still run models while it's being built. Only the exact value `off` does it; anything else, or unset, keeps the flag. The model list is still filtered, so it matches what production offers. The site logs a warning when it starts with it off. It must never be set in production: the product promises zero data retention, and the app says so.
+
 Zero data retention is not a HIPAA business associate agreement.
 
 ## Security
@@ -111,7 +115,7 @@ On the Convex deployment, besides the variables in [accounts.md](accounts.md#con
 | `POLAR_PRO_CREDITS` | Credits the `pro` plan includes per billing period. Unset, calls are refused with "Credits aren't set up" |
 | `CREDITS_PER_USD` | Credits a dollar of model cost uses. Defaults to 100, a cent a credit |
 
-On the cloud site, besides `CONVEX_SITE_URL` and `AUTH_PROXY_SECRET`: `AI_GATEWAY_API_KEY`, Dalliance's own AI Gateway key, and `CONVEX_URL`, the deployment's `.convex.cloud` URL, which `/api/config` gives the app. Without them, `/api/ai` and `/api/config` answer 503.
+On the cloud site, besides `CONVEX_SITE_URL` and `AUTH_PROXY_SECRET`: `AI_GATEWAY_API_KEY`, Dalliance's own AI Gateway key, and `CONVEX_URL`, the deployment's `.convex.cloud` URL, which `/api/config` gives the app. Without them, `/api/ai` and `/api/config` answer 503. `ZERO_DATA_RETENTION=off` is only for a team without a paid Vercel plan, and never for production, see [Zero data retention](#zero-data-retention).
 
 The webhook endpoint in Polar is `<CONVEX_SITE_URL>/polar/events`, in the Raw format, which Polar signs the Standard Webhooks way, with at least the `subscription.*` and `product.*` events. Polar must be able to reach it, so a local deployment on `127.0.0.1` can't receive webhooks. Use a cloud dev deployment for billing.
 

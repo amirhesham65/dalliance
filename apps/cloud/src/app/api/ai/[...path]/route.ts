@@ -10,6 +10,12 @@ const GATEWAY = 'https://ai-gateway.vercel.sh'
 const convex = process.env.CONVEX_SITE_URL?.trim().replace(/\/$/, '') || null
 const secret = process.env.AUTH_PROXY_SECRET?.trim() || null
 const gatewayKey = process.env.AI_GATEWAY_API_KEY?.trim() || null
+/**
+ * Only `ZERO_DATA_RETENTION=off` turns the flag off, for a Vercel team not yet on a paid plan, which refuses it.
+ * Never in production: the product promises zero data retention. See docs/billing.md
+ */
+const retentionOff = process.env.ZERO_DATA_RETENTION?.trim() === 'off'
+if (retentionOff) console.warn('ZERO_DATA_RETENTION=off: model calls run without zero data retention')
 
 /** The only gateway endpoints the app needs: writing with a model, and the model list. */
 const ROUTES: Record<string, 'GET' | 'POST'> = { 'language-model': 'POST', config: 'GET' }
@@ -21,6 +27,10 @@ const ROUTES: Record<string, 'GET' | 'POST'> = { 'language-model': 'POST', confi
 function refuse(status: number, message: string) {
   return Response.json({ error: { message, type: 'dalliance_account' } }, { status })
 }
+
+/** The gateway's refusal of zero data retention on a Vercel team without a paid plan. */
+const ZDR_PLAN = /ZdrUnauthorizedError|Zero Data Retention \(ZDR\) is only available/
+const UNAVAILABLE = "Hosted models aren't available right now. We're on it. Try again later, or use your own key in Settings."
 
 const NOT_OFFERED = "This model doesn't run with zero data retention, so Dalliance Cloud doesn't offer it. Choose another model in Settings."
 
@@ -101,7 +111,7 @@ async function forward(request: NextRequest, { params }: { params: Promise<{ pat
     if (typeof call !== 'object' || call === null || Array.isArray(call)) return refuse(400, "The model call wasn't valid.")
     // The model and any gateway fallbacks, so a fallback can't reach a model the list leaves out
     if (!modelsOf(request.headers.get('ai-language-model-id') ?? '', call).every((id) => allowed.has(id))) return refuse(403, NOT_OFFERED)
-    body = JSON.stringify(withZeroDataRetention(call))
+    body = JSON.stringify(retentionOff ? call : withZeroDataRetention(call))
   }
 
   // No abort signal from the caller: a call that's cut off still runs to the end at the gateway, which bills us
@@ -112,7 +122,17 @@ async function forward(request: NextRequest, { params }: { params: Promise<{ pat
     const list = await upstream.json().catch(() => null)
     return Response.json(filterModelList(list, allowed), { status: upstream.status, headers: clientHeaders(upstream) })
   }
-  if (path !== 'language-model' || !upstream.ok || !upstream.body) return new Response(upstream.body, { status: upstream.status, headers: clientHeaders(upstream) })
+  if (path === 'language-model' && !upstream.ok) {
+    const text = await upstream.text().catch(() => '')
+    // The gateway only allows zero data retention on a paid Vercel plan. That's Dalliance's setup to fix, not the
+    // user's key, which the app would otherwise say was rejected
+    if (upstream.status === 403 && ZDR_PLAN.test(text)) {
+      console.error('gateway refused zero data retention: the Vercel team needs a Pro or Enterprise plan')
+      return refuse(503, UNAVAILABLE)
+    }
+    return new Response(text, { status: upstream.status, headers: clientHeaders(upstream) })
+  }
+  if (path !== 'language-model' || !upstream.body) return new Response(upstream.body, { status: upstream.status, headers: clientHeaders(upstream) })
 
   const [toClient, toMeter] = upstream.body.tee()
   after(() => meter(toMeter, who.userId, request.headers.get('ai-language-model-id') ?? 'unknown'))
