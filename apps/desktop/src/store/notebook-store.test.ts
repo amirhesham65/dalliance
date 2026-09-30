@@ -471,6 +471,15 @@ describe('the model list', () => {
     expect(useNotebook.getState().notice?.text).toMatch(/claude-fable-5\.1 isn't offered on Dalliance Cloud/)
   })
 
+  it('checks the saved model against a cached list too', async () => {
+    const updates = onCloud('anthropic/claude-opus-5')
+    await actions.loadModels()
+    // The model changes to one the service doesn't offer after the list was cached
+    useNotebook.setState((s) => ({ settings: { ...s.settings!, model: 'anthropic/claude-fable-5.1' } }))
+    await actions.loadModels()
+    expect(updates).toEqual([{ model: '' }])
+  })
+
   it('leaves an offered Cloud model alone', async () => {
     const updates = onCloud('anthropic/claude-opus-5')
     await actions.loadModels()

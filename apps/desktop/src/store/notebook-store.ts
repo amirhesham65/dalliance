@@ -482,9 +482,11 @@ export const actions = {
 
   async loadModels(force = false) {
     const { models, settings } = get()
-    if (!api || (!force && models && models.provider === settings?.provider && !models.error)) return
-    const list = await api.listModels().catch((err: unknown) => ({ provider: settings?.provider ?? 'gateway', models: [], error: String(err) }))
-    set({ models: list })
+    if (!api) return
+    // A cached list is reused, but the saved model is still checked against it below
+    const cached = !force && models && models.provider === settings?.provider && !models.error
+    const list = cached ? models : await api.listModels().catch((err: unknown) => ({ provider: settings?.provider ?? 'gateway', models: [], error: String(err) }))
+    if (!cached) set({ models: list })
     // Dalliance Cloud only offers models with zero data retention. A saved model it doesn't offer goes back to the
     // default (an empty model resets it), rather than failing every run
     const current = get().settings
