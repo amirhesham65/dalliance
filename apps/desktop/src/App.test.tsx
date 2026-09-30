@@ -613,7 +613,7 @@ describe('question cells', () => {
     setApi(api)
     render(<App />)
 
-    await user.click(await screen.findByRole('button', { name: /Opus 5/ }))
+    await user.click(await screen.findByRole('button', { name: /Sonnet 5\.5/ }))
     await user.type(await screen.findByPlaceholderText('Search models'), 'gemini')
     await user.click(await screen.findByRole('option', { name: /Gemini 3 Pro/ }))
     expect(updates).toContainEqual({ model: 'google/gemini-3-pro' })
@@ -629,7 +629,7 @@ describe('question cells', () => {
     // The banner for a missing key goes straight to Models
     await user.click(await screen.findByRole('button', { name: 'Open Settings' }))
     expect(screen.getByRole('tab', { name: 'Models' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('textbox', { name: 'Model' })).toHaveValue('anthropic/claude-opus-5')
+    expect(screen.getByRole('textbox', { name: 'Model' })).toHaveValue('anthropic/claude-sonnet-5.5')
 
     await user.click(screen.getByRole('tab', { name: 'Python' }))
     expect(screen.getByRole('button', { name: 'Set up' })).toBeInTheDocument()

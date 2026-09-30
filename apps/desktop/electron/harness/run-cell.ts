@@ -1,5 +1,5 @@
 import { GatewayError } from '@ai-sdk/gateway'
-import { APICallError, type LanguageModel, RetryError, ToolLoopAgent, type ToolLoopAgentSettings, stepCountIs } from 'ai'
+import { APICallError, type LanguageModel, type ProviderMetadata, RetryError, ToolLoopAgent, type ToolLoopAgentSettings, stepCountIs } from 'ai'
 import type { ActivityItem, CellRunResult, RunCellRequest, RunEvent, RunStep } from '@dalliance/shared/ipc'
 import type { Output } from '@dalliance/shared/notebook'
 import type { Kernel } from '../kernel/kernel'
@@ -147,12 +147,19 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
           break
         case 'finish-step': {
           const { usage } = part
-          const record: RunStep = { step, modelId: part.response.modelId || deps.modelId || null, reasoning: reasoning.trim() || null }
+          const served = servedByFallback(part.providerMetadata)
+          const record: RunStep = {
+            step,
+            modelId: served.model || part.response.modelId || deps.modelId || null,
+            fallback: served.fallback,
+            reasoning: reasoning.trim() || null,
+          }
           steps.push(record)
           await deps.bus.emit('step', {
             cellId: request.cellId,
             step,
             modelId: record.modelId ?? undefined,
+            fallback: record.fallback,
             reasoning: record.reasoning,
             finishReason: part.finishReason,
             durationMs: Date.now() - stepStarted,
@@ -230,6 +237,19 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     steps,
     error,
   }
+}
+
+/**
+ * Whether a server-side fallback answered a call the chosen model declined, and which model it was. Anthropic
+ * reports one in its usage iterations as a `fallback_message`, the last one being the model that served the turn.
+ */
+export function servedByFallback(metadata: ProviderMetadata | undefined): { fallback: boolean; model: string | null } {
+  const iterations = metadata?.anthropic?.iterations
+  const served = Array.isArray(iterations)
+    ? (iterations.filter((i) => (i as { type?: unknown } | null)?.type === 'fallback_message').at(-1) as { model?: unknown } | undefined)
+    : undefined
+  if (!served) return { fallback: false, model: null }
+  return { fallback: true, model: typeof served.model === 'string' ? served.model : null }
 }
 
 const created = (vars: { name: string; type: string; shape: string }[]) => vars.map(({ name, type, shape }) => ({ name, type, shape }))

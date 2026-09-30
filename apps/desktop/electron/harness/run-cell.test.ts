@@ -12,7 +12,7 @@ import { createApproval } from './approval'
 import { type EventData, EventBus } from './events'
 import { installExtensions } from './extensions'
 import { agentProviderOptions, cloudGateway } from './model'
-import { type HarnessDeps, friendlyError, runCell } from './run-cell'
+import { type HarnessDeps, friendlyError, runCell, servedByFallback } from './run-cell'
 import { RUN_TIMEOUT_MS, duration } from './tools'
 
 type Step = { tool: string; input: Record<string, unknown>; thinking?: string } | { text: string }
@@ -275,6 +275,7 @@ describe('observability', () => {
       cellId: 'c1',
       step: 1,
       modelId: 'mock-model-id',
+      fallback: false,
       finishReason: 'tool-calls',
       durationMs: expect.any(Number),
       reasoning: null,
@@ -293,9 +294,9 @@ describe('observability', () => {
     deps.bus.on('step', (data) => void logged.push(data.reasoning))
     const result = await runCell(request(), deps)
     expect(result.steps).toEqual([
-      { step: 1, modelId: 'mock-model-id', reasoning: 'Look at the columns first.' },
-      { step: 2, modelId: 'mock-model-id', reasoning: null },
-      { step: 3, modelId: 'mock-model-id', reasoning: 'It ran, so finish.' },
+      { step: 1, modelId: 'mock-model-id', fallback: false, reasoning: 'Look at the columns first.' },
+      { step: 2, modelId: 'mock-model-id', fallback: false, reasoning: null },
+      { step: 3, modelId: 'mock-model-id', fallback: false, reasoning: 'It ran, so finish.' },
     ])
     expect(logged).toEqual(['Look at the columns first.', null, 'It ran, so finish.'])
   })
@@ -309,7 +310,7 @@ describe('observability', () => {
     await log.idle()
     const events = readFileSync(log.file, 'utf-8').trim().split('\n').map((l) => JSON.parse(l))
     expect(events.map((e) => e.event)).toEqual(['run_start', 'tool_call', 'tool_result', 'step', 'run_end'])
-    expect(events[3]).toMatchObject({ step: 1, finishReason: 'tool-calls', reasoning: null, usage: { cacheReadTokens: 5, cacheWriteTokens: 1 } })
+    expect(events[3]).toMatchObject({ step: 1, fallback: false, finishReason: 'tool-calls', reasoning: null, usage: { cacheReadTokens: 5, cacheWriteTokens: 1 } })
   })
 })
 
@@ -482,14 +483,34 @@ describe('questions answered in words', () => {
   })
 })
 
-/** One Anthropic Messages stream that ends in a single tool call, as server-sent events. */
-function anthropicToolStream(id: string, name: string, input: Record<string, unknown>): string {
+/**
+ * One Anthropic Messages stream that ends in a single tool call, as server-sent events. With `fallbackTo`, `model`
+ * declines first and that model answers, as the API reports a server-side fallback.
+ */
+function anthropicToolStream(
+  id: string,
+  name: string,
+  input: Record<string, unknown>,
+  { model = 'claude-opus-5', fallbackTo }: { model?: string; fallbackTo?: string } = {},
+): string {
+  const iterations = fallbackTo
+    ? [
+        { type: 'message', model, input_tokens: 10, output_tokens: 0 },
+        { type: 'fallback_message', model: fallbackTo, input_tokens: 10, output_tokens: 5 },
+      ]
+    : undefined
+  const blocks: unknown[] = fallbackTo ? [{ type: 'fallback' }] : []
+  const at = blocks.length
   const events: [string, unknown][] = [
-    ['message_start', { type: 'message_start', message: { id: `msg_${id}`, model: 'claude-opus-5', role: 'assistant', content: [], usage: { input_tokens: 10 } } }],
-    ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: `toolu_${id}`, name, input: {} } }],
-    ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(input) } }],
-    ['content_block_stop', { type: 'content_block_stop', index: 0 }],
-    ['message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { output_tokens: 5 } }],
+    ['message_start', { type: 'message_start', message: { id: `msg_${id}`, model, role: 'assistant', content: [], usage: { input_tokens: 10 } } }],
+    ...blocks.flatMap((block, index): [string, unknown][] => [
+      ['content_block_start', { type: 'content_block_start', index, content_block: block }],
+      ['content_block_stop', { type: 'content_block_stop', index }],
+    ]),
+    ['content_block_start', { type: 'content_block_start', index: at, content_block: { type: 'tool_use', id: `toolu_${id}`, name, input: {} } }],
+    ['content_block_delta', { type: 'content_block_delta', index: at, delta: { type: 'input_json_delta', partial_json: JSON.stringify(input) } }],
+    ['content_block_stop', { type: 'content_block_stop', index: at }],
+    ['message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { output_tokens: 5, ...(iterations ? { iterations } : {}) } }],
     ['message_stop', { type: 'message_stop' }],
   ]
   return events.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join('')
@@ -537,6 +558,56 @@ describe('caching', () => {
     const [first, second] = bodies.map((b) => b.messages as unknown[])
     expect(second.slice(0, first.length)).toEqual(first)
     expect(second.length).toBeGreaterThan(first.length)
+  })
+})
+
+describe('the refusal fallback', () => {
+  it('asks the Anthropic API for it on every step, and logs the model that answered when it ran', async () => {
+    const sent: { body: Record<string, unknown>; beta: string | null }[] = []
+    const replies = [
+      anthropicToolStream('1', 'list_variables', {}, { model: 'claude-sonnet-5-5' }),
+      anthropicToolStream('2', 'finish', { interpretation: '', answer: 'Nothing to compute.' }, { model: 'claude-sonnet-5-5', fallbackTo: 'claude-opus-4-8' }),
+    ]
+    const fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+      sent.push({ body: JSON.parse(String(init?.body)), beta: new Headers(init?.headers).get('anthropic-beta') })
+      return new Response(replies[sent.length - 1], { headers: { 'content-type': 'text/event-stream' } })
+    }
+    const model = createAnthropic({ apiKey: 'test-key', fetch })('claude-sonnet-5-5')
+    const providerOptions = agentProviderOptions({ provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'medium' })
+    const { deps } = harness(model as unknown as MockLanguageModelV4, new FakeKernel(), { providerOptions, modelId: 'claude-sonnet-5-5' })
+    const logged: EventData[] = []
+    deps.bus.on('step', (data) => void logged.push(data))
+
+    const result = await runCell(request({ prompt: 'What could we model here?' }), deps)
+
+    expect(result).toMatchObject({ ok: true, answer: 'Nothing to compute.' })
+    // The same options on every step, so the prompt cache holds
+    expect(sent).toHaveLength(2)
+    for (const { body, beta } of sent) {
+      expect(body.fallbacks).toBe('default')
+      expect(beta).toContain('server-side-fallback-2026-07-01')
+    }
+    expect(result.steps.map(({ modelId, fallback }) => ({ modelId, fallback }))).toEqual([
+      { modelId: 'claude-sonnet-5-5', fallback: false },
+      { modelId: 'claude-opus-4-8', fallback: true },
+    ])
+    expect(logged.map(({ modelId, fallback }) => ({ modelId, fallback }))).toEqual([
+      { modelId: 'claude-sonnet-5-5', fallback: false },
+      { modelId: 'claude-opus-4-8', fallback: true },
+    ])
+  })
+
+  it('reads a fallback from the usage iterations, the last one being the model that served', () => {
+    const iterations = [
+      { type: 'message', model: 'claude-fable-5-1', inputTokens: 1, outputTokens: 0 },
+      { type: 'fallback_message', model: 'claude-opus-5', inputTokens: 1, outputTokens: 0 },
+      { type: 'fallback_message', model: 'claude-opus-4-8', inputTokens: 1, outputTokens: 4 },
+    ]
+    expect(servedByFallback({ anthropic: { iterations } })).toEqual({ fallback: true, model: 'claude-opus-4-8' })
+    expect(servedByFallback({ anthropic: { iterations: [{ type: 'fallback_message', inputTokens: 1, outputTokens: 4 }] } })).toEqual({ fallback: true, model: null })
+    expect(servedByFallback({ anthropic: { iterations: [{ type: 'compaction', inputTokens: 1, outputTokens: 1 }] } })).toEqual({ fallback: false, model: null })
+    expect(servedByFallback({ anthropic: { iterations: null } })).toEqual({ fallback: false, model: null })
+    expect(servedByFallback(undefined)).toEqual({ fallback: false, model: null })
   })
 })
 

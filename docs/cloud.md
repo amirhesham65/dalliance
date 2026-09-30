@@ -48,7 +48,7 @@ Packaged builds register the scheme through `protocols` in the electron-builder 
 `provider: 'cloud'` is a third provider beside `gateway` and `anthropic`. `KeyProvider` is the two that take a key. `SettingsStore.setCloud()` gives it a `CloudAccess`: the proxy's URL, whether someone is signed in, and the token fetcher.
 
 - `resolveModel()` builds the AI Gateway provider on `<cloud>/api/ai`, with a custom `fetch` that puts a fresh Convex JWT on every request. Signed out, it throws a `ModelSetupError` before the run starts, and the session shows its message.
-- `agentProviderOptions()` works as it does for the gateway, since Cloud models use gateway ids like `anthropic/claude-opus-5`.
+- `agentProviderOptions()` works as it does for the gateway, since Cloud models use gateway ids like `anthropic/claude-sonnet-5.5`. So, like the gateway, it sends no refusal fallback. See [agent-harness.md](agent-harness.md#models-and-providers).
 - `titleModel()` uses `openai/gpt-6-luna` through the same proxy.
 - `listModels()` lists the gateway's models through the proxy, without dollar prices, because the plan pays in credits.
 
@@ -61,6 +61,7 @@ Every model call through Dalliance Cloud runs with zero data retention. The prox
 - `loadModels()` in the store moves a saved Cloud model the list doesn't offer, typed in or saved before the list changed, back to the default, and says so in a notice.
 - The own-key routes, AI Gateway and Anthropic, run on the user's own agreements with those providers. Their full model lists stay, and the provider line says: "With your own key, data retention depends on your agreement with the provider." `OWN_KEY_RETENTION` and `CLOUD_RETENTION` in `src/lib/keys.ts` hold the wording. Never let copy claim zero data retention for an own-key route.
 - On a direct Anthropic key, a model that needs data retention fails with a 400 when the key's organization has zero data retention. `friendlyError()` turns that into a message that says so.
+- The agent sends no refusal fallback on Cloud. The gateway drops the option today, and the model Anthropic picks for `fallbacks: 'default'` isn't published, so it couldn't be held to the list. A fallback on Cloud would need an explicit list of models the proxy offers.
 - Zero data retention is not a HIPAA business associate agreement. Don't word it as one.
 
 A settings file that chose `cloud`, opened by a build without it, reads as `gateway` with that provider's default model, and the choice comes back in a build that has it.

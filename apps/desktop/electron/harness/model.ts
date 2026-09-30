@@ -4,9 +4,16 @@ import type { LanguageModel, ToolLoopAgentSettings } from 'ai'
 import type { Effort, KeyCheck, KeyProvider, ModelList, ModelOption, Provider } from '@dalliance/shared/ipc'
 
 export const DEFAULT_MODELS: Record<Provider, string> = {
-  gateway: 'anthropic/claude-opus-5',
-  anthropic: 'claude-opus-5',
-  cloud: 'anthropic/claude-opus-5',
+  gateway: 'anthropic/claude-sonnet-5.5',
+  anthropic: 'claude-sonnet-5-5',
+  cloud: 'anthropic/claude-sonnet-5.5',
+}
+
+/** Defaults of earlier versions. Settings move a stored model that is still one of these to the current default. */
+export const PREVIOUS_DEFAULT_MODELS: Record<Provider, readonly string[]> = {
+  gateway: ['anthropic/claude-opus-5'],
+  anthropic: ['claude-opus-5'],
+  cloud: ['anthropic/claude-opus-5'],
 }
 
 /**
@@ -88,7 +95,7 @@ const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
  * What a Claude model accepts for reasoning, from Anthropic's model docs. Adaptive thinking came with the 4.6
  * models, and xhigh with Opus 4.7. Opus 4.5 takes effort up to high but only budgeted thinking. Sonnet 4.5,
  * Haiku 4.5 and older reject effort, so they get neither. Gateway ids like `anthropic/claude-haiku-4.5` count too.
- * An unknown Claude id is taken to be newer than this list.
+ * An unknown Claude id is taken to be newer than this list. Sonnet 5.5 is one: a live call showed it takes xhigh.
  */
 export function claudeReasoning(model: string): { adaptive: boolean; efforts: readonly Effort[] } {
   const id = model.toLowerCase().replace(/^anthropic\//, '').replace(/\./g, '-')
@@ -115,6 +122,10 @@ function supportedEffort(effort: Effort, allowed: readonly Effort[]): Effort {
  * Every Anthropic model also gets automatic caching: a top-level cacheControl puts a breakpoint on the last block
  * of every request, so each step of a cell reads the steps before it from the cache. It marks no message, so the
  * history the model sees stays append-only.
+ *
+ * On the Anthropic API, the models whose safety classifiers can decline a request (the ones that take xhigh) also
+ * get the refusal fallback: a declined request is retried on the model Anthropic recommends for that kind of
+ * refusal, inside the same call. The gateway drops the option, so it isn't sent there. See docs/agent-harness.md.
  */
 export function agentProviderOptions(config: Pick<ModelConfig, 'provider' | 'model' | 'effort'>): ToolLoopAgentSettings['providerOptions'] {
   if (config.provider === 'anthropic' || config.model.startsWith('anthropic/')) {
@@ -125,6 +136,7 @@ export function agentProviderOptions(config: Pick<ModelConfig, 'provider' | 'mod
         ...(reasoning.adaptive ? { thinking: { type: 'adaptive', display: 'summarized' } } : {}),
         ...(reasoning.efforts.length ? { effort: supportedEffort(config.effort, reasoning.efforts) } : {}),
         cacheControl: { type: 'ephemeral' },
+        ...(config.provider === 'anthropic' && reasoning.efforts.includes('xhigh') ? { fallbacks: 'default' } : {}),
         // One tool call per step: finish must never race the run_cell it reports on
         disableParallelToolUse: true,
       },

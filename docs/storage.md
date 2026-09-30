@@ -40,7 +40,7 @@ Before the first-run setup is done, `useShellKeys()` also switches to the other 
 
 The renderer saves a key with `saveKey()` in `src/lib/keys.ts`, from both the setup and Settings. It picks the provider from the prefix (`vck_` for the gateway, `sk-ant-` for Anthropic), checks the key with `checkKey()`, and only saves it when the provider doesn't reject it. Typing or pasting a key with a known prefix switches the provider straight away.
 
-Switching provider resets the model to the new provider's default, but only if the old one was still the default.
+Switching provider resets the model to the new provider's default, but only if the old one was still the default. The same goes for a new default: when settings load, a model that is still an earlier version's default (`PREVIOUS_DEFAULT_MODELS` in `harness/model.ts`, today Opus 5) moves to the current one. A model picked by hand stays, though someone who picked the old default on purpose moves too.
 
 ## Session and drafts
 

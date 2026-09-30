@@ -197,7 +197,7 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
     return { status: 'ok', detail: provider === 'gateway' ? '$5.00 in credits' : null }
   }
   // Like the real store, switching provider swaps a default model name for the other provider's
-  const defaults = { gateway: 'anthropic/claude-opus-5', anthropic: 'claude-opus-5', cloud: 'anthropic/claude-opus-5' }
+  const defaults = { gateway: 'anthropic/claude-sonnet-5.5', anthropic: 'claude-sonnet-5-5', cloud: 'anthropic/claude-sonnet-5.5' }
   api.updateSettings = async ({ apiKey, ...rest }) => {
     const model = rest.provider && rest.provider !== settings.provider && settings.model === defaults[settings.provider] ? defaults[rest.provider] : settings.model
     settings = { ...settings, model, ...rest }
@@ -227,8 +227,8 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
     provider: 'gateway',
     error: null,
     models: [
+      { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', maker: 'Anthropic', price: '$2 / $10' },
       { id: 'anthropic/claude-opus-5', name: 'Claude Opus 5', maker: 'Anthropic', price: '$5 / $25' },
-      { id: 'anthropic/claude-sonnet-5', name: 'Claude Sonnet 5', maker: 'Anthropic', price: '$3 / $15' },
       { id: 'openai/gpt-6', name: 'GPT-6', maker: 'OpenAI', price: '$2.50 / $15' },
       { id: 'openai/gpt-6-luna', name: 'GPT-6 Luna', maker: 'OpenAI', price: '$0.20 / $1.20' },
       { id: 'google/gemini-3-pro', name: 'Gemini 3 Pro', maker: 'Google', price: '$2 / $12' },

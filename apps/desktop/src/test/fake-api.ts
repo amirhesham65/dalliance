@@ -36,8 +36,8 @@ export function fakeApi(onRun: RunHandler) {
     listModels: async () => ({
       provider: 'gateway',
       models: [
+        { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', maker: 'Anthropic', price: '$2 / $10' },
         { id: 'anthropic/claude-opus-5', name: 'Claude Opus 5', maker: 'Anthropic', price: '$5 / $25' },
-        { id: 'anthropic/claude-sonnet-5', name: 'Claude Sonnet 5', maker: 'Anthropic', price: '$3 / $15' },
         { id: 'openai/gpt-5.2', name: 'GPT-5.2', maker: 'OpenAI', price: '$1.75 / $14' },
         { id: 'google/gemini-3-pro', name: 'Gemini 3 Pro', maker: 'Google', price: '$2 / $12' },
       ],
@@ -83,7 +83,7 @@ export function fakeApi(onRun: RunHandler) {
 export function fakeSettings(): SettingsView {
   return {
     provider: 'gateway',
-    model: 'anthropic/claude-opus-5',
+    model: 'anthropic/claude-sonnet-5.5',
     effort: 'medium',
     pythonPath: null,
     approvalMode: 'interactive',

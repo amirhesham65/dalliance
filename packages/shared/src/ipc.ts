@@ -37,6 +37,8 @@ export interface RunStep {
   step: number
   /** The model that answered. It can differ from the chosen one, after a fallback. */
   modelId: string | null
+  /** Whether the chosen model declined the call and a fallback model answered it instead. */
+  fallback: boolean
   /** The model's reasoning summary for this call. Null when it returned none, never left out. */
   reasoning: string | null
 }

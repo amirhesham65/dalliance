@@ -1,11 +1,43 @@
 import { describe, expect, it } from 'vitest'
-import { agentProviderOptions, claudeReasoning } from './model'
+import { DEFAULT_MODELS, agentProviderOptions, claudeReasoning } from './model'
+
+describe('DEFAULT_MODELS', () => {
+  it('is Sonnet 5.5 on every provider', () => {
+    expect(DEFAULT_MODELS).toEqual({ gateway: 'anthropic/claude-sonnet-5.5', anthropic: 'claude-sonnet-5-5', cloud: 'anthropic/claude-sonnet-5.5' })
+  })
+})
 
 describe('agentProviderOptions', () => {
   it('turns on summarized thinking, effort, automatic caching and one tool per step for Anthropic models, direct or through the gateway', () => {
     const expected = { anthropic: { thinking: { type: 'adaptive', display: 'summarized' }, effort: 'high', cacheControl: { type: 'ephemeral' }, disableParallelToolUse: true } }
-    expect(agentProviderOptions({ provider: 'anthropic', model: 'claude-opus-5', effort: 'high' })).toEqual(expected)
     expect(agentProviderOptions({ provider: 'gateway', model: 'anthropic/claude-opus-5', effort: 'high' })).toEqual(expected)
+    expect(agentProviderOptions({ provider: 'cloud', model: 'anthropic/claude-opus-5', effort: 'high' })).toEqual(expected)
+    expect(agentProviderOptions({ provider: 'anthropic', model: 'claude-opus-5', effort: 'high' })).toEqual({ anthropic: { ...expected.anthropic, fallbacks: 'default' } })
+  })
+
+  it('asks the Anthropic API to retry a declined request on a fallback model, for the models with safety classifiers', () => {
+    for (const model of ['claude-sonnet-5-5', 'claude-opus-5', 'claude-opus-4-7', 'claude-fable-5-1']) {
+      expect(agentProviderOptions({ provider: 'anthropic', model, effort: 'medium' })?.anthropic).toMatchObject({ fallbacks: 'default' })
+    }
+    for (const model of ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-opus-4-5', 'claude-haiku-4-5']) {
+      expect(agentProviderOptions({ provider: 'anthropic', model, effort: 'medium' })?.anthropic).not.toHaveProperty('fallbacks')
+    }
+  })
+
+  it('sends no fallback through the gateway or Dalliance Cloud, where the gateway drops it', () => {
+    for (const provider of ['gateway', 'cloud'] as const) {
+      expect(agentProviderOptions({ provider, model: 'anthropic/claude-sonnet-5.5', effort: 'medium' })?.anthropic).not.toHaveProperty('fallbacks')
+    }
+  })
+
+  it('gives Sonnet 5.5 adaptive thinking and every effort level, xhigh included', () => {
+    // A live call through the gateway accepted xhigh on Sonnet 5.5, where Opus 4.6 turned it down
+    for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
+      expect(agentProviderOptions({ provider: 'gateway', model: 'anthropic/claude-sonnet-5.5', effort })?.anthropic).toMatchObject({
+        thinking: { type: 'adaptive', display: 'summarized' },
+        effort,
+      })
+    }
   })
 
   it('sends no Anthropic options to other makers, and asks OpenAI models for reasoning summaries', () => {
