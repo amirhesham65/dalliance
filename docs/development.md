@@ -102,4 +102,5 @@ UI text, model prompts and docs use one voice: short sentences, plain words, sen
 - Imperative subject lines, like "Package the desktop app as a universal macOS .dmg".
 - A body that says what changed and why, wrapped at about 72 characters.
 - Work on a branch, open a pull request into `main`, and merge it with a merge commit.
+- Commits from outside contributors carry a `Signed-off-by` line, the Developer Certificate of Origin. See [CONTRIBUTING.md](../CONTRIBUTING.md).
 - Never credit an AI assistant as author or co-author, in commits, PRs, comments or docs. See [AGENTS.md](../AGENTS.md).
