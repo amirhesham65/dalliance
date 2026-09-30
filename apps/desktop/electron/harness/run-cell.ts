@@ -307,10 +307,45 @@ function statusOf(err: unknown): number | undefined {
 
 const NETWORK = /\b(?:fetch failed|cannot connect to api|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|network error)\b/i
 
+/**
+ * A refusal from Dalliance Cloud's proxy: signed out, out of credits, a model it doesn't offer. Its message is
+ * written for the user, so it's shown as is. The gateway provider wraps an error type it doesn't know, like the
+ * proxy's `dalliance_account`, in a generic error, so the proxy's own response is read from the cause.
+ */
+function accountRefusal(err: unknown): string | null {
+  for (let e: unknown = err, depth = 0; e != null && depth < 5; depth++) {
+    if (RetryError.isInstance(e)) e = e.lastError
+    if (APICallError.isInstance(e) && e.responseBody) {
+      try {
+        const body = JSON.parse(e.responseBody) as { error?: { type?: unknown; message?: unknown } }
+        if (body.error?.type === 'dalliance_account' && typeof body.error.message === 'string') return body.error.message
+      } catch {
+        // Not JSON, so not the proxy's
+      }
+    }
+    e = e instanceof Error ? e.cause : null
+  }
+  return null
+}
+
+/**
+ * Anthropic's own answer, on a direct key, when a model needs data retention and the key's organization has zero
+ * data retention. Only from api.anthropic.com, so a gateway error that mentions retention keeps its own words.
+ */
+function needsRetention(err: unknown, status: number | undefined, message: string): boolean {
+  const call = RetryError.isInstance(err) ? err.lastError : err
+  return status === 400 && APICallError.isInstance(call) && /^https:\/\/api\.anthropic\.com\//.test(call.url) && /\bdata retention\b/i.test(message)
+}
+
 export function friendlyError(err: unknown): string {
+  const refusal = accountRefusal(err)
+  if (refusal) return refusal
   const message = errorMessage(err)
   const detail = clip(message, 200)
   const status = statusOf(err)
+  if (needsRetention(err, status, message)) {
+    return "This model needs data retention, and your Anthropic organization has zero data retention. Choose another model in Settings."
+  }
   if (status === 401 || status === 403 || (status == null && /\b(?:invalid (?:x-)?api[ -]key|unauthorized|authentication (?:error|failed))\b/i.test(message))) {
     return `The model provider rejected the API key. Check it in Settings. (${detail})`
   }
