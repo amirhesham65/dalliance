@@ -118,7 +118,7 @@ The main process menu owns the global shortcuts. The renderer owns the rest.
 
 Command mode is `useCommandMode()` in `App.tsx`. It listens only while focus is inside the notebook column, marked `data-command-scope` on `NotebookView`'s `<main>`, or on nothing at all, the body. Keys pressed on a button in the overview, a side pane or the top bar never act on the selected cell, so D D there deletes nothing. Inside the notebook it still stays off while a text field, dialog or listbox has focus, and it skips a key another handler already took with `preventDefault()`. Editor keys are `editorKeys()` in `CellView.tsx`. `useScopedSelectAll()` makes Cmd+A select only the text field, answer or output that holds the selection, like a desktop app.
 
-Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the built-in undo and redo roles with items that send `'undo'` and `'redo'` menu actions; cut, copy, paste and select all keep their roles. `editFromMenu()` in `App.tsx` runs `document.execCommand('undo')` or `'redo'` when a text field has focus, since the role no longer does it, and notebook undo otherwise. Command mode also handles Cmd+Z and Shift+Cmd+Z, or Ctrl, itself, for the browser preview and for platforms where the page sees the key before the menu. `notebookEdit()` ignores the second of a menu action and a keydown for the same key press within 150 ms, so one press never undoes twice. `MenuAction` in `packages/shared/src/ipc.ts` doesn't list `'undo'` and `'redo'` yet, so both sides compare them as strings.
+Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the built-in undo and redo roles with items that send `'undo'` and `'redo'` menu actions; cut, copy, paste and select all keep their roles. `editFromMenu()` in `App.tsx` runs `document.execCommand('undo')` or `'redo'` when a text field has focus, since the role no longer does it, and notebook undo otherwise. Command mode also handles Cmd+Z and Shift+Cmd+Z, or Ctrl, itself, for the browser preview and for platforms where the page sees the key before the menu. `notebookEdit()` ignores the second of a menu action and a keydown for the same key press within 150 ms, so one press never undoes twice.
 
 ## Cells
 
@@ -188,7 +188,7 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 | Section | Component | Holds |
 | --- | --- | --- |
 | Models | `ModelSettings` | Provider, key, model id, effort |
-| Agent | `AgentSettings` | Package installs, cell names |
+| Agent | `AgentSettings` | Approvals (package installs, shell and network code), cell names |
 | Python | `PythonSettings` | The managed environment and a Python path |
 
 It sits over the area under the top bar with the screen below still mounted and `inert`, so the setup's step, the notebook's scroll and the resizable columns come back as they were. Command mode and the Cmd+number keys stay off while it's up. Esc goes back, unless a select or menu is open, or a text field has focus, which it leaves instead.
@@ -219,7 +219,7 @@ The quiet text colours, `--muted-foreground` and `--faint`, meet WCAG AA, 4.5:1,
 
 `electron/main.ts` hardcodes the canvas colours for the window background and the Windows title bar overlay. Change both together.
 
-Fonts are bundled through Fontsource: Inter for UI, JetBrains Mono for code, Source Serif 4 for answers, the brief and headings on the setup screens. A `short` custom variant tightens spacing for windows under 760 px tall.
+Fonts are bundled through Fontsource: Inter for UI, JetBrains Mono for code, Source Serif 4 for answers, the brief and headings on the setup screens. `src/fonts.css` declares only their Latin and Latin Extended files, so the build skips the Greek, Cyrillic and Vietnamese ones and other scripts fall back to system fonts. A `short` custom variant tightens spacing for windows under 760 px tall.
 
 ## shadcn components
 

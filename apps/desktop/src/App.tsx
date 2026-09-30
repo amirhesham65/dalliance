@@ -47,10 +47,10 @@ export default function App() {
     async (action: MenuAction) => {
       if (!api) return
       const selected = useNotebook.getState().selectedId
-      // Edit > Undo and Redo. MenuAction in @dalliance/shared doesn't list them yet, so compare as strings
-      const name: string = action
-      if (name === 'undo' || name === 'redo') return editFromMenu(name)
       switch (action) {
+        case 'undo':
+        case 'redo':
+          return editFromMenu(action)
         case 'new':
           if (await api.confirmDiscard()) {
             actions.load(welcomeNotebook(), null)
@@ -59,8 +59,12 @@ export default function App() {
           break
         case 'open':
           if (await api.confirmDiscard()) {
-            const opened = await api.openNotebook()
-            if (opened) actions.load(opened.notebook, opened.path)
+            try {
+              const opened = await api.openNotebook()
+              if (opened) actions.load(opened.notebook, opened.path)
+            } catch (err) {
+              actions.notifyFailure("Couldn't open the notebook", err)
+            }
           }
           break
         case 'save':
@@ -152,9 +156,10 @@ export default function App() {
         ? 'Python is not set up yet.'
         : `Python is missing ${python.missingPackages.join(', ')}. Cells that need them will fail.`
       : kernel.error
-  // A dismissed notice stays gone until its message changes. Once the problem is fixed, forget the dismissal so the
-  // banner shows again if it comes back. Resetting during render, not in an effect, avoids an extra commit
-  if (!banner && dismissedBanner != null) setDismissedBanner(null)
+  // A dismissed notice stays gone until its message changes. Once it shows something else, or nothing, forget the
+  // dismissal so the banner shows again if that message comes back. Resetting during render, not in an effect,
+  // avoids an extra commit
+  if (dismissedBanner != null && banner !== dismissedBanner) setDismissedBanner(null)
 
   return (
     <TooltipProvider delayDuration={400}>

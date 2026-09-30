@@ -10,14 +10,18 @@ export function AgentSettings({ api, settings }: { api: DallianceApi; settings: 
     <>
       <SectionHeading title="Agent">What the agent does on its own while it writes a cell.</SectionHeading>
       <Group>
-        <Row label="Package installs" htmlFor="approval" description="When a cell needs a package the Python doesn't have.">
+        <Row
+          label="Approvals"
+          htmlFor="approval"
+          description="When a cell needs a package the Python doesn't have, or its code runs shell commands or uses the network."
+        >
           <Select value={settings.approvalMode} onValueChange={(v) => update({ approvalMode: v as SettingsView['approvalMode'] })}>
             <SelectTrigger id="approval" className="w-52">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="interactive">Ask me first</SelectItem>
-              <SelectItem value="background">Install without asking</SelectItem>
+              <SelectItem value="background">Allow without asking</SelectItem>
             </SelectContent>
           </Select>
         </Row>

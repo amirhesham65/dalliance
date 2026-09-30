@@ -9,7 +9,7 @@ import { MissingKeyError, resolveModel } from './harness/model'
 import { friendlyError, runCell } from './harness/run-cell'
 import { generateTitle, titleModel } from './harness/title'
 import type { Kernel, KernelInfo } from './kernel/kernel'
-import { installPackages, pythonStatus, setupManagedEnv } from './kernel/python-env'
+import { installMissingBasePackages, installPackages, pythonStatus, setupManagedEnv } from './kernel/python-env'
 import { PythonKernel } from './kernel/python-kernel'
 import { isBroadFolder, listFiles } from './harness/workspace'
 import type { SettingsStore } from './settings'
@@ -40,6 +40,8 @@ export class NotebookSession {
   private trust = new Set<string>()
   private nextRequest = 0
   private lastKernelState: KernelState
+  /** Whether this app session has already topped up the managed environment's base packages. */
+  private baseChecked = false
   readonly bus = new EventBus()
   private readonly options: SessionOptions
 
@@ -98,8 +100,20 @@ export class NotebookSession {
     return path.join(this.options.userData, 'python-env')
   }
 
+  private logPython = (line: string) => this.options.send(IPC.pythonLog, line)
+
+  /**
+   * A managed environment made before the base package list grew lacks the newer packages. Install them once
+   * per app session, in the background, so the kernel doesn't wait. A failure only means they stay missing.
+   */
+  private topUpBasePackages() {
+    if (this.baseChecked) return
+    this.baseChecked = true
+    void installMissingBasePackages(this.envDir, this.logPython).catch(() => {})
+  }
+
   async setupPython(): Promise<PythonState> {
-    await setupManagedEnv(this.envDir, (line) => this.options.send(IPC.pythonLog, line))
+    await setupManagedEnv(this.envDir, this.logPython)
     await this.restart()
     return this.pythonState()
   }
@@ -151,6 +165,7 @@ export class NotebookSession {
       onStatus,
     })
     await kernel.start()
+    if (status.source === 'managed') this.topUpBasePackages()
     return kernel
   }
 

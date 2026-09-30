@@ -2,12 +2,35 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC, type KernelState } from '@dalliance/shared/ipc'
 import { FakeKernel } from './kernel/fake-kernel'
 import type { KernelInfo } from './kernel/kernel'
 import { NotebookSession } from './session'
 import type { SettingsStore } from './settings'
+
+// Only the sessions below that don't pass launchKernel reach these: the real launcher with a fake Python
+const python = vi.hoisted(() => ({
+  source: 'managed' as 'managed' | 'system',
+  topUp: async (_envDir: string, _onLog: (line: string) => void): Promise<string[]> => [],
+  topUps: [] as string[],
+}))
+vi.mock('./kernel/python-env', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./kernel/python-env')>()),
+  pythonStatus: async () => ({ python: '/py/bin/python', version: '3.12.0', source: python.source, managedEnvExists: true, missingPackages: [] }),
+  installMissingBasePackages: (envDir: string, onLog: (line: string) => void) => {
+    python.topUps.push(envDir)
+    return python.topUp(envDir, onLog)
+  },
+}))
+vi.mock('./kernel/python-kernel', async () => {
+  const { FakeKernel } = await import('./kernel/fake-kernel')
+  return {
+    PythonKernel: class extends FakeKernel {
+      async start() {}
+    },
+  }
+})
 
 /** A kernel that remembers its folder and whether it was shut down. */
 class FolderKernel extends FakeKernel {
@@ -126,5 +149,64 @@ describe('built-in extensions', () => {
     const { s } = session(async (cwd) => new FolderKernel(cwd))
     expect(await s.bus.emit('tool_call', { cellId: 'c1', toolName: 'read_file', input: { path: 'config\\.Env.local' } })).toMatchObject({ blocked: true })
     expect(await s.bus.emit('tool_call', { cellId: 'c1', toolName: 'read_file', input: { path: 'environment.csv' } })).toEqual({ blocked: false })
+  })
+})
+
+describe('base packages in an older managed environment', () => {
+  const userData = () => mkdtempSync(path.join(tmpdir(), 'dalliance-session-'))
+  const start = (s: NotebookSession) => (s as unknown as { ensureKernel(): Promise<unknown> }).ensureKernel()
+  function realSession(dir: string) {
+    const logs: string[] = []
+    const s = new NotebookSession({
+      settings: { pythonPath: null } as unknown as SettingsStore,
+      userData: dir,
+      defaultWorkspace: '/default',
+      send: (channel, line) => {
+        if (channel === IPC.pythonLog) logs.push(line as string)
+      },
+    })
+    return { s, logs }
+  }
+
+  beforeEach(() => {
+    python.source = 'managed'
+    python.topUp = async () => []
+    python.topUps = []
+  })
+
+  it('installs what is missing once, without holding up the kernel, and logs to python-log', async () => {
+    let finish!: () => void
+    python.topUp = (_envDir, onLog) => {
+      onLog('Installing scipy, seaborn')
+      return new Promise((resolve) => (finish = () => resolve(['scipy', 'seaborn'])))
+    }
+    const dir = userData()
+    const { s, logs } = realSession(dir)
+    // The kernel is ready while pip is still going
+    await start(s)
+    expect(python.topUps).toEqual([path.join(dir, 'python-env')])
+    expect(logs).toEqual(['Installing scipy, seaborn'])
+
+    await s.restart()
+    await start(s)
+    expect(python.topUps).toHaveLength(1)
+    finish()
+  })
+
+  it('leaves a Python that is not the managed environment alone', async () => {
+    python.source = 'system'
+    const { s } = realSession(userData())
+    await start(s)
+    expect(python.topUps).toEqual([])
+  })
+
+  it('ignores a failed install', async () => {
+    python.topUp = async () => {
+      throw new Error('pip failed')
+    }
+    const { s } = realSession(userData())
+    await expect(start(s)).resolves.toBeDefined()
+    await tick()
+    expect(python.topUps).toHaveLength(1)
   })
 })

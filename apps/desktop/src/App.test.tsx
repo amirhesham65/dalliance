@@ -132,6 +132,25 @@ describe('App', () => {
     expect(useNotebook.getState().dirty).toBe(false)
   })
 
+  it('shows a notebook that fails to open, and keeps the one that was open', async () => {
+    const { api } = fakeApi(() => result())
+    let menu!: (action: 'open') => void
+    api.onMenu = (l) => {
+      menu = l
+      return () => {}
+    }
+    api.openNotebook = async () => {
+      throw new Error("Error invoking remote method 'open-notebook': Error: Unexpected token in JSON at position 12")
+    }
+    setApi(api)
+    render(<App />)
+    const before = useNotebook.getState().notebook
+    await waitFor(() => expect(menu).toBeDefined())
+    menu('open')
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't open the notebook. Unexpected token in JSON at position 12")
+    expect(useNotebook.getState().notebook).toBe(before)
+  })
+
   it('keeps the notebook up when one cell fails to draw, and Retry draws it again', async () => {
     const user = userEvent.setup()
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -370,6 +389,12 @@ describe('question cells', () => {
     await user.click(screen.getByRole('tab', { name: 'Python' }))
     expect(screen.getByRole('button', { name: 'Set up' })).toBeInTheDocument()
 
+    // One approval setting covers installs and shell or network code
+    await user.click(screen.getByRole('tab', { name: 'Agent' }))
+    expect(screen.getByRole('combobox', { name: 'Approvals' })).toBeInTheDocument()
+    expect(screen.getByText(/runs shell commands or uses the network/)).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Python' }))
+
     // Notebook keys stay off while Settings is up
     const cells = screen.getAllByRole('article', { hidden: true }).length
     await user.keyboard('b')
@@ -426,6 +451,24 @@ describe('question cells', () => {
     // Fixed, then back: the same message shows again
     act(() => useNotebook.setState({ python: { ...python, missingPackages: [] } }))
     act(() => useNotebook.setState({ python: { ...python, missingPackages: ['pandas'] } }))
+    expect(screen.getByText('Python is missing pandas. Cells that need them will fail.')).toBeInTheDocument()
+  })
+
+  it('forgets a dismissal once the notice shows something else', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    setApi(api)
+    render(<App />)
+    await waitFor(() => expect(useNotebook.getState().python).not.toBeNull())
+    const python = useNotebook.getState().python!
+    const missing = (pkg: string) => act(() => useNotebook.setState({ python: { ...python, missingPackages: [pkg] } }))
+
+    missing('pandas')
+    await user.click(screen.getByRole('button', { name: 'Dismiss notice' }))
+    // Another problem replaces it, then the first comes back: that is a change, so it shows
+    missing('numpy')
+    expect(screen.getByText('Python is missing numpy. Cells that need them will fail.')).toBeInTheDocument()
+    missing('pandas')
     expect(screen.getByText('Python is missing pandas. Cells that need them will fail.')).toBeInTheDocument()
   })
 
