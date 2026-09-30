@@ -5,6 +5,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { IPC, type KernelState } from '@dalliance/shared/ipc'
 import { FakeKernel } from './kernel/fake-kernel'
+import { findSystemPython } from './kernel/python-env'
 import type { KernelInfo } from './kernel/kernel'
 import { NotebookSession } from './session'
 import type { SettingsStore } from './settings'
@@ -126,5 +127,39 @@ describe('built-in extensions', () => {
     const { s } = session(async (cwd) => new FolderKernel(cwd))
     expect(await s.bus.emit('tool_call', { cellId: 'c1', toolName: 'read_file', input: { path: 'config\\.Env.local' } })).toMatchObject({ blocked: true })
     expect(await s.bus.emit('tool_call', { cellId: 'c1', toolName: 'read_file', input: { path: 'environment.csv' } })).toEqual({ blocked: false })
+  })
+})
+
+const python = await findSystemPython()
+
+describe.skipIf(!python)('NotebookSession environment', () => {
+  it('lists the libraries from its userData folder, never the process’s working directory', async () => {
+    const userData = mkdtempSync(path.join(tmpdir(), 'dalliance-session-'))
+    const calls: { python: string; cwd: string }[] = []
+    const s = new NotebookSession({
+      settings: { pythonPath: python } as SettingsStore,
+      userData,
+      defaultWorkspace: '/default',
+      send: () => {},
+      listPackages: async (p, { cwd }) => {
+        calls.push({ python: p, cwd })
+        return [{ name: 'numpy', version: '2.1.0' }]
+      },
+    })
+    expect(await s.environment()).toMatchObject({ python, packages: [{ name: 'numpy', version: '2.1.0' }], error: null })
+    expect(calls).toEqual([{ python, cwd: userData }])
+  })
+
+  it('passes on why the listing failed', async () => {
+    const s = new NotebookSession({
+      settings: { pythonPath: python } as SettingsStore,
+      userData: mkdtempSync(path.join(tmpdir(), 'dalliance-session-')),
+      defaultWorkspace: '/default',
+      send: () => {},
+      listPackages: async () => {
+        throw new Error(`${python} took longer than 20 seconds to list its libraries.`)
+      },
+    })
+    expect(await s.environment()).toMatchObject({ packages: [], error: `Couldn't list the libraries: ${python} took longer than 20 seconds to list its libraries.` })
   })
 })

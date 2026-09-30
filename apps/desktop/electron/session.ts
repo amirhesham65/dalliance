@@ -22,6 +22,8 @@ interface SessionOptions {
   send: (channel: string, ...args: unknown[]) => void
   /** Starts a kernel in `cwd`. Defaults to the Python kernel; tests pass a fake. */
   launchKernel?: (cwd: string, onStatus: (info: KernelInfo) => void) => Promise<Kernel>
+  /** Lists a Python's libraries. Defaults to `installedPackages`; tests pass a fake. */
+  listPackages?: typeof installedPackages
 }
 
 /**
@@ -96,9 +98,11 @@ export class NotebookSession {
     const status = await this.pythonState()
     if (!status.python) return { python: null, version: null, packages: [], error: 'No Python found. Open Settings to set up a Python environment.' }
     try {
-      return { python: status.python, version: status.version, packages: await installedPackages(status.python), error: null }
+      // Run in userData, not the process's working directory, so no stray json.py can shadow the standard library
+      const packages = await (this.options.listPackages ?? installedPackages)(status.python, { cwd: this.options.userData })
+      return { python: status.python, version: status.version, packages, error: null }
     } catch (err) {
-      const reason = err instanceof Error ? err.message.split('\n')[0] : String(err)
+      const reason = err instanceof Error ? err.message : String(err)
       return { python: status.python, version: status.version, packages: [], error: `Couldn't list the libraries: ${reason}` }
     }
   }

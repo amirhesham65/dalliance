@@ -58,6 +58,8 @@ These run in Node with Electron mocked, and need nothing installed.
 
 `python-kernel.test.ts` spawns the real script with the system Python. It checks state across cells, tracebacks, exploratory runs, the variable list, interrupts, restarts and which names a cell assigned. Its `PythonKernel hardening` block checks that a value whose `describe()` breaks doesn't kill the kernel, that a request failing outside the cell gets an error answer, that cells import modules from the notebook's folder, that API keys never reach the kernel's environment, and that cells get an empty stdin rather than the request pipe. Run it after any change to `dalliance_kernel.py`.
 
+`python-packages.test.ts` lists the system Python's libraries for the environment view, and checks that a `json.py` in the process's working directory can't break the listing and that a failure reads as a sentence, not the script. It skips without a system Python.
+
 `python-env.test.ts` checks the package lists and the name check `installPackages()` runs before pip, including every archive extension pip accepts, with `spawn` mocked. The mock can fail with pip's PEP 668 output, to check the Settings > Python message. Python discovery runs against a fake Mac through injected `exec`, `exists`, `list` and `path`: Homebrew over Apple's Python, the newest version winning, and `/usr/bin/python3` left alone without the Command Line Tools. The base-package cases check what an old managed environment lacks and that only that gets installed. Its two missing-package cases use the system Python and skip without one.
 
 ### The renderer
