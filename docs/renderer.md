@@ -42,6 +42,8 @@ Saved with the notebook: `notebook`. Everything else is session state:
 | `lastFinishedId` | The cell that shows its suggestions |
 | `pane`, `pinnedIds` | The open side pane and pinned cells |
 | `brief`, `models`, `variables`, `settings`, `python`, `kernel` | Data from the main process |
+| `environment`, `environmentLoading`, `environmentStale` | The Python's libraries once the Environment view has asked, whether a read is under way, and whether they may be out of date. See [Side panes](#side-panes) |
+| `variablesView` | Which view the Variables & Environment pane shows |
 | `notice` | The message at the bottom of the window, with an Undo when the change can be taken back. See [Notices and errors](#notices-and-errors) |
 
 `getApi()` and `setApi()` wrap `window.dalliance`, so tests and the demo can swap in a fake.
@@ -64,11 +66,11 @@ The notices for D D and M offer Undo through the same stack. Their button undoes
 
 ### The run queue
 
-`queue` and `pump()` live at module level. `actions.run(id)` pushes an id unless it's already queued or running. `pump()` runs one cell at a time: it builds the request, awaits `api.runCell()`, and calls `finish()`. Events for the running cell arrive through `applyRunEvent()`. When the queue empties, the store refreshes variables.
+`queue` and `pump()` live at module level. `actions.run(id)` pushes an id unless it's already queued or running. `pump()` runs one cell at a time: it builds the request, awaits `api.runCell()`, and calls `finish()`. Events for the running cell arrive through `applyRunEvent()`. When the queue empties, the store refreshes variables and calls `environmentChanged()`, since a cell may have installed a library.
 
 `pump()` passes the cell as it was sent to `finish()`. The user can keep typing while the agent works. If the prompt or the code changed during the run, their edits stay, `generatedFrom` is the prompt that was sent, and the cell ends `edited` instead of `done`. The next run then regenerates for the new prompt, or runs their code. History keeps the version that ran.
 
-`interrupt()` empties the queue and drops queued runs, then calls the bridge. `deleteCell()` interrupts the cell if it's running. `restart()` interrupts, restarts the kernel, and marks every cell that has run `stale` with no execution count.
+`interrupt()` empties the queue and drops queued runs, then calls the bridge. `deleteCell()` interrupts the cell if it's running. `restart()` interrupts, restarts the kernel, marks every cell that has run `stale` with no execution count, and calls `environmentChanged()`.
 
 A result must land only in the cell and notebook that asked for it. `load()`, which New, Open, a recent file, the start page and session restore all go through, clears the queue and interrupts a running cell before it swaps the notebook in. That cell's id goes into `abandoned`, as does a running cell that is deleted, and `finish()` drops an abandoned result without touching any cell, even one with the same id: reopening the same file, or Undo after a delete, brings the id back. `finish()` also ignores a cell that no longer exists, and a `title` event for a missing cell changes nothing and leaves `dirty` alone.
 
@@ -163,7 +165,7 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 | Pane | Shows |
 | --- | --- |
 | Brief | The workspace's `AGENTS.md` as a document, editable in place. Starts from a template. `- [ ]` tasks toggle on click |
-| Variables & Environment | Two views under a switch. Variables from the kernel through `listVariables()`. Environment is the Python's version and its libraries with versions, through `listPackages()`, searchable. The libraries are read on first use and again after a run, a restart or a Python setup, once they have been shown |
+| Variables & Environment | Two views under a switch. Variables from the kernel through `listVariables()`. Environment is the Python's version and its libraries with versions, through `listPackages()`, searchable. The libraries are read when the view is first shown. After a run, a restart or a Python change, `environmentChanged()` reads them again at once if the view is on screen, and otherwise marks them stale so the view reads them when it's next shown, never spawning a Python nobody looks at. `loadEnvironment()` called during a read queues one more read after it, and only the last answer lands |
 | History | The selected cell's revisions. Restore brings one back without calling the model |
 | Files | Workspace files, reloaded after every run. Clicking a data file adds a prompt cell to load it |
 | Pinned | Result cards for pinned cells, in pin order |

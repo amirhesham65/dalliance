@@ -46,10 +46,12 @@ function VariablesPane() {
   const variables = useNotebook((s) => s.variables)
   const environment = useNotebook((s) => s.environment)
   const loading = useNotebook((s) => s.environmentLoading)
-  const [view, setView] = useState<'variables' | 'environment'>('variables')
+  const stale = useNotebook((s) => s.environmentStale)
+  const view = useNotebook((s) => s.variablesView)
+  // Read the libraries when the view is first shown, and again when a run or a restart may have changed them
   useEffect(() => {
-    if (view === 'environment' && !useNotebook.getState().environment) void actions.loadEnvironment()
-  }, [view])
+    if (view === 'environment' && (!useNotebook.getState().environment || stale)) void actions.loadEnvironment()
+  }, [view, stale])
   return (
     <Pane
       title="Variables & Environment"
@@ -76,7 +78,7 @@ function VariablesPane() {
             type="button"
             role="tab"
             aria-selected={view === v}
-            onClick={() => setView(v)}
+            onClick={() => actions.showVariablesView(v)}
             className={cn('flex-1 rounded-md py-1', view === v ? 'bg-background text-foreground shadow-pane' : 'text-muted-foreground hover:text-foreground')}
           >
             {v === 'variables' ? 'Variables' : 'Environment'}

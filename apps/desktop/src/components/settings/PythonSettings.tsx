@@ -28,7 +28,7 @@ export function PythonSettings({ api, settings }: { api: DallianceApi; settings:
       // The main process restarts the kernel on the new interpreter
       await saveSettings(api, { pythonPath: next || null })
       useNotebook.setState({ python: await api.pythonState() })
-      if (useNotebook.getState().environment) void actions.loadEnvironment()
+      actions.environmentChanged()
     } catch (err) {
       setPathError(`Couldn't switch: ${err instanceof Error ? err.message : String(err)}`)
     }

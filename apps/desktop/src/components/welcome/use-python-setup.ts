@@ -16,7 +16,7 @@ export function usePythonSetup(api: DallianceApi) {
     setLog([])
     try {
       useNotebook.setState({ python: await api.setupPython() })
-      if (useNotebook.getState().environment) void actions.loadEnvironment()
+      actions.environmentChanged()
     } catch (err) {
       setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err))
     } finally {

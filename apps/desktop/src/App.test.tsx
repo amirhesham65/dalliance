@@ -265,7 +265,7 @@ describe('question cells', () => {
   it('shows the Python and its libraries next to the variables, and searches them', async () => {
     const user = userEvent.setup()
     // The store outlives a test, so the pane and the libraries start clean
-    useNotebook.setState({ pane: null, environment: null })
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })
     setApi(fakeApi(() => result()).api)
     render(<App />)
 
@@ -287,7 +287,7 @@ describe('question cells', () => {
   it('says why the libraries could not be listed', async () => {
     const user = userEvent.setup()
     // The store outlives a test, so the pane and the libraries start clean
-    useNotebook.setState({ pane: null, environment: null })
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })
     const { api } = fakeApi(() => result())
     api.listPackages = async () => ({ python: null, version: null, packages: [], error: 'No Python found. Open Settings to set up a Python environment.' })
     setApi(api)
@@ -301,7 +301,7 @@ describe('question cells', () => {
   it('shows an error, not a blank pane, when reading the libraries throws', async () => {
     const user = userEvent.setup()
     // The store outlives a test, so the pane and the libraries start clean
-    useNotebook.setState({ pane: null, environment: null })
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })
     const { api } = fakeApi(() => result())
     api.listPackages = async () => {
       throw new Error('spawn failed')
@@ -312,6 +312,36 @@ describe('question cells', () => {
     await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
     await user.click(screen.getByRole('tab', { name: 'Environment' }))
     expect(await screen.findByText(/Couldn't list the libraries: spawn failed/)).toBeInTheDocument()
+  })
+
+  it('reads the libraries again when shown after a run, and not while hidden', async () => {
+    const user = userEvent.setup()
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })
+    const { api } = fakeApi(() => result())
+    let reads = 0
+    api.listPackages = async () => {
+      reads++
+      return { python: '/usr/bin/python3', version: '3.12.0', packages: [{ name: `lib${reads}`, version: '1.0' }], error: null }
+    }
+    setApi(api)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    await user.click(screen.getByRole('tab', { name: 'Environment' }))
+    expect(await screen.findByText('lib1')).toBeInTheDocument()
+
+    // Back on the variables, a run doesn't spawn a Python to read the libraries
+    await user.click(screen.getByRole('tab', { name: 'Variables' }))
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Install seaborn')
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
+    await waitFor(() => expect(useNotebook.getState().runs).toEqual({}))
+    await waitFor(() => expect(useNotebook.getState().environmentStale).toBe(true))
+    expect(reads).toBe(1)
+
+    // Showing them reads them again, since the run may have installed something
+    await user.click(screen.getByRole('tab', { name: 'Environment' }))
+    expect(await screen.findByText('lib2')).toBeInTheDocument()
+    expect(reads).toBe(2)
   })
 
   it('keeps earlier versions of a cell and restores one', async () => {
