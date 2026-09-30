@@ -31,6 +31,16 @@ export interface RunCellRequest {
   previousCells: { kind: 'prompt' | 'note'; text: string; code?: string }[]
 }
 
+/** One model call of a run, for the record of how a cell was made. */
+export interface RunStep {
+  /** Which model call of the run, from 1. */
+  step: number
+  /** The model that answered. It can differ from the chosen one, after a fallback. */
+  modelId: string | null
+  /** The model's reasoning summary for this call. Null when it returned none, never left out. */
+  reasoning: string | null
+}
+
 export interface CellRunResult {
   ok: boolean
   code: string
@@ -45,6 +55,8 @@ export interface CellRunResult {
   /** Variables the final run assigned. */
   variables: CreatedVariable[]
   activity: ActivityItem[]
+  /** Every model call of a generated run, in order. Empty for a plain run of saved code. */
+  steps: RunStep[]
   /** Why the run failed, when the problem was not a Python error (no API key, stopped, the agent gave up). */
   error: string | null
 }

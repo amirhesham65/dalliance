@@ -277,8 +277,27 @@ describe('observability', () => {
       modelId: 'mock-model-id',
       finishReason: 'tool-calls',
       durationMs: expect.any(Number),
+      reasoning: null,
       usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 5, cacheWriteTokens: 1, reasoningTokens: 2 },
     })
+  })
+
+  it("keeps each step's reasoning summary, and null for a step without one", async () => {
+    const { model } = scriptedModel([
+      { tool: 'explore', input: { code: 'orders.head()' }, thinking: 'Look at the columns first.' },
+      { tool: 'run_cell', input: { code: 'x = 1\nx' } },
+      { tool: 'finish', input: { interpretation: '', answer: '' }, thinking: 'It ran, so finish.' },
+    ])
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })))
+    const logged: (string | null | undefined)[] = []
+    deps.bus.on('step', (data) => void logged.push(data.reasoning))
+    const result = await runCell(request(), deps)
+    expect(result.steps).toEqual([
+      { step: 1, modelId: 'mock-model-id', reasoning: 'Look at the columns first.' },
+      { step: 2, modelId: 'mock-model-id', reasoning: null },
+      { step: 3, modelId: 'mock-model-id', reasoning: 'It ran, so finish.' },
+    ])
+    expect(logged).toEqual(['Look at the columns first.', null, 'It ran, so finish.'])
   })
 
   it('writes the steps to agent.jsonl through the built-in log', async () => {
@@ -290,7 +309,7 @@ describe('observability', () => {
     await log.idle()
     const events = readFileSync(log.file, 'utf-8').trim().split('\n').map((l) => JSON.parse(l))
     expect(events.map((e) => e.event)).toEqual(['run_start', 'tool_call', 'tool_result', 'step', 'run_end'])
-    expect(events[3]).toMatchObject({ step: 1, finishReason: 'tool-calls', usage: { cacheReadTokens: 5, cacheWriteTokens: 1 } })
+    expect(events[3]).toMatchObject({ step: 1, finishReason: 'tool-calls', reasoning: null, usage: { cacheReadTokens: 5, cacheWriteTokens: 1 } })
   })
 })
 

@@ -1,6 +1,6 @@
 import { GatewayError } from '@ai-sdk/gateway'
 import { APICallError, type LanguageModel, RetryError, ToolLoopAgent, type ToolLoopAgentSettings, stepCountIs } from 'ai'
-import type { ActivityItem, CellRunResult, RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
+import type { ActivityItem, CellRunResult, RunCellRequest, RunEvent, RunStep } from '@dalliance/shared/ipc'
 import type { Output } from '@dalliance/shared/notebook'
 import type { Kernel } from '../kernel/kernel'
 import type { EventBus } from './events'
@@ -58,6 +58,7 @@ async function executeCell(request: RunCellRequest, deps: HarnessDeps): Promise<
     suggestions: [],
     variables: created(result.assigned),
     activity: [],
+    steps: [],
     error: null,
   }
 }
@@ -129,6 +130,9 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
   let error: string | null = null
   let step = 0
   let stepStarted = Date.now()
+  const steps: RunStep[] = []
+  // The reasoning summary of the step under way, from its reasoning parts
+  let reasoning = ''
   try {
     const result = await agent.stream({ prompt, abortSignal: deps.signal })
     for await (const part of result.fullStream) {
@@ -136,13 +140,20 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
         case 'start-step':
           step += 1
           stepStarted = Date.now()
+          reasoning = ''
+          break
+        case 'reasoning-delta':
+          reasoning += part.text
           break
         case 'finish-step': {
           const { usage } = part
+          const record: RunStep = { step, modelId: part.response.modelId || deps.modelId || null, reasoning: reasoning.trim() || null }
+          steps.push(record)
           await deps.bus.emit('step', {
             cellId: request.cellId,
             step,
-            modelId: part.response.modelId || deps.modelId || undefined,
+            modelId: record.modelId ?? undefined,
+            reasoning: record.reasoning,
             finishReason: part.finishReason,
             durationMs: Date.now() - stepStarted,
             usage: {
@@ -216,6 +227,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     // A model may still write some after being told not to
     suggestions: deps.suggestNext === false ? [] : (state.finished?.suggestions ?? []),
     activity: [...activity.values()],
+    steps,
     error,
   }
 }

@@ -231,6 +231,7 @@ export class NotebookSession {
       suggestions: [],
       variables: [],
       activity: [],
+      steps: [],
       error,
     })
 

@@ -127,7 +127,7 @@ Two constraints shape the loop.
 
 `resolveModel()` throws `MissingKeyError` without a key, and a `ModelSetupError` for Dalliance Cloud when signed out or not in this build. `MissingKeyError` is a `ModelSetupError` too, and the session shows either's message as the run's error. Effort maps per maker:
 
-- Anthropic models, direct or `anthropic/*` on the gateway, get the top-level `cacheControl` described in [Context and caching](#context-and-caching), and `thinking: { type: 'adaptive' }` and `effort` where the model takes them. `claudeReasoning()` decides from the model id, with gateway dots read as dashes:
+- Anthropic models, direct or `anthropic/*` on the gateway, get the top-level `cacheControl` described in [Context and caching](#context-and-caching), and `thinking: { type: 'adaptive', display: 'summarized' }` and `effort` where the model takes them. `display: 'summarized'` makes the API send a summary of the model's thinking, which the run keeps per step (see [The event bus](#the-event-bus)). Adaptive thinking decides per step whether to think at all, so at `low` or `medium` an easy step often has none. `claudeReasoning()` decides from the model id, with gateway dots read as dashes:
 
   | Models | Thinking | Effort |
   | --- | --- | --- |
@@ -137,7 +137,7 @@ Two constraints shape the loop.
   | Sonnet 4.5, Haiku 4.5, Opus 4.1, Opus 4, Sonnet 4, Claude 3 | None | None. The API rejects `effort` on these, and they don't take adaptive thinking |
 
   An effort a model doesn't take steps down to the nearest level it does. Every Anthropic model also gets `disableParallelToolUse: true`, which the provider sends as `tool_choice: { type: 'auto', disable_parallel_tool_use: true }`: one tool call per step, so the loop stays a sequence of run, look, fix.
-- `openai/*` models get `reasoningEffort`. `high`, `xhigh` and `max` all map to `high`.
+- `openai/*` models get `reasoningEffort`, and `reasoningSummary: 'auto'` for the same per-step summaries. `high`, `xhigh` and `max` all map to `high`. OpenAI leaves out a summary when there was little reasoning, even with some reasoning tokens.
 - Every other maker runs with its defaults.
 
 `listModels()` feeds the model picker. On the gateway it calls `getAvailableModels()`, keeps language models, and turns per-token prices into per-million strings. Dalliance Cloud lists the same models through its proxy, without prices, since its plan pays in credits. On the Anthropic API it calls `/v1/models`. Results are cached for 10 minutes per provider and key. `MAKERS` maps gateway prefixes to display names. Logos come from `src/assets/makers/`, see [renderer.md](renderer.md#model-maker-logos).
@@ -186,15 +186,18 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 | `modelId` | The model that answered, as the provider reports it |
 | `finishReason` | `tool-calls`, `stop`, `length` and so on |
 | `durationMs` | Wall time from the request to the end of the step's tool calls |
+| `reasoning` | The model's reasoning summary for the call, from the stream's `reasoning-delta` parts. `null` when it returned none, never left out, so a missing summary can't pass for lost data |
 | `usage` | `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, `reasoningTokens`. Undefined where the provider doesn't say |
 
 `cacheReadTokens` is the quickest check that [caching](#context-and-caching) works: after the first step of a cell it should be most of `inputTokens`.
+
+`generateCell()` also returns every step's `{ step, modelId, reasoning }` as `steps` on `CellRunResult`, so the record of how a cell was made has the model and the stated reasoning of each call. A plain run of saved code has none. The request options, summaries included, are the same for every step of a run, so the prompt cache holds.
 
 `installExtensions()` in `extensions.ts` registers the built-in ones. `NotebookSession` calls it once, on its own bus:
 
 - `blockSecretFiles()` blocks `read_file` on `.env` and `.env.*`. `isSecretPath()` matches the file name in any case, after either separator, so `config\.Env.local` is blocked and `environment.csv` or `.envrc` are not.
 - `codePolicy()` reads the code `explore` and `run_cell` are about to run. See below.
-- `logRuns()` appends every event to `logs/agent.jsonl` in userData, with strings clipped to 2,000 characters. It is registered first, so it sees calls a later handler blocks.
+- `logRuns()` appends every event to `logs/agent.jsonl` in userData, with strings clipped to 2,000 characters, except `reasoning`, which is kept whole. It is registered first, so it sees calls a later handler blocks.
 
 The log comes from `createRunLog()`. Each event is turned into its line at once, then written through one promise chain, so lines land in the order the events happened even when writes are slow. A failed write drops that line and the next one tries again. When the next line would take the file past 5 MB (`MAX_LOG_BYTES`), `agent.jsonl` is renamed to `agent.jsonl.1`, replacing the old backup, and a new file starts. So the log never takes more than about 10 MB. The size is read from disk once and then counted, so rotation costs no extra `stat` per line.
 

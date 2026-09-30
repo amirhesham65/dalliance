@@ -37,6 +37,8 @@ export interface EventData {
   step?: number
   /** On step: the model that answered. */
   modelId?: string
+  /** On step: the model's reasoning summary, null when it returned none. Never clipped in the log. */
+  reasoning?: string | null
   /** On step: why the model stopped, like `tool-calls` or `stop`. */
   finishReason?: string
   /** On step: wall time from the request to the end of the step's tool calls. */
