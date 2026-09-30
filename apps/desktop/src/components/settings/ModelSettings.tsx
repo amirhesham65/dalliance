@@ -103,6 +103,25 @@ export function ModelSettings({ api, settings }: { api: DallianceApi; settings: 
             </SelectContent>
           </Select>
         </Row>
+        <Row
+          label="Show costs"
+          htmlFor="costs"
+          description={
+            onCloud
+              ? "Each run's credits in the Activity pane, and the notebook's total. Credits show a few seconds after a run ends."
+              : "Each run's cost in the Activity pane, and the notebook's total. Estimated from the tokens used and the provider's list prices."
+          }
+        >
+          <Select value={settings.showCosts ? 'show' : 'hide'} onValueChange={(v) => update({ showCosts: v === 'show' })}>
+            <SelectTrigger id="costs" className="w-52">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="show">Show them</SelectItem>
+              <SelectItem value="hide">Don't show them</SelectItem>
+            </SelectContent>
+          </Select>
+        </Row>
       </Group>
     </>
   )

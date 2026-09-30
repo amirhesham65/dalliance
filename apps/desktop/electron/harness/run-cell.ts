@@ -12,6 +12,7 @@ import {
 import type { ActivityItem, CellRunResult, RunCellRequest, RunEvent, RunStep } from '@dalliance/shared/ipc'
 import type { Output } from '@dalliance/shared/notebook'
 import type { Kernel } from '../kernel/kernel'
+import { generationIdOf, stepUsage } from './cost'
 import type { EventBus } from './events'
 import { clip, formatVariables } from './format'
 import { buildCellPrompt, buildSystemPrompt } from './prompt'
@@ -169,6 +170,8 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
             modelId: served.model || part.response.modelId || deps.modelId || null,
             fallback: served.fallback,
             reasoning: reasoning.trim() || null,
+            usage: stepUsage(usage),
+            generationId: generationIdOf(part.providerMetadata),
           }
           steps.push(record)
           await deps.bus.emit('step', {

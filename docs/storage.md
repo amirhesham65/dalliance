@@ -8,7 +8,7 @@ On macOS this is `~/Library/Application Support/Dalliance/`. The code gets it wi
 
 | Path | Written by | Holds |
 | --- | --- | --- |
-| `settings.json` | `SettingsStore`, `electron/settings.ts` | Provider, model, effort, Python path, approval mode, titles on or off, suggested next prompts on or off, onboarded, the folder in use, encrypted keys, recent notebooks. Mode `0600` |
+| `settings.json` | `SettingsStore`, `electron/settings.ts` | Provider, model, effort, Python path, approval mode, titles on or off, suggested next prompts on or off, Show costs on or off, onboarded, the folder in use, encrypted keys, recent notebooks. Mode `0600` |
 | `account.json` | The Better Auth Electron client, `electron/cloud/account.ts` | The Dalliance account's session, each value encrypted with `safeStorage`. Without a keychain the session stays in memory. Only in builds with Dalliance Cloud. Mode `0600` |
 | `session.json` | `DraftStore`, `electron/draft.ts` | The open notebook's path, whether it's dirty, and its contents when dirty |
 | `logs/agent.jsonl` | `createRunLog()` and `logRuns()`, `electron/harness/extensions.ts` | One line per `run_start`, `tool_call`, `tool_result`, `step` (one per model call, with its reasoning summary) and `run_end`, strings clipped to 2,000 characters except the reasoning summaries. At 5 MB it moves to `agent.jsonl.1`, replacing the old backup |

@@ -50,6 +50,7 @@ Every handler goes through `handle()` or `on()` in `main.ts`, never `ipcMain` di
 | `getBilling()` | invoke | `billing.current` | The plan as a `BillingView`. `available` is false in builds without Dalliance Cloud |
 | `startCheckout(plan)` | invoke | `billing.checkout` | Opens checkout for the plan in the browser. Only takes `pro` |
 | `openBillingPortal()` | invoke | `billing.portal` | Opens the billing portal in the browser |
+| `countCredits(generationIds)` | invoke | `billing.credits` | The credits Dalliance Cloud counted for a run's calls, once they've all landed or after 90 seconds. Null when none were, and in builds without Dalliance Cloud. See [agent-harness.md](agent-harness.md#costs) |
 | `setDocumentState({ path, dirty })` | send | `updateTitle` | Window title and the macOS edited dot |
 
 ## Events from main
@@ -75,7 +76,7 @@ Each `on*` method subscribes and returns an unsubscribe function.
 | `output` | One output from the running attempt | Appended to live outputs |
 | `question` | `ask_user` is waiting | The question card |
 | `approval` | An install is waiting | The Install / Don't install bar |
-| `title` | A short name arrived | Written straight onto the cell, even after the run |
+| `title` | A short name arrived, with what it cost when Show costs is on | Written straight onto the cell, even after the run. The cost goes to the notebook's total |
 
 ## Menu actions
 

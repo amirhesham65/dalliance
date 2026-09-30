@@ -294,12 +294,34 @@ describe('observability', () => {
     const logged: (string | null | undefined)[] = []
     deps.bus.on('step', (data) => void logged.push(data.reasoning))
     const result = await runCell(request(), deps)
-    expect(result.steps).toEqual([
+    expect(result.steps).toMatchObject([
       { step: 1, modelId: 'mock-model-id', fallback: false, reasoning: 'Look at the columns first.' },
       { step: 2, modelId: 'mock-model-id', fallback: false, reasoning: null },
       { step: 3, modelId: 'mock-model-id', fallback: false, reasoning: 'It ran, so finish.' },
     ])
     expect(logged).toEqual(['Look at the columns first.', null, 'It ran, so finish.'])
+  })
+
+  it("keeps each step's tokens and the gateway's generation id, for what the run cost", async () => {
+    const step = (id: string, call: { toolName: string; input: unknown }, metadata?: Record<string, Record<string, string>>) => [
+      { type: 'stream-start' as const, warnings: [] },
+      { type: 'tool-call' as const, toolCallId: id, toolName: call.toolName, input: JSON.stringify(call.input) },
+      { type: 'finish' as const, finishReason: { unified: 'tool-calls' as const, raw: 'tool_use' }, usage, providerMetadata: metadata },
+    ]
+    const replies = [
+      step('call-1', { toolName: 'run_cell', input: { code: 'x = 1\nx' } }, { gateway: { generationId: 'gen_01ABC' } }),
+      step('call-2', { toolName: 'finish', input: { interpretation: '', answer: '' } }),
+    ]
+    let calls = 0
+    const model = new MockLanguageModelV4({ doStream: async () => ({ stream: simulateReadableStream({ chunks: replies[calls++] as never[] }) }) })
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })))
+    const result = await runCell(request(), deps)
+    // The reasoning is inside the output tokens, never added on top
+    const tokens = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 5, cacheWriteTokens: 1, reasoningTokens: 2 }
+    expect(result.steps).toMatchObject([
+      { step: 1, usage: tokens, generationId: 'gen_01ABC' },
+      { step: 2, usage: tokens, generationId: null },
+    ])
   })
 
   it('writes the steps to agent.jsonl through the built-in log', async () => {
