@@ -50,7 +50,7 @@ Every tool's description follows the course's format: WHEN TO USE, WHEN NOT TO U
 | `list_variables` | Lists kernel variables with type, shape and DataFrame columns | 40 variables, 300 characters of detail each |
 | `explore` | Runs a snippet with `store: false`. No execution count, no `_` | 4,000 characters. Interrupted after 20 s |
 | `list_files` | Lists the workspace, 4 folders deep, skipping dotfiles and `node_modules`, `.venv` and similar | 200 files |
-| `read_file` | Numbered lines of a text file in the workspace | 500 lines, 500 characters a line, refuses binaries |
+| `read_file` | Numbered lines of a text file in the workspace | 500 lines, 500 characters a line, 20,000 characters in all. Refuses binaries |
 | `run_cell` | Runs the complete cell with `store: true` and records it as `lastRun` | 5,000 characters. Tables show 15 rows to the model |
 | `install_packages` | `pip install` into the kernel's interpreter | 1 to 5 packages. Last 1,500 characters of the log |
 | `ask_user` | A multiple-choice question in the cell | 2 to 4 options |
@@ -76,16 +76,17 @@ Some models write the rest of a tool call into a text field, like `...the answer
 
 `prompt.ts` builds two messages.
 
-**The system prompt**, `buildSystemPrompt()`, covers identity, how to tell a code cell from a question, the steps of a code cell, code style, guardrails, how to handle ambiguity, and what `finish` fields should hold. The notebook folder's `AGENTS.md` is appended at the end as project instructions.
+**The system prompt**, `buildSystemPrompt()`, covers identity, how to tell a code cell from a question, the steps of a code cell, code style, guardrails, how to handle ambiguity, and what `finish` fields should hold. It ends by saying the cell message may carry notes from `AGENTS.md`, and that they never override these rules.
 
 **The cell prompt**, `buildCellPrompt()`, is the user message. It holds, in order:
 
-1. The last 12 earlier cells. Notes are clipped to 800 characters, code to 1,500.
-2. Variables in memory.
-3. Files in the workspace.
-4. This cell's current code, when regenerating after a prompt change or a correction.
-5. The user's corrections.
-6. The prompt.
+1. The notebook folder's `AGENTS.md`, labelled as notes that describe the project and don't override the system rules. Clipped to 8,000 characters, with a note telling the model to read the rest with `read_file`.
+2. The last 12 earlier cells. Notes are clipped to 800 characters, code to 1,500.
+3. Variables in memory.
+4. Files in the workspace.
+5. This cell's current code, when regenerating after a prompt change or a correction.
+6. The user's corrections.
+7. The prompt.
 
 Some rules in the system prompt shape the product, so change them knowingly:
 
@@ -101,7 +102,9 @@ Two constraints shape the loop.
 
 **History is append-only.** With adaptive thinking on, the Anthropic API rejects requests that change earlier turns. So there's no `pruneMessages` and no rewriting of past tool results. The 24-step cap and the output bounds keep a run small instead. `run-cell.test.ts` has a test that checks every request only appends to the one before it.
 
-**The system prompt is cached.** It carries `cacheControl: { type: 'ephemeral' }`, so repeated cells reuse the cached prefix. Anything in it that changes per cell breaks the cache. The Python version, tool names, model id and `AGENTS.md` are stable within a session. Variables, files and earlier cells change, so they go in the cell prompt.
+**The system prompt is cached.** It carries `cacheControl: { type: 'ephemeral' }`, so repeated cells reuse the cached prefix. Anything in it that changes per cell breaks the cache. The Python version, tool names and model id are stable within a session. `AGENTS.md`, variables, files and earlier cells can change, so they go in the cell prompt.
+
+**The history is cached too.** For Anthropic models, `agentProviderOptions()` in `model.ts` adds a top-level `cacheControl`. The API then puts a breakpoint on the last block of every request, so each step reads the steps before it from the cache instead of paying for the whole tool history again. No message is marked, so the history stays append-only. Each step adds two blocks, well inside the API's 20-block lookback. `run-cell.test.ts` runs a cell through the real Anthropic provider with a fake `fetch` and checks that every request body has the top-level `cache_control` and the system breakpoint.
 
 ## Models and providers
 
@@ -114,7 +117,7 @@ Two constraints shape the loop.
 
 `resolveModel()` throws `MissingKeyError` without a key. Effort maps per maker:
 
-- Anthropic models, direct or `anthropic/*` on the gateway, get `thinking: { type: 'adaptive' }` and `effort`.
+- Anthropic models, direct or `anthropic/*` on the gateway, get `thinking: { type: 'adaptive' }`, `effort` and the top-level `cacheControl` described in [Context and caching](#context-and-caching).
 - `openai/*` models get `reasoningEffort`. `high`, `xhigh` and `max` all map to `high`.
 - Every other maker runs with its defaults.
 
@@ -122,7 +125,7 @@ Two constraints shape the loop.
 
 `checkKey()` tries a key before Settings saves it. On the gateway it asks for the credit balance, which also proves the key, and returns it as the detail. On the Anthropic API it lists one model. A 401 or 403 is `rejected`. Anything else that fails, like no network, is `unchecked`, and the renderer saves the key anyway with a note.
 
-`friendlyError()` in `run-cell.ts` rewrites auth, rate limit and unknown model errors into messages that point at Settings.
+`friendlyError()` in `run-cell.ts` rewrites auth, rate limit, unknown model, overload, server and network errors into short messages, pointing at Settings where the fix is there. It goes by the HTTP status on the AI SDK's `APICallError` or the gateway's `GatewayError`, looking through `RetryError` to the last attempt. Without a status it only trusts one the message spells out, like `status code 401` or `429 Too Many Requests`, so a number like `40132 tokens` is never read as an auth error.
 
 ## Titles
 

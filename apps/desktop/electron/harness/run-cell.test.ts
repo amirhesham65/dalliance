@@ -2,13 +2,16 @@
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { createAnthropic } from '@ai-sdk/anthropic'
+import { APICallError, RetryError } from 'ai'
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test'
 import { describe, expect, it } from 'vitest'
 import type { RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
 import { FakeKernel } from '../kernel/fake-kernel'
 import { createApproval } from './approval'
 import { EventBus } from './events'
-import { type HarnessDeps, runCell } from './run-cell'
+import { agentProviderOptions } from './model'
+import { type HarnessDeps, friendlyError, runCell } from './run-cell'
 
 type Step = { tool: string; input: Record<string, unknown>; thinking?: string } | { text: string }
 
@@ -21,9 +24,11 @@ const usage = {
 function scriptedModel(steps: Step[]) {
   let call = 0
   const prompts: unknown[] = []
+  const providerOptions: unknown[] = []
   const model = new MockLanguageModelV4({
     doStream: async (options) => {
       prompts.push(options.prompt)
+      providerOptions.push(options.providerOptions)
       const step = steps[Math.min(call, steps.length - 1)]
       call += 1
       const chunks =
@@ -51,7 +56,7 @@ function scriptedModel(steps: Step[]) {
       return { stream: simulateReadableStream({ chunks: chunks as never[] }) }
     },
   })
-  return { model, prompts, calls: () => call }
+  return { model, prompts, providerOptions, calls: () => call }
 }
 
 function request(overrides: Partial<RunCellRequest> = {}): RunCellRequest {
@@ -275,5 +280,123 @@ describe('questions answered in words', () => {
     const result = await runCell(request(), deps)
     expect(result.ok).toBe(false)
     expect(JSON.stringify(prompts[1])).toContain('Nothing has run yet')
+  })
+})
+
+/** One Anthropic Messages stream that ends in a single tool call, as server-sent events. */
+function anthropicToolStream(id: string, name: string, input: Record<string, unknown>): string {
+  const events: [string, unknown][] = [
+    ['message_start', { type: 'message_start', message: { id: `msg_${id}`, model: 'claude-opus-5', role: 'assistant', content: [], usage: { input_tokens: 10 } } }],
+    ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: `toolu_${id}`, name, input: {} } }],
+    ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(input) } }],
+    ['content_block_stop', { type: 'content_block_stop', index: 0 }],
+    ['message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { output_tokens: 5 } }],
+    ['message_stop', { type: 'message_stop' }],
+  ]
+  return events.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join('')
+}
+
+describe('caching', () => {
+  const anthropicOptions = agentProviderOptions({ provider: 'anthropic', model: 'claude-opus-5', effort: 'high' })
+
+  it('asks for automatic caching on every step and marks no message but the system prompt', async () => {
+    const { model, prompts, providerOptions } = scriptedModel([
+      { tool: 'list_variables', input: {} },
+      { tool: 'run_cell', input: { code: 'x = 1\nx' } },
+      { tool: 'finish', input: { interpretation: '', answer: '' } },
+    ])
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })), { providerOptions: anthropicOptions })
+    await runCell(request(), deps)
+    expect(providerOptions).toHaveLength(3)
+    for (const options of providerOptions) expect(options).toMatchObject({ anthropic: { cacheControl: { type: 'ephemeral' } } })
+    const messages = prompts[2] as { role: string; providerOptions?: unknown }[]
+    expect(messages[0]).toMatchObject({ role: 'system', providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } } })
+    expect(messages.slice(1).filter((m) => JSON.stringify(m.providerOptions ?? {}).includes('cacheControl'))).toEqual([])
+  })
+
+  it('sends a top-level cache_control to the Anthropic API on every step, over an append-only history', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const replies = [anthropicToolStream('1', 'list_variables', {}), anthropicToolStream('2', 'finish', { interpretation: '', answer: 'Nothing to compute.' })]
+    const fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)))
+      return new Response(replies[bodies.length - 1], { headers: { 'content-type': 'text/event-stream' } })
+    }
+    const model = createAnthropic({ apiKey: 'test-key', fetch })('claude-opus-5')
+    const { deps } = harness(model as unknown as MockLanguageModelV4, new FakeKernel(), { providerOptions: anthropicOptions })
+
+    const result = await runCell(request({ prompt: 'What could we model here?' }), deps)
+
+    expect(result).toMatchObject({ ok: true, answer: 'Nothing to compute.' })
+    expect(bodies).toHaveLength(2)
+    for (const body of bodies) {
+      expect(body.cache_control).toEqual({ type: 'ephemeral' })
+      expect((body.system as { cache_control?: unknown }[]).at(-1)?.cache_control).toEqual({ type: 'ephemeral' })
+    }
+    // The second step resends the first step's messages unchanged, so it reads them from the cache
+    const [first, second] = bodies.map((b) => b.messages as unknown[])
+    expect(second.slice(0, first.length)).toEqual(first)
+    expect(second.length).toBeGreaterThan(first.length)
+  })
+})
+
+describe('the brief', () => {
+  it('goes in the cell message, not the system prompt', async () => {
+    const { model, prompts } = scriptedModel([{ text: 'ok' }])
+    const { deps } = harness(model, new FakeKernel(), { projectInstructions: 'Revenue means net of refunds.' })
+    await runCell(request(), deps)
+    const [system, user] = prompts[0] as { role: string; content: unknown }[]
+    expect(system.role).toBe('system')
+    expect(JSON.stringify(system.content)).not.toContain('Revenue means net of refunds.')
+    expect(user.role).toBe('user')
+    expect(JSON.stringify(user.content)).toContain('Revenue means net of refunds.')
+  })
+
+  it('leaves the system prompt the same whatever the brief says', async () => {
+    const systems: unknown[] = []
+    for (const brief of [null, 'Use metric units.', 'x'.repeat(50_000)]) {
+      const { model, prompts } = scriptedModel([{ text: 'ok' }])
+      const { deps } = harness(model, new FakeKernel(), { projectInstructions: brief })
+      await runCell(request(), deps)
+      systems.push((prompts[0] as unknown[])[0])
+    }
+    expect(systems[1]).toEqual(systems[0])
+    expect(systems[2]).toEqual(systems[0])
+  })
+})
+
+describe('friendlyError', () => {
+  const apiError = (statusCode: number | undefined, message: string) =>
+    new APICallError({ message, url: 'https://api.anthropic.com/v1/messages', requestBodyValues: {}, statusCode, isRetryable: statusCode == null || statusCode === 429 })
+
+  it('reads a 401 as a rejected key', () => {
+    expect(friendlyError(apiError(401, 'invalid x-api-key'))).toMatch(/^The model provider rejected the API key/)
+  })
+
+  it('reads a 429 as rate limiting, also after retries', () => {
+    expect(friendlyError(apiError(429, 'Too many requests'))).toMatch(/rate limiting/)
+    const retried = new RetryError({ message: 'Failed after 3 attempts.', reason: 'maxRetriesExceeded', errors: [apiError(429, 'Too many requests')] })
+    expect(friendlyError(retried)).toMatch(/rate limiting/)
+  })
+
+  it("doesn't read a token count as a status", () => {
+    const message = 'prompt is too long: 40132 tokens > 4010 maximum, 429 left over'
+    expect(friendlyError(apiError(400, message))).toBe(message)
+    expect(friendlyError(new Error(message))).toBe(message)
+    expect(friendlyError(new Error('Used 401 tokens of 403 allowed'))).toBe('Used 401 tokens of 403 allowed')
+  })
+
+  it('reads a 404 about the model as a wrong model name', () => {
+    expect(friendlyError(apiError(404, 'model: claude-opus-9 not found'))).toMatch(/^The model wasn't found/)
+  })
+
+  it('still reads a status the message spells out', () => {
+    expect(friendlyError(new Error('Request failed with status code 401'))).toMatch(/rejected the API key/)
+    expect(friendlyError(new Error('429 Too Many Requests'))).toMatch(/rate limiting/)
+  })
+
+  it('reads a failed fetch as no connection', () => {
+    const offline = new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo ENOTFOUND api.anthropic.com'), { code: 'ENOTFOUND' }) })
+    expect(friendlyError(offline)).toMatch(/^Couldn't reach the model provider/)
+    expect(friendlyError(apiError(undefined, 'Cannot connect to API: other side closed'))).toMatch(/^Couldn't reach the model provider/)
   })
 })
