@@ -119,10 +119,34 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
 
   let text = ''
   let error: string | null = null
+  let step = 0
+  let stepStarted = Date.now()
   try {
     const result = await agent.stream({ prompt, abortSignal: deps.signal })
     for await (const part of result.fullStream) {
       switch (part.type) {
+        case 'start-step':
+          step += 1
+          stepStarted = Date.now()
+          break
+        case 'finish-step': {
+          const { usage } = part
+          await deps.bus.emit('step', {
+            cellId: request.cellId,
+            step,
+            modelId: part.response.modelId || deps.modelId || undefined,
+            finishReason: part.finishReason,
+            durationMs: Date.now() - stepStarted,
+            usage: {
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
+              cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+              reasoningTokens: usage.outputTokenDetails?.reasoningTokens,
+            },
+          })
+          break
+        }
         case 'text-delta':
           text += part.text
           break

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createAnthropic } from '@ai-sdk/anthropic'
@@ -9,15 +9,16 @@ import { describe, expect, it } from 'vitest'
 import type { RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
 import { FakeKernel } from '../kernel/fake-kernel'
 import { createApproval } from './approval'
-import { EventBus } from './events'
+import { type EventData, EventBus } from './events'
+import { installExtensions } from './extensions'
 import { agentProviderOptions } from './model'
 import { type HarnessDeps, friendlyError, runCell } from './run-cell'
 
 type Step = { tool: string; input: Record<string, unknown>; thinking?: string } | { text: string }
 
 const usage = {
-  inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
-  outputTokens: { total: 5, text: 5, reasoning: 0 },
+  inputTokens: { total: 10, noCache: 4, cacheRead: 5, cacheWrite: 1 },
+  outputTokens: { total: 5, text: 3, reasoning: 2 },
 }
 
 /** A model that plays back one scripted step per call: a tool call or a text reply. */
@@ -200,6 +201,42 @@ describe('runCell with generation', () => {
     const { deps } = harness(model, new FakeKernel(), { signal: controller.signal })
     const result = await runCell(request(), deps)
     expect(result).toMatchObject({ ok: false, error: 'Stopped.' })
+  })
+})
+
+describe('observability', () => {
+  it('reports every step with its model, finish reason, duration and token usage', async () => {
+    const { model } = scriptedModel([{ tool: 'run_cell', input: { code: 'x = 1\nx' } }, { tool: 'finish', input: { interpretation: '', answer: '' } }])
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '1' }] })))
+    const order: string[] = []
+    const steps: EventData[] = []
+    deps.bus.on('tool_result', ({ toolName }) => void order.push(`result ${toolName}`))
+    deps.bus.on('step', (data) => {
+      order.push(`step ${data.step}`)
+      steps.push(data)
+    })
+    await runCell(request(), deps)
+    expect(order).toEqual(['result run_cell', 'step 1', 'result finish', 'step 2'])
+    expect(steps[0]).toEqual({
+      cellId: 'c1',
+      step: 1,
+      modelId: 'mock-model-id',
+      finishReason: 'tool-calls',
+      durationMs: expect.any(Number),
+      usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 5, cacheWriteTokens: 1, reasoningTokens: 2 },
+    })
+  })
+
+  it('writes the steps to agent.jsonl through the built-in log', async () => {
+    const { model } = scriptedModel([{ tool: 'finish', input: { interpretation: '', answer: 'Nothing to run.' } }])
+    const { deps } = harness(model, new FakeKernel())
+    const logDir = mkdtempSync(path.join(tmpdir(), 'dalliance-log-'))
+    const { log } = installExtensions(deps.bus, { logDir })
+    await runCell(request(), deps)
+    await log.idle()
+    const events = readFileSync(log.file, 'utf-8').trim().split('\n').map((l) => JSON.parse(l))
+    expect(events.map((e) => e.event)).toEqual(['run_start', 'tool_call', 'tool_result', 'step', 'run_end'])
+    expect(events[3]).toMatchObject({ step: 1, finishReason: 'tool-calls', usage: { cacheReadTokens: 5, cacheWriteTokens: 1 } })
   })
 })
 

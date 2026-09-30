@@ -45,7 +45,12 @@ export function createCellTools(deps: ToolDeps) {
 
   async function guarded<T>(toolName: string, input: unknown, run: () => Promise<T>): Promise<T | string> {
     const gate = await bus.emit('tool_call', { cellId, toolName, input })
-    if (gate.blocked) return `Blocked: ${gate.reason}`
+    if (gate.blocked) {
+      // Reported as a result too, so the log records how the call ended
+      const output = `Blocked: ${gate.reason}`
+      await bus.emit('tool_result', { cellId, toolName, input, output, ok: false, error: output })
+      return output
+    }
     try {
       const output = await run()
       await bus.emit('tool_result', { cellId, toolName, input, output, ok: true })

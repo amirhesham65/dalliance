@@ -1,6 +1,6 @@
-import { appendFile, mkdir } from 'node:fs/promises'
+import { appendFile, mkdir, rename, stat } from 'node:fs/promises'
 import path from 'node:path'
-import type { EventBus } from './events'
+import type { EventBus, HarnessEvent } from './events'
 
 /** A read_file path the agent may not open: `.env` or `.env.*`, in any case, with either kind of separator. */
 export function isSecretPath(p: string): boolean {
@@ -16,22 +16,80 @@ export function blockSecretFiles(bus: EventBus) {
   })
 }
 
-/** Appends every event to logs/agent.jsonl, with long strings clipped. */
-export function logRuns(bus: EventBus, logDir: string) {
-  const log = async (event: string, data: object) => {
-    await mkdir(logDir, { recursive: true })
-    const line = JSON.stringify({ at: new Date().toISOString(), event, ...data }, (_k, v) => (typeof v === 'string' && v.length > 2000 ? `${v.slice(0, 2000)}…` : v))
-    await appendFile(path.join(logDir, 'agent.jsonl'), `${line}\n`)
+export const LOGGED_EVENTS: readonly HarnessEvent[] = ['run_start', 'tool_call', 'tool_result', 'step', 'run_end']
+/** agent.jsonl moves to agent.jsonl.1 once the next line would take it past this. */
+export const MAX_LOG_BYTES = 5 * 1024 * 1024
+const MAX_LOG_STRING = 2000
+
+export interface RunLog {
+  readonly file: string
+  /** Queues one line. Resolves once it and every line before it are written, or have failed. */
+  write(event: string, data: object): Promise<void>
+  /** Resolves once every line queued so far is written. */
+  idle(): Promise<void>
+}
+
+/**
+ * A JSONL log that writes one line at a time, in the order write() was called, and rotates at maxBytes
+ * keeping one backup. A failed write drops that line and never stops the ones after it.
+ */
+export function createRunLog(logDir: string, options: { maxBytes?: number } = {}): RunLog {
+  const maxBytes = options.maxBytes ?? MAX_LOG_BYTES
+  const file = path.join(logDir, 'agent.jsonl')
+  // Known after the first write, so rotation doesn't stat the file for every line
+  let size: number | null = null
+  let queue: Promise<void> = Promise.resolve()
+
+  const append = async (line: string) => {
+    if (size == null) {
+      await mkdir(logDir, { recursive: true })
+      size = await stat(file).then(
+        (s) => s.size,
+        () => 0,
+      )
+    }
+    const bytes = Buffer.byteLength(line)
+    if (size > 0 && size + bytes > maxBytes) {
+      await rename(file, `${file}.1`)
+      size = 0
+    }
+    await appendFile(file, line)
+    size += bytes
   }
-  for (const event of ['run_start', 'tool_call', 'tool_result', 'run_end'] as const) {
+
+  return {
+    file,
+    write(event, data) {
+      // Serialized now, so the timestamp and the data are those of the moment the event happened
+      const line = `${JSON.stringify({ at: new Date().toISOString(), event, ...data }, (_k, v) => (typeof v === 'string' && v.length > MAX_LOG_STRING ? `${v.slice(0, MAX_LOG_STRING)}…` : v))}\n`
+      queue = queue
+        .then(() => append(line))
+        .catch(() => {
+          // Look at the file afresh next time, in case it was moved or deleted
+          size = null
+        })
+      return queue
+    },
+    idle: () => queue,
+  }
+}
+
+/** Appends every event to logs/agent.jsonl, with long strings clipped. Never holds up the run. */
+export function logRuns(bus: EventBus, log: RunLog) {
+  for (const event of LOGGED_EVENTS) {
     bus.on(event, (data) => {
-      void log(event, data).catch(() => {})
+      void log.write(event, data)
     })
   }
 }
 
-/** The built-in extensions, in order. `logDir` is where agent.jsonl goes. */
-export function installExtensions(bus: EventBus, options: { logDir: string }) {
+/**
+ * The built-in extensions. `logDir` is where agent.jsonl goes. The log goes first so it sees every call,
+ * including the ones a later handler blocks.
+ */
+export function installExtensions(bus: EventBus, options: { logDir: string; maxLogBytes?: number }): { log: RunLog } {
+  const log = createRunLog(options.logDir, { maxBytes: options.maxLogBytes })
+  logRuns(bus, log)
   blockSecretFiles(bus)
-  logRuns(bus, options.logDir)
+  return { log }
 }

@@ -25,7 +25,7 @@ The agent lives in `apps/desktop/electron/harness/`. It follows Vercel's [Build 
 2. Reads the kernel's variables and lists up to 80 files in the workspace.
 3. Builds the tools with `createCellTools()` and a `ToolLoopAgent` with the system prompt as `instructions`.
 4. Streams with `stopWhen: [stepCountIs(24), () => state.finished != null]`.
-5. Turns stream parts into activity items and status text for the renderer.
+5. Turns stream parts into activity items and status text for the renderer, and emits `step` at the end of every model call.
 6. Emits `run_end` and builds a `CellRunResult` from `state.lastRun` and `state.finished`.
 
 The tools write to a shared `RunState`:
@@ -63,7 +63,7 @@ Every tool's description follows the course's format: WHEN TO USE, WHEN NOT TO U
 
 Every tool body runs inside `guarded(toolName, input, run)`:
 
-1. Emits `tool_call`. A handler can return `{ block: true, reason }`, and the tool returns `Blocked: <reason>` instead of running.
+1. Emits `tool_call`. A handler can return `{ block: true, reason }`, and the tool returns `Blocked: <reason>` instead of running. A blocked call still emits `tool_result`, with `ok: false`, so the log records how it ended.
 2. Runs the tool.
 3. Emits `tool_result` with the output or the error.
 
@@ -156,11 +156,25 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 
 ## The event bus
 
-`EventBus` in `events.ts` has four events: `run_start`, `tool_call`, `tool_result`, `run_end`. Handlers run in registration order. The first `tool_call` handler that returns `{ block: true }` stops the call.
+`EventBus` in `events.ts` has five events: `run_start`, `tool_call`, `tool_result`, `step`, `run_end`. Handlers run in registration order. The first `tool_call` handler that returns `{ block: true }` stops the call.
+
+`step` fires when a model call ends, after the tool calls it asked for. `generateCell()` builds it from the stream's `start-step` and `finish-step` parts:
+
+| Field | Holds |
+| --- | --- |
+| `step` | Which model call of the run, from 1 |
+| `modelId` | The model that answered, as the provider reports it |
+| `finishReason` | `tool-calls`, `stop`, `length` and so on |
+| `durationMs` | Wall time from the request to the end of the step's tool calls |
+| `usage` | `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, `reasoningTokens`. Undefined where the provider doesn't say |
+
+`cacheReadTokens` is the quickest check that [caching](#context-and-caching) works: after the first step of a cell it should be most of `inputTokens`.
 
 `installExtensions()` in `extensions.ts` registers the built-in ones. `NotebookSession` calls it once, on its own bus:
 
 - `blockSecretFiles()` blocks `read_file` on `.env` and `.env.*`. `isSecretPath()` matches the file name in any case, after either separator, so `config\.Env.local` is blocked and `environment.csv` or `.envrc` are not.
-- `logRuns()` appends every event to `logs/agent.jsonl` in userData, with strings clipped to 2,000 characters.
+- `logRuns()` appends every event to `logs/agent.jsonl` in userData, with strings clipped to 2,000 characters. It is registered first, so it sees calls a later handler blocks.
+
+The log comes from `createRunLog()`. Each event is turned into its line at once, then written through one promise chain, so lines land in the order the events happened even when writes are slow. A failed write drops that line and the next one tries again. When the next line would take the file past 5 MB (`MAX_LOG_BYTES`), `agent.jsonl` is renamed to `agent.jsonl.1`, replacing the old backup, and a new file starts. So the log never takes more than about 10 MB. The size is read from disk once and then counted, so rotation costs no extra `stat` per line.
 
 Add new policy here rather than inside a tool.
