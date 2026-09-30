@@ -217,7 +217,7 @@ The quiet text colours, `--muted-foreground` and `--faint`, meet WCAG AA, 4.5:1,
 
 `electron/main.ts` hardcodes the canvas colours for the window background and the Windows title bar overlay. Change both together.
 
-Fonts are bundled through Fontsource: Inter for UI, JetBrains Mono for code, Source Serif 4 for answers, the brief and headings on the setup screens. A `short` custom variant tightens spacing for windows under 760 px tall.
+Fonts are bundled through Fontsource: Inter for UI, JetBrains Mono for code, Source Serif 4 for answers, the brief and headings on the setup screens. `src/fonts.css` declares only their Latin and Latin Extended files, so the build skips the Greek, Cyrillic and Vietnamese ones and other scripts fall back to system fonts. A `short` custom variant tightens spacing for windows under 760 px tall.
 
 ## shadcn components
 
