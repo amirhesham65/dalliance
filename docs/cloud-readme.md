@@ -7,6 +7,7 @@ Dalliance Cloud is the hosted half of Dalliance: accounts, plans and hosted mode
 | [accounts.md](accounts.md) | Signing in from the desktop app, and what keeps it safe |
 | [billing.md](billing.md) | Plans, checkout, the model proxy and the credit ledger |
 | [deploying.md](deploying.md) | Environments, first-time setup, and shipping a change |
+| [roadmap.md](roadmap.md) | What's free and what's paid, the features to build next, and draft plans |
 
 ## Rules that break things when ignored
 
