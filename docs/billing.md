@@ -96,7 +96,7 @@ On the Convex deployment, besides the variables in [accounts.md](accounts.md#con
 | `POLAR_PRO_CREDITS` | Credits the `pro` plan includes per billing period. Unset, calls are refused with "Credits aren't set up" |
 | `CREDITS_PER_USD` | Credits a dollar of model cost uses. Defaults to 100, a cent a credit |
 
-On the cloud site, besides `CONVEX_SITE_URL` and `AUTH_PROXY_SECRET`: `AI_GATEWAY_API_KEY`, Dalliance's own AI Gateway key. Without it, `/api/ai` answers 503.
+On the cloud site, besides `CONVEX_SITE_URL` and `AUTH_PROXY_SECRET`: `AI_GATEWAY_API_KEY`, Dalliance's own AI Gateway key, and `CONVEX_URL`, the deployment's `.convex.cloud` URL, which `/api/config` gives the app. Without them, `/api/ai` and `/api/config` answer 503.
 
 The webhook endpoint in Polar is `<CONVEX_SITE_URL>/polar/events`, in the Raw format, which Polar signs the Standard Webhooks way, with at least the `subscription.*` and `product.*` events. Polar must be able to reach it, so a local deployment on `127.0.0.1` can't receive webhooks. Use a cloud dev deployment for billing.
 
@@ -114,7 +114,7 @@ The desktop app calls the backend through `anyApi`, without this repo's generate
 2. Create an organization access token, and a webhook to `<CONVEX_SITE_URL>/polar/events` with the subscription and product events.
 3. Set the variables above on a cloud dev deployment, including the plan's credits, and run `billing:syncProducts`.
 4. Put `AI_GATEWAY_API_KEY` in `web/.env.local`.
-5. Point the cloud site's `CONVEX_SITE_URL` and a development build of the app at that deployment, sign in, and subscribe from Settings > Plan with Polar's test card, `4242 4242 4242 4242`.
+5. Point the cloud site's `CONVEX_SITE_URL` and `CONVEX_URL` at that deployment, set `DALLIANCE_CLOUD_URL=http://localhost:3200` in the app's `apps/desktop/.env`, sign in, and subscribe from Settings > Plan with Polar's test card, `4242 4242 4242 4242`.
 6. Run a cell. The credits it used show under Settings > Plan a few seconds after it finishes.
 
 ## Gotchas

@@ -20,7 +20,7 @@ Dalliance Cloud is the hosted half of Dalliance: accounts, plans and hosted mode
 
 ## The app contract
 
-What the desktop app relies on. The app's side lives in its Cloud client, which is switched off in builds that don't set a Cloud URL.
+What the desktop app relies on. The app's side lives in its Cloud client, `apps/desktop/electron/cloud/`, which is switched off in builds that don't set `DALLIANCE_CLOUD_URL`. The app repo's `docs/cloud.md` covers it.
 
 **Pages on the cloud site**
 
@@ -34,6 +34,7 @@ What the desktop app relies on. The app's side lives in its Cloud client, which 
 
 | Endpoint | Used for |
 | --- | --- |
+| `GET /api/config` | `{ convexUrl }`, the deployment the plan comes from. Asked once per launch, so the Cloud URL is the only thing a build knows |
 | `/api/auth/*` | Better Auth: `get-session`, `sign-out`, `electron/token`, `convex/token` |
 | `POST /api/ai/language-model` | Model calls, in AI Gateway's protocol, with the account's Convex JWT as the key |
 | `GET /api/ai/config` | The model list, same auth. Needs a sign-in, not a plan |
