@@ -33,6 +33,7 @@ export function buildMenu(send: (action: MenuAction) => void) {
       submenu: [
         item('New Notebook', 'new', 'CmdOrCtrl+N'),
         item('Open…', 'open', 'CmdOrCtrl+O'),
+        item('Open Folder…', 'open-folder', 'Shift+CmdOrCtrl+O'),
         { type: 'separator' },
         item('Save', 'save', 'CmdOrCtrl+S'),
         item('Save As…', 'save-as', 'Shift+CmdOrCtrl+S'),
@@ -43,9 +44,9 @@ export function buildMenu(send: (action: MenuAction) => void) {
       label: 'Edit',
       submenu: [
         // Not the built-in roles: the renderer decides. A focused text field gets its own undo, anything else
-        // undoes the last notebook edit. MenuAction doesn't list these two yet, hence the widening cast
-        item('Undo', 'undo' as string as MenuAction, 'CmdOrCtrl+Z'),
-        item('Redo', 'redo' as string as MenuAction, 'Shift+CmdOrCtrl+Z'),
+        // undoes the last notebook edit
+        item('Undo', 'undo', 'CmdOrCtrl+Z'),
+        item('Redo', 'redo', 'Shift+CmdOrCtrl+Z'),
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },

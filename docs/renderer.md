@@ -97,7 +97,7 @@ The main process menu owns the global shortcuts. The renderer owns the rest.
 
 | Keys | Where | Does |
 | --- | --- | --- |
-| Cmd+N, Cmd+O, Cmd+S, Shift+Cmd+S | Menu | New, Open, Save, Save As |
+| Cmd+N, Cmd+O, Shift+Cmd+O, Cmd+S, Shift+Cmd+S | Menu | New, Open, Open Folder, Save, Save As |
 | Cmd+Z, Shift+Cmd+Z | Menu, and command mode | Undo, Redo. In a text field, the field's own undo. Elsewhere, notebook edits. See [Undo and redo](#undo-and-redo) |
 | Cmd+, | Menu | Settings |
 | Shift+Cmd+Enter | Menu | Run all |
@@ -118,7 +118,7 @@ The main process menu owns the global shortcuts. The renderer owns the rest.
 
 Command mode is `useCommandMode()` in `App.tsx`. It listens only while focus is inside the notebook column, marked `data-command-scope` on `NotebookView`'s `<main>`, or on nothing at all, the body. Keys pressed on a button in the overview, a side pane or the top bar never act on the selected cell, so D D there deletes nothing. Inside the notebook it still stays off while a text field, dialog or listbox has focus, and it skips a key another handler already took with `preventDefault()`. Editor keys are `editorKeys()` in `CellView.tsx`. `useScopedSelectAll()` makes Cmd+A select only the text field, answer or output that holds the selection, like a desktop app.
 
-Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the built-in undo and redo roles with items that send `'undo'` and `'redo'` menu actions; cut, copy, paste and select all keep their roles. `editFromMenu()` in `App.tsx` runs `document.execCommand('undo')` or `'redo'` when a text field has focus, since the role no longer does it, and notebook undo otherwise. Command mode also handles Cmd+Z and Shift+Cmd+Z, or Ctrl, itself, for the browser preview and for platforms where the page sees the key before the menu. `notebookEdit()` ignores the second of a menu action and a keydown for the same key press within 150 ms, so one press never undoes twice. `MenuAction` in `packages/shared/src/ipc.ts` doesn't list `'undo'` and `'redo'` yet, so both sides compare them as strings.
+Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the built-in undo and redo roles with items that send `'undo'` and `'redo'` menu actions; cut, copy, paste and select all keep their roles. `editFromMenu()` in `App.tsx` runs `document.execCommand('undo')` or `'redo'` when a text field has focus, since the role no longer does it, and notebook undo otherwise. Command mode also handles Cmd+Z and Shift+Cmd+Z, or Ctrl, itself, for the browser preview and for platforms where the page sees the key before the menu. `notebookEdit()` ignores the second of a menu action and a keydown for the same key press within 150 ms, so one press never undoes twice.
 
 ## Cells
 
@@ -131,6 +131,8 @@ Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the bu
 5. Result and Code tabs. A question answered in words shows only the answer, without tabs.
 
 Under Result: the answer, the outputs, the variables the run created, and suggestions. Suggestions show only on the cell that just finished or the selected one, and not at all when `settings.suggestNext` is off, including ones a cell saved earlier.
+
+Between two cells, `CellInserter` in `NotebookView.tsx` draws a 1px line in `foreground/10`, so it's clear where one ends. It sits in the cells' column, right of the 44 px gutter that holds the run count, and stops 12 px short of each side, so it's a little narrower than the cells. There is none after the last cell. Hovering the gap raises the line to `foreground/20` and shows the Prompt and Note buttons centred on it. They sit on the page background, so the line breaks around them.
 
 `HighlightedEditor` is a transparent `<textarea>` over a mirror that renders the highlighting. The two share one box so the caret lines up. With `indent`, Tab and Shift+Tab indent lines through `execCommand` so Undo still works.
 
@@ -173,9 +175,13 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 
 `actions.notify(text, { undo, tone })` puts one message at the bottom of the window for 6 seconds. `NoticeToast` in `App.tsx` draws it. With `undo` it shows an Undo button, without it a Dismiss button. A newer notice replaces the one showing, and loading a notebook clears it. D D and M use it to offer Undo, which goes through the notebook's undo stack, see [Undo and redo](#undo-and-redo).
 
-A bridge call the user started should never fail silently. `actions.notifyFailure(what, err)` shows "Couldn't save the notebook." and the reason, with the `Error invoking remote method` wrapper stripped by `errorText()`. Saving, writing the brief, refreshing the variables, restarting Python and the fresh kernel for a new notebook all report failures this way. A new notebook still opens when its kernel fails to restart. Background calls, like the variables refresh after each run, stay quiet.
+A bridge call the user started should never fail silently. `actions.notifyFailure(what, err)` shows "Couldn't save the notebook." and the reason, with the `Error invoking remote method` wrapper stripped by `errorText()`. Saving, writing the brief, refreshing the variables and restarting Python all report failures this way. A new notebook the main process can't write gets a dialog with the reason from there instead, and the window stays as it was. Background calls, like the variables refresh after each run, stay quiet.
 
 `ErrorBoundary` in `components/app/` wraps every cell, the open side pane and the overview. A throw while drawing one of them shows "This cell couldn't be shown." with the error and a Retry button in its place, and the rest of the window keeps working. The side pane's boundary is keyed by pane, so opening another pane starts fresh.
+
+## The notebook name
+
+The notebook's name at the top of the overview, above the folder and the kernel state, is a button that turns into a text field, `NotebookName` in `components/app/`: Enter or leaving the field calls `renameNotebook()`, Esc, or leaving the field empty, keeps the old name, and a name that can't be used stays in the field with the reason under it. The tab in the top bar is unchanged and opens the recent notebooks, with New notebook, Open and Open folder. The field is read-only while the rename is in flight rather than disabled, so it keeps focus and a refused name still answers Enter and Esc. A rename only changes `path`, so the undo stack and any notice showing are left alone.
 
 ## Settings
 
@@ -186,7 +192,7 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 | Section | Component | Holds |
 | --- | --- | --- |
 | Models | `ModelSettings` | Provider, key, model id, effort |
-| Agent | `AgentSettings` | Package installs, cell names, suggested next prompts |
+| Agent | `AgentSettings` | Approvals (package installs, shell and network code), cell names, suggested next prompts |
 | Python | `PythonSettings` | The managed environment and a Python path |
 
 It sits over the area under the top bar with the screen below still mounted and `inert`, so the setup's step, the notebook's scroll and the resizable columns come back as they were. Command mode and the Cmd+number keys stay off while it's up. Esc goes back, unless a select or menu is open, or a text field has focus, which it leaves instead.
@@ -195,7 +201,7 @@ Changes save as they're made. Selects save on change. The model id and the Pytho
 
 ## First run and the start page
 
-`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. The key step links to each provider's keys page, switches provider to match a pasted key, and checks the key before saving it, see [storage.md](storage.md#settings-and-keys). Skipping any step still sets `onboarded`. The start page offers new, open, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set.
+`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. The key step links to each provider's keys page, switches provider to match a pasted key, and checks the key before saving it, see [storage.md](storage.md#settings-and-keys). Skipping any step still sets `onboarded`. The start page offers new, open, open folder, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New goes through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, and Open folder asks for a folder first, then does the same in it, so nothing the start page opens is unsaved. File > Open Folder and the notebook tab's menu do the same, and both name the folder in use with `folderName()`.
 
 ## Theming
 
@@ -217,7 +223,7 @@ The quiet text colours, `--muted-foreground` and `--faint`, meet WCAG AA, 4.5:1,
 
 `electron/main.ts` hardcodes the canvas colours for the window background and the Windows title bar overlay. Change both together.
 
-Fonts are bundled through Fontsource: Inter for UI, JetBrains Mono for code, Source Serif 4 for answers, the brief and headings on the setup screens. A `short` custom variant tightens spacing for windows under 760 px tall.
+Fonts are bundled through Fontsource: Inter for UI, JetBrains Mono for code, Source Serif 4 for answers, the brief and headings on the setup screens. `src/fonts.css` declares only their Latin and Latin Extended files, so the build skips the Greek, Cyrillic and Vietnamese ones and other scripts fall back to system fonts. A `short` custom variant tightens spacing for windows under 760 px tall.
 
 ## shadcn components
 

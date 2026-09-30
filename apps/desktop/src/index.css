@@ -1,9 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/inter";
-@import "@fontsource-variable/jetbrains-mono";
-@import "@fontsource-variable/source-serif-4";
+@import "./fonts.css";
 
 @custom-variant dark (&:is(.dark *));
 /* Windows too short for the roomy spacing, like a laptop with the dock showing */

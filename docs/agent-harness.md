@@ -171,7 +171,7 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 
 `createApproval()` answers whether a list of keys needs a person. A key is a package name for an install, or `code:shell` or `code:network` for code (see [The code policy](#the-code-policy)). `approver()` is the one flow both use: ask the policy, and call `requestApproval(title, detail, keys)` only when it says a person must decide. The approval shows in the cell as the title and a one-line detail, like `pip install seaborn` or the line of code. Once the user approves, the session trusts those keys, normalized to lowercase without version specifiers, until the app quits. So an approved package isn't asked about twice, and neither is network use once the user has allowed it.
 
-`installPackages()` in `kernel/python-env.ts` rejects names with characters outside letters, digits and version specifier punctuation before it calls pip.
+`installPackages()` in `kernel/python-env.ts` checks every name with `isPackageSpec()` before it calls pip. A name must start with a letter or digit, so pip never reads it as an option (`-e.`) or a local path (`.`), and can only contain letters, digits and version specifier punctuation. Archive file names such as `pkg.whl` or `pkg.tar.gz` are rejected too, since pip would install the local file. pip gets the names after `--`.
 
 ## The event bus
 

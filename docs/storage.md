@@ -8,9 +8,9 @@ On macOS this is `~/Library/Application Support/Dalliance/`. The code gets it wi
 
 | Path | Written by | Holds |
 | --- | --- | --- |
-| `settings.json` | `SettingsStore`, `electron/settings.ts` | Provider, model, effort, Python path, approval mode, titles on or off, suggested next prompts on or off, onboarded, encrypted keys, recent notebooks. Mode `0600` |
+| `settings.json` | `SettingsStore`, `electron/settings.ts` | Provider, model, effort, Python path, approval mode, titles on or off, suggested next prompts on or off, onboarded, the folder in use, encrypted keys, recent notebooks. Mode `0600` |
 | `session.json` | `DraftStore`, `electron/draft.ts` | The open notebook's path, whether it's dirty, and its contents when dirty |
-| `logs/agent.jsonl` | The logging extension in `electron/session.ts` | One line per `run_start`, `tool_call`, `tool_result` and `run_end`, strings clipped to 2,000 characters |
+| `logs/agent.jsonl` | `createRunLog()` and `logRuns()`, `electron/harness/extensions.ts` | One line per `run_start`, `tool_call`, `tool_result`, `step` (one per model call) and `run_end`, strings clipped to 2,000 characters. At 5 MB it moves to `agent.jsonl.1`, replacing the old backup |
 | `python-env/` | `setupManagedEnv()`, `electron/kernel/python-env.ts` | The managed virtual environment |
 | `kernel/dalliance_kernel.py` | `PythonKernel.start()` | The kernel script, rewritten on every start |
 
@@ -63,9 +63,11 @@ When the notebook that won't open is an unsaved copy, it only exists in `session
 
 ## The notebook's folder
 
-The folder holding the `.ipynb` is the workspace. The kernel runs there, the agent can list and read files there, and the brief is `AGENTS.md` there. Unsaved notebooks use `~/Documents/Dalliance Notebooks/`, created at startup, so they never run in all of Documents.
+The folder holding the `.ipynb` is the workspace. The kernel runs there, the agent can list and read files there, and the brief is `AGENTS.md` there. The folder in use is remembered in `settings.json` as `workspaceDir`. `openWorkspace()` and `moveWorkspace()` set it, so it follows whatever notebook was opened or saved last. The next launch starts there, and falls back to `~/Documents/Dalliance Notebooks/`, created at startup, when the folder is gone. That default is also what keeps a first notebook from running in all of Documents. Opening a notebook kept straight in a broad folder, like Documents, Desktop or the home folder (`isBroadFolder()` in `electron/harness/workspace.ts`), makes that the folder in use, but `folderForNewNotebook()` in `electron/notebook-files.ts` sends new notebooks, and a first name for an unsaved one, to the default folder instead. A launch that remembers such a folder starts in the default one too, until a notebook is opened.
 
-The app writes two things into it: the `.ipynb` on save, and `AGENTS.md` when the user edits the brief. The save writes a hidden `.<name>.ipynb.<pid>.<random>.tmp` file next to the notebook and renames it into place. Cells can write anything else, since they're the user's Python.
+A new notebook is a file from the start. `newNotebook(notebook)` writes `Untitled.ipynb` into the folder in use, or `Untitled 2.ipynb` and up when that name is taken (`newNotebookPath()` in `electron/notebook-files.ts`), and starts a fresh kernel there. `openFolder(notebook)` first asks for a folder with the system dialog, which has a New Folder button, and then does the same in it. Only the notebook the window shows at launch, behind the start page, has no file yet. Clicking the name at the top of the overview renames the file in place, as Jupyter does, and for that one notebook writes it under the name typed. `cleanNotebookName()` refuses an empty name, path characters, a leading dot and more than 100 characters, and a name that is already taken in the folder is refused too. Both writes create the file with the `wx` flag, so a file that appears under the chosen name after the check is never overwritten: a new notebook moves on to the next free name, and a rename says the name is taken. A new notebook joins the recent list only once its kernel's folder is open. Unsaved edits stay unsaved through a rename.
+
+The app writes three things into it: a new notebook's `.ipynb` when it is made or first named, the `.ipynb` on save, and `AGENTS.md` when the user edits the brief. The save writes a hidden `.<name>.ipynb.<pid>.<random>.tmp` file next to the notebook and renames it into place. Cells can write anything else, since they're the user's Python.
 
 ## localStorage
 

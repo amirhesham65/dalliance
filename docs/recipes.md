@@ -87,6 +87,6 @@ Checklists for the changes that touch several files. Each one ends with the test
 
 Rules like "never read this file" or "log this event" belong on the event bus, not in a tool.
 
-1. Register a handler in `NotebookSession.installExtensions()` in `electron/session.ts`.
+1. Register a handler in `installExtensions()` in `electron/harness/extensions.ts`. `NotebookSession` calls it once for its bus.
 2. For a block, return `{ block: true, reason }` from a `tool_call` handler. The model sees `Blocked: <reason>` as the tool result.
 3. Test it in `run-cell.test.ts` the way "lets an extension block a tool call" does.

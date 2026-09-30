@@ -101,9 +101,10 @@ The agent is fenced in by the harness rather than by the OS:
 
 - `read_file` and `list_files` refuse paths outside the workspace.
 - Broad folders such as the home folder, Documents, Desktop, Downloads and iCloud Drive get no file listing at all. See `isBroadFolder()` in `electron/harness/workspace.ts`.
-- A built-in event bus extension blocks `read_file` on `.env` and `.env.*`, in any case and with either `/` or `\` separators. See `isSecretPath()` in `electron/session.ts`.
+- A built-in event bus extension blocks `read_file` on `.env` and `.env.*`, in any case and with either `/` or `\` separators. See `isSecretPath()` in `electron/harness/code-policy.ts`.
 - Package installs need the user's approval unless the approval mode is `background`.
-- `explore` and `run_cell` run arbitrary Python in the user's own interpreter. The system prompt tells the model not to touch files or the network unless asked, but nothing enforces that. Treat the kernel as having the user's permissions.
+- A code policy reads the Python that `explore` and `run_cell` are about to run. Code that reads secret files (`.env`, `~/.ssh`, `~/.aws`, `.netrc`, the keychain) is blocked. Code that runs shell commands or subprocesses, or uses the network, goes through the same approval as package installs. See `inspectCode()` in `electron/harness/code-policy.ts` and `codePolicy()` in `electron/harness/extensions.ts`.
+- The code policy only reads the code's text, so it's a speed bump, not a sandbox. Code that hides what it does, or a library that fetches a URL on its own, gets through. Treat the kernel as having the user's permissions.
 
 ## Where state lives
 

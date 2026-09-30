@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Check, FilePlus, FolderOpen, NotebookText } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, FilePlus, FolderOpen, FolderPlus, NotebookText } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ago } from '@/lib/notebook/text'
@@ -10,7 +10,7 @@ import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-
 import { Onboarding } from './Onboarding'
 import { Kbd } from '@/components/ui/kbd'
 import { Wordmark } from './parts'
-import { fresh, modKey, pythonReady, startWith } from './start'
+import { folderName, fresh, modKey, pythonReady, startWith } from './start'
 
 const KEY_SOURCES: Record<NonNullable<SettingsView['keySource']>, string> = {
   settings: 'Saved in your keychain',
@@ -41,6 +41,7 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
     void api?.recentNotebooks().then(setRecent)
   }, [api])
 
+  const cwd = useNotebook((s) => s.kernel.cwd)
   const keySource = settings?.keySource ?? null
   const hasKey = keySource != null
   const hasPython = pythonReady(python)
@@ -71,8 +72,12 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
           <div className="mt-7 -mx-2 flex flex-col">
             <Row icon={<FilePlus />} label="New notebook" shortcut={`${mod}N`} onClick={() => void startWith(fresh(welcomeNotebook()))} />
             <Row icon={<FolderOpen />} label="Open…" shortcut={`${mod}O`} onClick={() => void startWith(() => api!.openNotebook())} />
+            <Row icon={<FolderPlus />} label="Open folder…" shortcut={`⇧${mod}O`} onClick={() => void startWith(() => api!.openFolder(welcomeNotebook()))} />
             <Row icon={<NotebookText />} label="Sample notebook" onClick={() => void startWith(fresh(sampleNotebook()))} />
           </div>
+          <p className="mt-2 text-xs text-faint" title={cwd}>
+            New notebooks are saved in <span className="text-muted-foreground">{folderName(null, cwd)}</span>.
+          </p>
 
           <p className="eyebrow mt-7 mb-1.5">Recent</p>
           {recent == null ? (

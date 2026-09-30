@@ -1,6 +1,6 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import type { MenuAction, SettingsUpdate, SettingsView } from '@dalliance/shared/ipc'
 import { newPromptCell } from '@dalliance/shared/notebook'
@@ -98,5 +98,59 @@ describe('Welcome', () => {
     menu('welcome')
     await user.click(await screen.findByRole('button', { name: 'Back to Untitled' }))
     expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeInTheDocument()
+  })
+
+  it('makes a new notebook a file in the folder in use, with a path from the start', async () => {
+    const user = userEvent.setup()
+    const { api } = setup()
+    const made: unknown[] = []
+    api.newNotebook = async (notebook) => {
+      made.push(notebook)
+      return { path: '/work/Untitled 2.ipynb', notebook }
+    }
+    actions.showWelcome(false)
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: /New notebook/ }))
+    expect(made).toHaveLength(1)
+    expect(useNotebook.getState()).toMatchObject({ path: '/work/Untitled 2.ipynb', screen: 'notebook' })
+  })
+
+  it('starts a notebook in the folder that was picked, and stays put when the dialog is cancelled', async () => {
+    const user = userEvent.setup()
+    const { api } = setup()
+    let picked: string | null = null
+    api.openFolder = async (notebook) => (picked ? { path: `${picked}/Untitled.ipynb`, notebook } : null)
+    actions.showWelcome(false)
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: /Open folder/ }))
+    expect(useNotebook.getState()).toMatchObject({ path: null, screen: 'welcome' })
+
+    picked = '/work/trials'
+    await user.click(screen.getByRole('button', { name: /Open folder/ }))
+    expect(useNotebook.getState()).toMatchObject({ path: '/work/trials/Untitled.ipynb', screen: 'notebook' })
+  })
+
+  it('opens a folder from the File menu', async () => {
+    const { api, menu } = setup()
+    api.openFolder = async (notebook) => ({ path: '/work/menu/Untitled.ipynb', notebook })
+    render(<App />)
+    expect(await screen.findByRole('textbox', { name: 'Prompt' })).toBeInTheDocument()
+
+    menu('open-folder')
+    await vi.waitFor(() => expect(useNotebook.getState().path).toBe('/work/menu/Untitled.ipynb'))
+  })
+
+  it('stays on the start page when a notebook could not be created', async () => {
+    const user = userEvent.setup()
+    const { api } = setup()
+    // The main process has shown the reason in a dialog by the time it answers null
+    api.newNotebook = async () => null
+    actions.showWelcome(false)
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: /New notebook/ }))
+    expect(useNotebook.getState()).toMatchObject({ path: null, screen: 'welcome' })
   })
 })
