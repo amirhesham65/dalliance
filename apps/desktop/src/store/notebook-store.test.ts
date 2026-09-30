@@ -90,6 +90,48 @@ describe('running cells', () => {
     expect(useNotebook.getState().messages[cell(0).id]).toContain('AI Gateway key')
   })
 
+  it('keeps a prompt edited during the run, and regenerates it next time', async () => {
+    let release!: () => void
+    const { api, requests } = fakeApi((req) => new Promise((resolve) => (release = () => resolve(result({ code: `# for ${req.prompt}` })))))
+    setApi(api)
+    load(newPromptCell('Revenue by month'))
+    actions.run(cell(0).id)
+    await flush()
+    actions.setPrompt(cell(0).id, 'Revenue by week')
+    release()
+    await flush()
+
+    expect(cell(0)).toMatchObject({ prompt: 'Revenue by week', code: '# for Revenue by month', generatedFrom: 'Revenue by month', state: 'edited' })
+    // History has the version that ran
+    expect(cell(0).history[0]).toMatchObject({ prompt: 'Revenue by month', code: '# for Revenue by month' })
+    actions.run(cell(0).id)
+    await flush()
+    release()
+    await flush()
+    expect(requests[1]).toMatchObject({ prompt: 'Revenue by week', generate: true })
+    expect(cell(0)).toMatchObject({ generatedFrom: 'Revenue by week', state: 'done' })
+  })
+
+  it('keeps code edited during the run, and runs it next time', async () => {
+    let release!: () => void
+    const { api, requests } = fakeApi((req) => new Promise((resolve) => (release = () => resolve(result({ code: req.generate ? 'agent = 1' : req.code })))))
+    setApi(api)
+    load(newPromptCell('Make a number'))
+    actions.run(cell(0).id)
+    await flush()
+    actions.setCode(cell(0).id, 'mine = 2')
+    release()
+    await flush()
+
+    expect(cell(0)).toMatchObject({ code: 'mine = 2', codeEdited: true, generatedFrom: 'Make a number', state: 'edited' })
+    actions.run(cell(0).id)
+    await flush()
+    release()
+    await flush()
+    expect(requests[1]).toMatchObject({ code: 'mine = 2', generate: false })
+    expect(cell(0)).toMatchObject({ code: 'mine = 2', state: 'done' })
+  })
+
   it('shows live progress from run events', async () => {
     let release!: () => void
     const { api } = fakeApi(
@@ -135,6 +177,20 @@ describe('editing the notebook', () => {
     expect(useNotebook.getState().notebook.cells).toHaveLength(2)
     actions.restoreCell(removed.cell, removed.index)
     expect(useNotebook.getState().notebook.cells[2].id).toBe(id)
+  })
+
+  it('makes an empty prompt cell a note at once, and offers Undo only when something would be lost', () => {
+    load(newPromptCell('Just an idea'), { ...newPromptCell('Sum', 's = 1'), outputs: [{ type: 'text', text: '1' }], state: 'done', executionCount: 1 })
+    actions.setKind(cell(0).id, 'note')
+    expect(useNotebook.getState().notebook.cells[0]).toMatchObject({ kind: 'note', markdown: 'Just an idea' })
+    expect(useNotebook.getState().notice).toBeNull()
+
+    const before = cell(1)
+    actions.setKind(before.id, 'note')
+    const notice = useNotebook.getState().notice!
+    expect(notice.text).toBe('Made the cell a note')
+    notice.undo!()
+    expect(cell(1)).toEqual(before)
   })
 
   it('records a corrected assumption for the next run', () => {

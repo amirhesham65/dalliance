@@ -1,5 +1,6 @@
 import { Activity, CircleAlert, File, FolderOpen, History, LocateFixed, Pencil, Pin, PinOff, Play, RefreshCw, RotateCw, Sparkles, Square, Variable } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
+import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { IconButton } from '@/components/app/IconButton'
 import { PythonTokens } from '@/components/notebook/CellView'
 import { InlineText } from '@/components/notebook/InlineText'
@@ -21,12 +22,15 @@ export function SidePane() {
   if (!pane) return null
   return (
     <div className="flex min-w-0 flex-1 flex-col [&>section]:flex-1">
-      {pane === 'brief' && <BriefPane />}
-      {pane === 'variables' && <VariablesPane />}
-      {pane === 'history' && <HistoryPane />}
-      {pane === 'files' && <FilesPane />}
-      {pane === 'pinned' && <PinnedPane />}
-      {pane === 'activity' && <ActivityPane />}
+      {/* Keyed by pane, so opening another pane starts it fresh */}
+      <ErrorBoundary key={pane} what="This pane" className="m-2 bg-background">
+        {pane === 'brief' && <BriefPane />}
+        {pane === 'variables' && <VariablesPane />}
+        {pane === 'history' && <HistoryPane />}
+        {pane === 'files' && <FilesPane />}
+        {pane === 'pinned' && <PinnedPane />}
+        {pane === 'activity' && <ActivityPane />}
+      </ErrorBoundary>
     </div>
   )
 }
@@ -45,7 +49,7 @@ function VariablesPane() {
       icon={<Variable />}
       onClose={close}
       actions={
-        <IconButton label="Refresh" size="icon-xs" onClick={() => void actions.refreshVariables()}>
+        <IconButton label="Refresh" size="icon-xs" onClick={() => void actions.refreshVariables().catch((err: unknown) => actions.notifyFailure("Couldn't list the variables", err))}>
           <RefreshCw />
         </IconButton>
       }

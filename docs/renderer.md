@@ -41,12 +41,15 @@ Saved with the notebook: `notebook`. Everything else is session state:
 | `lastFinishedId` | The cell that shows its suggestions |
 | `pane`, `pinnedIds` | The open side pane and pinned cells |
 | `brief`, `models`, `variables`, `settings`, `python`, `kernel` | Data from the main process |
+| `notice` | The message at the bottom of the window, with an Undo when the change can be taken back. See [Notices and errors](#notices-and-errors) |
 
 `getApi()` and `setApi()` wrap `window.dalliance`, so tests and the demo can swap in a fake.
 
 ### The run queue
 
 `queue` and `pump()` live at module level. `actions.run(id)` pushes an id unless it's already queued or running. `pump()` runs one cell at a time: it builds the request, awaits `api.runCell()`, and calls `finish()`. Events for the running cell arrive through `applyRunEvent()`. When the queue empties, the store refreshes variables.
+
+`pump()` passes the cell as it was sent to `finish()`. The user can keep typing while the agent works. If the prompt or the code changed during the run, their edits stay, `generatedFrom` is the prompt that was sent, and the cell ends `edited` instead of `done`. The next run then regenerates for the new prompt, or runs their code. History keeps the version that ran.
 
 `interrupt()` empties the queue and drops queued runs, then calls the bridge. `deleteCell()` interrupts the cell if it's running. `restart()` interrupts, restarts the kernel, and marks every cell that has run `stale` with no execution count.
 
@@ -85,9 +88,9 @@ The main process menu owns the global shortcuts. The renderer owns the rest.
 | Esc | Editor | Leave the editor for command mode |
 | Enter | Command mode | Edit the selected cell |
 | A, B | Command mode | Insert a prompt cell above, below |
-| M, Y | Command mode | Make the cell a note, a prompt |
+| M, Y | Command mode | Make the cell a note, a prompt. A note keeps only the prompt, so M on a cell with code, outputs or history offers Undo |
 | T | Command mode | Fold or unfold tables |
-| D D | Command mode | Delete, with a 6 second Undo toast |
+| D D | Command mode | Delete, with a 6 second Undo notice |
 | Up, Down, J, K | Command mode | Move the selection |
 
 Command mode is `useCommandMode()` in `App.tsx`, on when no text field, dialog or listbox has focus. Editor keys are `editorKeys()` in `CellView.tsx`. `useScopedSelectAll()` makes Cmd+A select only the text field, answer or output that holds the selection, like a desktop app.
@@ -120,6 +123,14 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 | Files | Workspace files, reloaded after every run. Clicking a data file adds a prompt cell to load it |
 | Pinned | Result cards for pinned cells, in pin order |
 | Activity | The session log. Click an entry to jump to its cell |
+
+## Notices and errors
+
+`actions.notify(text, { undo, tone })` puts one message at the bottom of the window for 6 seconds. `NoticeToast` in `App.tsx` draws it. With `undo` it shows an Undo button, without it a Dismiss button. A newer notice replaces the one showing, and loading a notebook clears it. D D and M use it to offer Undo.
+
+A bridge call the user started should never fail silently. `actions.notifyFailure(what, err)` shows "Couldn't save the notebook." and the reason, with the `Error invoking remote method` wrapper stripped by `errorText()`. Saving, writing the brief, refreshing the variables, restarting Python and the fresh kernel for a new notebook all report failures this way. A new notebook still opens when its kernel fails to restart. Background calls, like the variables refresh after each run, stay quiet.
+
+`ErrorBoundary` in `components/app/` wraps every cell, the open side pane and the overview. A throw while drawing one of them shows "This cell couldn't be shown." with the error and a Retry button in its place, and the rest of the window keeps working. The side pane's boundary is keyed by pane, so opening another pane starts fresh.
 
 ## Settings
 
@@ -156,6 +167,8 @@ App-specific tokens on top of shadcn's:
 | `--go`, `--warn` | Status dots |
 | `--hatch` | Hatched segments for work still to do |
 | `--code-k`, `-s`, `-n`, `-f` | Python highlighting: keywords, strings, numbers, function names |
+
+The quiet text colours, `--muted-foreground` and `--faint`, meet WCAG AA, 4.5:1, on `--background` and `--raised` in both themes. `--faint` sits close to the limit so it stays quieter than muted text. Check the ratios before changing either.
 
 `electron/main.ts` hardcodes the canvas colours for the window background and the Windows title bar overlay. Change both together.
 
