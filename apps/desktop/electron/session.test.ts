@@ -319,10 +319,10 @@ describe('what a run cost', () => {
     expect(result.cost?.unit === 'usd' && result.cost.usd).toBeCloseTo(0.0002 + 0.00008 + 0.0005, 10)
   })
 
-  it('leaves the cost out with Show costs off', async () => {
+  it('prices the run with Show costs off too, so turning it on later shows it', async () => {
     const result = await run(false)
     expect(result.ok).toBe(true)
-    expect(result).not.toHaveProperty('cost')
+    expect(result.cost).toMatchObject({ unit: 'usd', unpricedTokens: 0 })
   })
 })
 

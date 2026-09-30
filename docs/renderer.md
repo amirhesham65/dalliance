@@ -38,7 +38,7 @@ Saved with the notebook: `notebook`. Everything else is session state:
 | `runs` | `CellRun` per queued or running cell: status text, activity, live outputs, live code, a pending question or approval |
 | `activity` | Each cell's activity from its last generation |
 | `messages` | Non-Python errors per cell |
-| `log` | The Activity pane's entries, newest first, at most 60. With Show costs on, a run's entry has its `cost` |
+| `log` | The Activity pane's entries, newest first, at most 60. A run's entry has its `cost`, shown only with Show costs on |
 | `spend` | What the notebook's runs and cell names have cost since it loaded, and how many runs' credits are still counting. Clear keeps it, `load()` starts it again |
 | `lastFinishedId` | The cell that shows its suggestions |
 | `pane`, `pinnedIds` | The open side pane and pinned cells |
@@ -147,13 +147,12 @@ Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the bu
 
 1. The prompt editor, with `@name` references coloured by `RefText`.
 2. The interpretation, when it has `[[assumptions]]`. Click one to correct it.
-3. Run progress: the activity list, a status line, and a question card or install bar. Each step's label is plain words. A step that ran code, an `explore` or a `run_cell`, is a button that opens its code underneath. After the run, the list folds into the "N steps" toggle by the duration.
+3. Run progress: the activity list, a status line, and a question card or install bar. Each step's label is plain words. A step that ran code, an `explore` or a `run_cell`, is a button that opens its code underneath. Its detail, a duration or an error line, sits on its own line under the label, so a long error never squeezes the label. A step marks done with a check, failed with a cross, and `warning` (an exploration that raised) with a warning sign. After the run, the list folds into the "N steps" toggle by the duration, which opens it in a popover that keeps itself inside the window, wherever the toggle sits.
 4. A message for non-Python errors.
-5. Result and Code tabs. A question answered in words shows only the answer, without tabs. How this was made stays out of sight: a hover-only button among the cell's actions, beside Rewrite, opens it under the cell and closes it again. It only shows once the cell has a record.
+5. Result and Code tabs. A question answered in words shows only the answer, without tabs. The record of how a cell was made is saved with the notebook for Verify, but the UI never shows it.
 
 Under Result: the answer, the outputs, the variables the run created, and suggestions. Suggestions show only on the cell that just finished or the selected one, and not at all when `settings.suggestNext` is off, including ones a cell saved earlier.
 
-How this was made is `HowItWasMade` in `notebook/HowItWasMade.tsx`, drawn from the cell's `provenance` (see [notebook-model.md](notebook-model.md#how-a-cell-was-made)). In plain words, top to bottom: who wrote the code, when, with which model and effort, and each model by step range when a fallback switched it; the prompt and any corrections; the stated rationale, with a line saying whether it is the model's reasoning summaries or the interpretation and answer standing in for them; the attempts with each error and the lines that changed; the files read; what was allowed, refused or blocked; the SHA-256 fingerprints; and the code the agent wrote behind a Show the code toggle. It says when the cell's code has changed since, and when the earlier attempts are only in the agent log. Call it the agent's stated rationale in the UI, never its reasoning.
 
 Between two cells, `CellInserter` in `NotebookView.tsx` draws a 1px line in `foreground/10`, so it's clear where one ends. It sits in the cells' column, right of the 44 px gutter that holds the run count, and stops 12 px short of each side, so it's a little narrower than the cells. There is none after the last cell. Hovering the gap raises the line to `foreground/20` and shows the Prompt and Note buttons centred on it. They sit on the page background, so the line breaks around them.
 
@@ -196,7 +195,7 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 
 ### Costs
 
-Show costs is off by default, and with it off the Activity pane shows nothing about cost, even for entries that have one. The main process prices a run only while it's on, see [agent-harness.md](agent-harness.md#costs). `finish()` puts the run's `RunCost` on its log entry and adds it to `spend` through `trackCost()`. A cell name's cost comes on the `title` event and goes to `spend` only.
+Show costs is off by default, and with it off the Activity pane shows nothing about cost, even for entries that have one. The main process prices every run anyway, so turning it on shows the runs made while it was off, see [agent-harness.md](agent-harness.md#costs). `finish()` puts the run's `RunCost` on its log entry and adds it to `spend` through `trackCost()`. A cell name's cost comes on the `title` event and goes to `spend` only.
 
 `lib/cost.ts` words them. On an own key it's dollars, "About $0.042, estimated", to three places under a dollar. Tokens with no known price show as "12,345 tokens, no price known", never as an amount. On Dalliance Cloud it's credits, never dollars: the entry says "Counting credits" until `countCredits()` answers, then "4.2 credits", or the tokens if none were counted. A notebook loaded while credits are counting drops them when they arrive, so they never reach the new notebook's total.
 
