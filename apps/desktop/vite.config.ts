@@ -28,7 +28,12 @@ export default defineConfig({
     react(),
     tailwindcss(),
     electron({
-      main: { entry: 'electron/main.ts' },
+      main: {
+        entry: 'electron/main.ts',
+        // The Cloud switch. Official builds set DALLIANCE_CLOUD_URL; without it, the app has no Dalliance Cloud.
+        // See docs/cloud.md
+        vite: { define: { __DALLIANCE_CLOUD_URL__: JSON.stringify(process.env.DALLIANCE_CLOUD_URL?.trim() ?? '') } },
+      },
       preload: {
         input: 'electron/preload.ts',
         // Sandboxed preload scripts must be CommonJS

@@ -2,9 +2,9 @@ import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { safeStorage } from 'electron'
-import type { Effort, KeyStorage, Provider, SettingsUpdate, SettingsView } from '@dalliance/shared/ipc'
+import type { Effort, KeyProvider, KeyStorage, Provider, SettingsUpdate, SettingsView } from '@dalliance/shared/ipc'
 import { writeFileAtomicSync } from './atomic-write'
-import { DEFAULT_MODELS, type ModelConfig } from './harness/model'
+import { type CloudAccess, DEFAULT_MODELS, type ModelConfig } from './harness/model'
 
 interface Stored {
   provider: Provider
@@ -18,7 +18,7 @@ interface Stored {
   /** The folder in use: where new notebooks go, and where the kernel and the agent work. Null for the default one. */
   workspaceDir: string | null
   /** Encrypted with the OS keychain when available. */
-  keys: Partial<Record<Provider, string>>
+  keys: Partial<Record<KeyProvider, string>>
   /** Notebooks opened or saved lately, newest first. */
   recent: { path: string; openedAt: number }[]
 }
@@ -28,7 +28,7 @@ const MAX_RECENT = 8
 import { ENV_KEYS } from './env-keys'
 export { ENV_KEYS }
 
-const PROVIDERS: Provider[] = ['gateway', 'anthropic']
+const KEY_PROVIDERS: KeyProvider[] = ['gateway', 'anthropic']
 
 /** A decrypted key is printable ASCII without spaces. Anything else is what a different keychain identity yields. */
 const looksLikeKey = (key: string) => /^[\x21-\x7e]+$/.test(key)
@@ -51,9 +51,11 @@ export class SettingsStore {
   private data: Stored
   private readonly file: string
   /** Keys found in the user's login shell. Kept here, not in process.env, so the kernel never inherits them. */
-  private shellKeys: Partial<Record<Provider, string>> = {}
+  private shellKeys: Partial<Record<KeyProvider, string>> = {}
   /** Providers whose unreadable key was already logged, so the log gets one line each, not one per view. */
-  private warned = new Set<Provider>()
+  private warned = new Set<KeyProvider>()
+  /** How to reach Dalliance Cloud, in builds that have it. See setCloud. */
+  private cloud: CloudAccess | null = null
 
   constructor(dir: string) {
     mkdirSync(dir, { recursive: true })
@@ -95,7 +97,7 @@ export class SettingsStore {
    * The saved key, or `unreadable` when one is saved but can't be decrypted. That happens when an update changes
    * the app's keychain identity, or the keychain is gone. The key is still in the file; only pasting it again helps.
    */
-  private storedKey(provider: Provider): { key: string | null; unreadable: boolean } {
+  private storedKey(provider: KeyProvider): { key: string | null; unreadable: boolean } {
     const value = this.data.keys[provider]
     if (!value) return { key: null, unreadable: false }
     if (value.startsWith('plain:')) return { key: value.slice(6) || null, unreadable: false }
@@ -114,13 +116,15 @@ export class SettingsStore {
   }
 
   /** How the provider's key is kept: the saved key's form, or how a new key would be saved. */
-  private keyStorage(provider: Provider): KeyStorage {
+  private keyStorage(provider: KeyProvider): KeyStorage {
     const value = this.data.keys[provider]
     if (value) return value.startsWith('plain:') ? 'plain' : 'keychain'
     return safeStorage.isEncryptionAvailable() ? 'keychain' : 'plain'
   }
 
   apiKey(provider: Provider): { key: string | null; source: SettingsView['keySource'] } {
+    // Dalliance Cloud runs on the account, never a key
+    if (provider === 'cloud') return { key: null, source: null }
     const stored = this.storedKey(provider).key
     if (stored) return { key: stored, source: 'settings' }
     const env = process.env[ENV_KEYS[provider]]
@@ -134,17 +138,32 @@ export class SettingsStore {
    * when the chosen one has none, so someone with ANTHROPIC_API_KEY in their profile starts ready.
    */
   useShellKeys(env: Record<string, string>) {
-    for (const provider of Object.keys(ENV_KEYS) as Provider[]) {
+    for (const provider of KEY_PROVIDERS) {
       const key = env[ENV_KEYS[provider]]
       if (key) this.shellKeys[provider] = key
     }
-    if (this.data.onboarded || this.apiKey(this.data.provider).key) return
-    const other = (Object.keys(ENV_KEYS) as Provider[]).find((p) => this.apiKey(p).key)
+    if (this.data.onboarded || this.provider === 'cloud' || this.apiKey(this.provider).key) return
+    const other = KEY_PROVIDERS.find((p) => this.apiKey(p).key)
     if (other) this.update({ provider: other })
   }
 
+  /** Turns Dalliance Cloud on for this run of the app. Builds without it never call this. */
+  setCloud(access: CloudAccess) {
+    this.cloud = access
+  }
+
+  /**
+   * The chosen provider. Dalliance Cloud chosen in a build that doesn't have it, like after switching from the
+   * official app to a fork, reads as the gateway, so Settings never shows a choice it can't offer.
+   */
+  private get provider(): Provider {
+    return this.data.provider === 'cloud' && !this.cloud ? 'gateway' : this.data.provider
+  }
+
   modelConfig(): ModelConfig {
-    return { provider: this.data.provider, model: this.data.model, effort: this.data.effort, apiKey: this.apiKey(this.data.provider).key }
+    const provider = this.provider
+    const model = provider === this.data.provider ? this.data.model : DEFAULT_MODELS[provider]
+    return { provider, model, effort: this.data.effort, apiKey: this.apiKey(provider).key, cloud: this.cloud }
   }
 
   get pythonPath() {
@@ -191,26 +210,29 @@ export class SettingsStore {
 
   view(): SettingsView {
     return {
-      provider: this.data.provider,
-      model: this.data.model,
+      provider: this.provider,
+      model: this.modelConfig().model,
       effort: this.data.effort,
       pythonPath: this.data.pythonPath,
       approvalMode: this.data.approvalMode,
       autoTitles: this.data.autoTitles,
       suggestNext: this.data.suggestNext,
       onboarded: this.data.onboarded,
-      keySource: this.apiKey(this.data.provider).source,
+      keySource: this.apiKey(this.provider).source,
       hasKey: { gateway: this.apiKey('gateway').key != null, anthropic: this.apiKey('anthropic').key != null },
-      unreadableKeys: PROVIDERS.filter((p) => this.storedKey(p).unreadable),
+      unreadableKeys: KEY_PROVIDERS.filter((p) => this.storedKey(p).unreadable),
       keyStorage: { gateway: this.keyStorage('gateway'), anthropic: this.keyStorage('anthropic') },
+      cloud: this.cloud != null,
     }
   }
 
   update(update: SettingsUpdate): SettingsView {
-    if (update.provider && update.provider !== this.data.provider) {
+    // Dalliance Cloud can only be chosen in a build that has it
+    const provider = update.provider === 'cloud' && !this.cloud ? undefined : update.provider
+    if (provider && provider !== this.data.provider) {
       // Switching provider resets a default model name to the other provider's format
-      if (this.data.model === DEFAULT_MODELS[this.data.provider]) this.data.model = DEFAULT_MODELS[update.provider]
-      this.data.provider = update.provider
+      if (this.data.model === DEFAULT_MODELS[this.data.provider]) this.data.model = DEFAULT_MODELS[provider]
+      this.data.provider = provider
     }
     if (update.model !== undefined) this.data.model = update.model.trim() || DEFAULT_MODELS[this.data.provider]
     if (update.effort) this.data.effort = update.effort

@@ -2,10 +2,25 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
-import { type DraftState, IPC, type MenuAction, type OpenedNotebook, type Provider, type RenameResult, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '@dalliance/shared/ipc'
+import {
+  type AccountView,
+  type BillingView,
+  type DraftState,
+  IPC,
+  type KeyProvider,
+  type MenuAction,
+  type OpenedNotebook,
+  type RenameResult,
+  type RecentNotebook,
+  type RunCellRequest,
+  type SettingsUpdate,
+} from '@dalliance/shared/ipc'
 import { fromIpynb, toIpynb } from '@dalliance/shared/ipynb'
 import type { Notebook } from '@dalliance/shared/notebook'
 import { writeFileAtomic } from './atomic-write'
+import { Account } from './cloud/account'
+import { Billing } from './cloud/billing'
+import { type CloudConfig, DESKTOP_SCHEME, cloudUrl, deepLinkFromArgv, fetchCloudConfig } from './cloud/config'
 import { checkKey, listModels } from './harness/model'
 import { DraftStore } from './draft'
 import { type AppPage, isTrustedSender } from './ipc-sender'
@@ -41,6 +56,31 @@ const drafts = new DraftStore(app.getPath('userData'))
 // Unsaved notebooks run in their own folder, never in all of Documents
 const defaultWorkspace = path.join(app.getPath('documents'), 'Dalliance Notebooks')
 mkdirSync(defaultWorkspace, { recursive: true })
+// Dalliance Cloud: the account, the plan and hosted models, in builds made with a Cloud URL. Without one, like a
+// fork's build, none of it runs and models use the user's own key. See docs/cloud.md
+const cloud = primary ? cloudUrl(app.isPackaged) : null
+const account = cloud ? new Account({ userData: app.getPath('userData'), cloud, getWindow: () => win }) : null
+let cloudConfig: Promise<CloudConfig> | null = null
+const billing =
+  cloud && account
+    ? new Billing({
+        // Asked once and kept. A failure is forgotten, so the next attempt asks again
+        convexUrl: async () => {
+          cloudConfig ??= fetchCloudConfig(cloud).catch((err: unknown) => {
+            cloudConfig = null
+            throw err
+          })
+          return (await cloudConfig).convexUrl
+        },
+        token: () => account.convexToken(),
+        open: (url) => shell.openExternal(url),
+      })
+    : null
+if (cloud && account) settings.setCloud({ baseURL: `${cloud}/api/ai`, signedIn: () => account.signedIn, token: () => account.convexToken() })
+
+const SIGNED_OUT: AccountView = { user: null, checking: false, waiting: false, error: null }
+const NO_BILLING: BillingView = { available: false, plans: [], subscription: null, usage: null, loading: false, checkingOut: false, error: null }
+
 const session = new NotebookSession({
   settings,
   userData: app.getPath('userData'),
@@ -196,6 +236,16 @@ function showWindow() {
   win.focus()
 }
 
+/**
+ * A link on the app's scheme, from the browser. A sign-in link redeems its code; `io.dalliance.app://billing`,
+ * from the page after checkout, only brings the app forward. Builds without Dalliance Cloud ignore them all.
+ */
+function openLink(link: string) {
+  if (!account) return
+  account.handleLink(link)
+  showWindow()
+}
+
 /** A file from Finder, the Dock or a second launch. It opens as if picked in the Open dialog. */
 function openFromOs(file: string | null) {
   if (file) opens.request(file)
@@ -248,7 +298,10 @@ function registerIpc() {
     await shellKeys
     return listModels(settings.modelConfig())
   })
-  handle(IPC.checkKey, (_e, provider: Provider, key: string) => checkKey(provider, key))
+  handle(IPC.checkKey, (_e, provider: KeyProvider, key: string) => {
+    if ((provider !== 'gateway' && provider !== 'anthropic') || typeof key !== 'string') throw new Error('Not a provider that takes a key.')
+    return checkKey(provider, key)
+  })
   handle(IPC.updateSettings, async (_e, update: SettingsUpdate) => {
     const pythonChanged = update.pythonPath !== undefined && update.pythonPath !== settings.pythonPath
     const view = settings.update(update)
@@ -423,6 +476,40 @@ function registerIpc() {
     documentState = state
     updateTitle()
   })
+
+  // Dalliance Cloud. Builds without it answer signed out, with billing unavailable
+  handle(IPC.getAccount, () => account?.current ?? SIGNED_OUT)
+  handle(IPC.signIn, () => account?.signIn() ?? SIGNED_OUT)
+  handle(IPC.redeemSignInCode, (_e, code: string) => (account && typeof code === 'string' ? account.redeem(code) : (account?.current ?? SIGNED_OUT)))
+  handle(IPC.signOut, () => account?.signOut() ?? SIGNED_OUT)
+  handle(IPC.getBilling, () => billing?.current ?? NO_BILLING)
+  handle(IPC.startCheckout, (_e, plan: string) => (billing && plan === 'pro' ? billing.checkout(plan) : (billing?.current ?? NO_BILLING)))
+  handle(IPC.openBillingPortal, () => billing?.portal() ?? NO_BILLING)
+}
+
+/** Sends account and plan changes to the page, and keeps the plan following the account. */
+function watchCloud() {
+  if (!account || !billing) return
+  const send = (channel: string, view: unknown) => {
+    if (win && !win.isDestroyed()) win.webContents.send(channel, view)
+  }
+  account.onChange((view) => {
+    billing.setSignedIn(view.user != null)
+    send(IPC.accountChanged, view)
+  })
+  billing.onChange((view) => send(IPC.billingChanged, view))
+  void account.refresh()
+  void billing.connect()
+}
+
+/** Makes the OS send links on the app's scheme here. Packaged builds also list it in electron-builder's protocols. */
+function registerScheme() {
+  // Development runs the Electron binary on the project folder, so the OS has to be told to pass that folder too
+  const registered =
+    process.defaultApp && process.argv[1]
+      ? app.setAsDefaultProtocolClient(DESKTOP_SCHEME, process.execPath, [path.resolve(process.argv[1])])
+      : app.setAsDefaultProtocolClient(DESKTOP_SCHEME)
+  if (!registered) console.warn(`Couldn't register ${DESKTOP_SCHEME}: links, so sign-in has to finish with the code from the page.`)
 }
 
 if (primary) {
@@ -431,15 +518,32 @@ if (primary) {
     event.preventDefault()
     if (isNotebookPath(file)) openFromOs(file)
   })
-  // A second launch, with or without a file. Windows and Linux pass a double-clicked file on the command line.
-  app.on('second-instance', (_event, argv, workingDirectory) => openFromOs(notebookFromArgv(argv, workingDirectory)))
+  // A second launch, with or without a file. Windows and Linux pass a double-clicked file on the command line,
+  // and a link on the app's scheme the same way
+  app.on('second-instance', (_event, argv, workingDirectory) => {
+    const link = deepLinkFromArgv(argv)
+    if (link) return openLink(link)
+    openFromOs(notebookFromArgv(argv, workingDirectory))
+  })
   const launchFile = notebookFromArgv(process.argv, process.cwd())
   if (launchFile) opens.request(launchFile)
+
+  if (account) {
+    // macOS sends links here, at launch before 'ready' too
+    app.on('open-url', (event, url) => {
+      event.preventDefault()
+      void app.whenReady().then(() => openLink(url))
+    })
+    registerScheme()
+    const launchLink = deepLinkFromArgv(process.argv)
+    if (launchLink) void app.whenReady().then(() => openLink(launchLink))
+  }
 
   void app.whenReady().then(() => {
     registerIpc()
     buildMenu(sendMenu)
     createWindow()
+    watchCloud()
     session.warmUp()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -457,6 +561,7 @@ if (primary) {
   // Not in before-quit: the close dialog can still cancel the quit, and the notebook would stay open with a dead kernel
   app.on('will-quit', () => {
     drafts.flush()
+    billing?.close()
     void session.shutdown()
   })
 }

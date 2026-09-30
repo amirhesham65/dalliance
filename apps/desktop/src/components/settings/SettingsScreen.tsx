@@ -1,8 +1,9 @@
-import { ArrowLeft, Bot, type LucideIcon, SquareTerminal, Sparkles } from 'lucide-react'
+import { ArrowLeft, Bot, type LucideIcon, SquareTerminal, Sparkles, UserRound } from 'lucide-react'
 import { Tabs } from 'radix-ui'
 import { Kbd } from '@/components/ui/kbd'
 import { useEffect } from 'react'
 import { SETTINGS_SECTIONS, type SettingsSection, actions, getApi, useNotebook } from '@/store/notebook-store'
+import { AccountSettings } from './AccountSettings'
 import { AgentSettings } from './AgentSettings'
 import { ModelSettings } from './ModelSettings'
 import { PythonSettings } from './PythonSettings'
@@ -11,6 +12,7 @@ const SECTIONS: Record<SettingsSection, { label: string; icon: LucideIcon }> = {
   models: { label: 'Models', icon: Sparkles },
   agent: { label: 'Agent', icon: Bot },
   python: { label: 'Python', icon: SquareTerminal },
+  account: { label: 'Account', icon: UserRound },
 }
 
 /**
@@ -59,7 +61,8 @@ export function SettingsScreen() {
           <div className="flex flex-col gap-1">
             <h1 className="eyebrow px-2 pb-1">Settings</h1>
             <Tabs.List aria-label="Settings sections" className="flex flex-col gap-0.5">
-              {SETTINGS_SECTIONS.map((id) => {
+              {/* The account is Dalliance Cloud's, so builds without it have no Account section */}
+              {SETTINGS_SECTIONS.filter((id) => id !== 'account' || settings.cloud).map((id) => {
                 const { label, icon: Icon } = SECTIONS[id]
                 return (
                   <Tabs.Trigger
@@ -86,6 +89,11 @@ export function SettingsScreen() {
           <Tabs.Content value="python" className="mx-auto w-full max-w-[640px] px-10 py-10 outline-none">
             <PythonSettings api={api} settings={settings} />
           </Tabs.Content>
+          {settings.cloud && (
+            <Tabs.Content value="account" className="mx-auto w-full max-w-[640px] px-10 py-10 outline-none">
+              <AccountSettings api={api} />
+            </Tabs.Content>
+          )}
         </div>
       </Tabs.Root>
     </div>

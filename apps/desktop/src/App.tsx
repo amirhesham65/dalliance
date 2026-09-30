@@ -118,8 +118,12 @@ export default function App() {
     void api.getSettings().then((settings) => useNotebook.setState({ settings }))
     void api.pythonState().then((python) => useNotebook.setState({ python }))
     void api.kernelState().then((kernel) => useNotebook.setState({ kernel }))
+    void api.getAccount().then((account) => useNotebook.setState({ account }))
+    void api.getBilling().then((billing) => useNotebook.setState({ billing }))
     void actions.loadBrief()
     const offs = [
+      api.onAccount((account) => useNotebook.setState({ account })),
+      api.onBilling((billing) => useNotebook.setState({ billing })),
       api.onRunEvent((cellId, event) => actions.applyRunEvent(cellId, event)),
       api.onKernelState((kernel) => useNotebook.setState({ kernel })),
       api.onMenu((action) => void handleMenu(action)),

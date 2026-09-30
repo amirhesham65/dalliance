@@ -117,14 +117,15 @@ Two constraints shape the loop.
 
 ## Models and providers
 
-`model.ts` supports two providers.
+`model.ts` supports three providers. Dalliance Cloud is only offered in builds that have it, see [cloud.md](cloud.md).
 
 | Provider | Setting | Default model | Key |
 | --- | --- | --- | --- |
 | Vercel AI Gateway | `gateway` | `anthropic/claude-opus-5` | `AI_GATEWAY_API_KEY` |
 | Anthropic API | `anthropic` | `claude-opus-5` | `ANTHROPIC_API_KEY` |
+| Dalliance Cloud | `cloud` | `anthropic/claude-opus-5` | None: the Dalliance account's Convex token |
 
-`resolveModel()` throws `MissingKeyError` without a key. Effort maps per maker:
+`resolveModel()` throws `MissingKeyError` without a key, and a `ModelSetupError` for Dalliance Cloud when signed out or not in this build. `MissingKeyError` is a `ModelSetupError` too, and the session shows either's message as the run's error. Effort maps per maker:
 
 - Anthropic models, direct or `anthropic/*` on the gateway, get the top-level `cacheControl` described in [Context and caching](#context-and-caching), and `thinking: { type: 'adaptive' }` and `effort` where the model takes them. `claudeReasoning()` decides from the model id, with gateway dots read as dashes:
 
@@ -139,7 +140,7 @@ Two constraints shape the loop.
 - `openai/*` models get `reasoningEffort`. `high`, `xhigh` and `max` all map to `high`.
 - Every other maker runs with its defaults.
 
-`listModels()` feeds the model picker. On the gateway it calls `getAvailableModels()`, keeps language models, and turns per-token prices into per-million strings. On the Anthropic API it calls `/v1/models`. Results are cached for 10 minutes per provider and key. `MAKERS` maps gateway prefixes to display names. Logos come from `src/assets/makers/`, see [renderer.md](renderer.md#model-maker-logos).
+`listModels()` feeds the model picker. On the gateway it calls `getAvailableModels()`, keeps language models, and turns per-token prices into per-million strings. Dalliance Cloud lists the same models through its proxy, without prices, since its plan pays in credits. On the Anthropic API it calls `/v1/models`. Results are cached for 10 minutes per provider and key. `MAKERS` maps gateway prefixes to display names. Logos come from `src/assets/makers/`, see [renderer.md](renderer.md#model-maker-logos).
 
 `checkKey()` tries a key before Settings saves it. On the gateway it asks for the credit balance, which also proves the key, and returns it as the detail. On the Anthropic API it lists one model. A 401 or 403 is `rejected`. Anything else that fails, like no network, is `unchecked`, and the renderer saves the key anyway with a note.
 
@@ -151,7 +152,7 @@ Two constraints shape the loop.
 
 | Provider | Title model |
 | --- | --- |
-| Gateway | `openai/gpt-6-luna` with low reasoning effort |
+| Gateway, Dalliance Cloud | `openai/gpt-6-luna` with low reasoning effort |
 | Anthropic | `claude-haiku-4-5` |
 
 The call has a 10 second timeout, one retry and 1,024 output tokens, since reasoning counts toward output. `cleanTitle()` keeps the first line, strips quotes, prefixes like `Title:`, trailing punctuation and `@`, and caps it at 6 words. Any failure returns `null`, and the cell keeps showing its prompt. The session starts the title request alongside the run and never waits on it. Settings can turn titles off with `autoTitles`.

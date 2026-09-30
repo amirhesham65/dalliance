@@ -3,8 +3,9 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { PROVIDERS, keySourceText, providerForKey, saveKey } from '@/lib/keys'
-import type { DallianceApi, Effort, Provider, SettingsView } from '@dalliance/shared/ipc'
+import { CloudStatus } from '@/components/cloud/CloudStatus'
+import { CLOUD, PROVIDERS, keySourceText, providerForKey, saveKey } from '@/lib/keys'
+import type { DallianceApi, Effort, KeyProvider, Provider, SettingsView } from '@dalliance/shared/ipc'
 import { useNotebook } from '@/store/notebook-store'
 import { Group, Note, Row, SectionHeading } from './parts'
 import { saveSettings } from './save'
@@ -18,7 +19,7 @@ const EFFORTS: { value: Effort; label: string }[] = [
 ]
 
 /** The line under the key field when there's nothing newer to say. */
-function keyHelp(settings: SettingsView, unreadable: boolean): string {
+function keyHelp(settings: SettingsView & { provider: KeyProvider }, unreadable: boolean): string {
   if (unreadable) return "The saved key couldn't be read, probably after an update. Paste it again."
   const plain = settings.keyStorage?.[settings.provider] === 'plain'
   if (settings.keySource === 'settings')
@@ -31,13 +32,89 @@ function keyHelp(settings: SettingsView, unreadable: boolean): string {
 
 /** The model provider, its key, and the model that writes each cell's code. */
 export function ModelSettings({ api, settings }: { api: DallianceApi; settings: SettingsView }) {
+  const onCloud = settings.provider === 'cloud'
+  const choices: Provider[] = [...(settings.cloud ? (['cloud'] as const) : []), ...(Object.keys(PROVIDERS) as KeyProvider[])]
+  // A model name being typed. Null shows the saved one, so a change from the model picker shows up here too
+  const [model, setModel] = useState<string | null>(null)
+  const update = (u: Parameters<typeof api.updateSettings>[0]) => void saveSettings(api, u)
+
+  const commitModel = () => {
+    if (model != null && model.trim() !== settings.model) update({ model })
+    setModel(null)
+  }
+
+  const effortApplies = settings.provider === 'anthropic' || /^(anthropic|openai)\//.test(settings.model)
+  const label = (p: Provider) => (p === 'cloud' ? CLOUD : PROVIDERS[p])
+
+  return (
+    <>
+      <SectionHeading title="Models">The provider and model that write each cell's code. The model picker in the top bar changes the model too.</SectionHeading>
+      <Group label="Provider">
+        <Row label="Model provider" htmlFor="provider" description={label(settings.provider).blurb}>
+          <Select value={settings.provider} onValueChange={(v) => update({ provider: v as Provider })}>
+            <SelectTrigger id="provider" className="w-52">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {choices.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {label(p).label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Row>
+        {onCloud ? (
+          <Row label="Dalliance account" wide>
+            <CloudStatus api={api} />
+          </Row>
+        ) : (
+          <KeyRow api={api} settings={settings as SettingsView & { provider: KeyProvider }} />
+        )}
+      </Group>
+      <Group label="Model">
+        <Row label="Model" htmlFor="model" description="The id the provider uses. Saved when you press Enter or leave the field." wide>
+          <Input
+            id="model"
+            value={model ?? settings.model}
+            onChange={(e) => setModel(e.target.value)}
+            onBlur={commitModel}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitModel()
+            }}
+            className="font-mono text-xs"
+          />
+        </Row>
+        <Row
+          label="Effort"
+          htmlFor="effort"
+          description={effortApplies ? 'How hard the model thinks before it writes. Higher is slower and costs more.' : 'Applies to Anthropic and OpenAI models. This one uses its default.'}
+        >
+          <Select value={settings.effort} onValueChange={(v) => update({ effort: v as Effort })} disabled={!effortApplies}>
+            <SelectTrigger id="effort" className="w-52">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {EFFORTS.map((e) => (
+                <SelectItem key={e.value} value={e.value}>
+                  {e.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Row>
+      </Group>
+    </>
+  )
+}
+
+/** The key for the chosen provider: paste, check and save it, or remove the saved one. */
+function KeyRow({ api, settings }: { api: DallianceApi; settings: SettingsView & { provider: KeyProvider } }) {
   const provider = PROVIDERS[settings.provider]
   const [key, setKey] = useState('')
   const [keyError, setKeyError] = useState<string | null>(null)
   const [keyNote, setKeyNote] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
-  // A model name being typed. Null shows the saved one, so a change from the model picker shows up here too
-  const [model, setModel] = useState<string | null>(null)
   const update = (u: Parameters<typeof api.updateSettings>[0]) => void saveSettings(api, u)
 
   const changeKey = (value: string) => {
@@ -66,34 +143,10 @@ export function ModelSettings({ api, settings }: { api: DallianceApi; settings: 
     }
   }
 
-  const commitModel = () => {
-    if (model != null && model.trim() !== settings.model) update({ model })
-    setModel(null)
-  }
-
   // A saved key the keychain won't give back, usually after an update changed the app's signature
   const unreadable = settings.unreadableKeys?.includes(settings.provider) ?? false
 
-  const effortApplies = settings.provider === 'anthropic' || /^(anthropic|openai)\//.test(settings.model)
-
   return (
-    <>
-      <SectionHeading title="Models">The provider and model that write each cell's code. The model picker in the top bar changes the model too.</SectionHeading>
-      <Group label="Provider">
-        <Row label="Model provider" htmlFor="provider" description={provider.blurb}>
-          <Select value={settings.provider} onValueChange={(v) => update({ provider: v as Provider })}>
-            <SelectTrigger id="provider" className="w-52">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(PROVIDERS) as Provider[]).map((p) => (
-                <SelectItem key={p} value={p}>
-                  {PROVIDERS[p].label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Row>
         <Row
           label={provider.keyLabel}
           htmlFor="api-key"
@@ -145,39 +198,5 @@ export function ModelSettings({ api, settings }: { api: DallianceApi; settings: 
             )}
           </div>
         </Row>
-      </Group>
-      <Group label="Model">
-        <Row label="Model" htmlFor="model" description="The id the provider uses. Saved when you press Enter or leave the field." wide>
-          <Input
-            id="model"
-            value={model ?? settings.model}
-            onChange={(e) => setModel(e.target.value)}
-            onBlur={commitModel}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitModel()
-            }}
-            className="font-mono text-xs"
-          />
-        </Row>
-        <Row
-          label="Effort"
-          htmlFor="effort"
-          description={effortApplies ? 'How hard the model thinks before it writes. Higher is slower and costs more.' : 'Applies to Anthropic and OpenAI models. This one uses its default.'}
-        >
-          <Select value={settings.effort} onValueChange={(v) => update({ effort: v as Effort })} disabled={!effortApplies}>
-            <SelectTrigger id="effort" className="w-52">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {EFFORTS.map((e) => (
-                <SelectItem key={e.value} value={e.value}>
-                  {e.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Row>
-      </Group>
-    </>
   )
 }
