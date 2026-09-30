@@ -1,10 +1,11 @@
-import { NotebookText, Play, Plus, RotateCw, Square } from 'lucide-react'
+import { NotebookText, Play, Plus, RotateCw, ShieldCheck, Square } from 'lucide-react'
 import { Fragment, memo, useEffect, useRef } from 'react'
 import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { IconButton } from '@/components/app/IconButton'
 import { Button } from '@/components/ui/button'
 import { actions, useNotebook } from '@/store/notebook-store'
 import { CellView } from './CellView'
+import { VerifyConfirm, VerifyReportView } from './VerifyReport'
 
 /**
  * The notebook column. Cells are memoized: typing in one cell, or a run event for one cell, redraws that cell
@@ -14,6 +15,8 @@ export function NotebookView() {
   const cells = useNotebook((s) => s.notebook.cells)
   const selectedId = useNotebook((s) => s.selectedId)
   const busy = useNotebook((s) => Object.keys(s.runs).length > 0)
+  const report = useNotebook((s) => s.verify)
+  const verifying = report?.phase === 'restarting' || report?.phase === 'running' || report?.phase === 'stopping'
   const scroller = useRef<HTMLDivElement>(null)
   const prompts = cells.filter((c) => c.kind === 'prompt').length
 
@@ -45,6 +48,10 @@ export function NotebookView() {
           <IconButton label="Restart kernel" size="icon-xs" onClick={() => void actions.restart()}>
             <RotateCw />
           </IconButton>
+          <Button variant="ghost" size="sm" className="text-muted-foreground" disabled={verifying} onClick={() => actions.askVerify()}>
+            <ShieldCheck />
+            Verify
+          </Button>
           <Button variant="outline" size="sm" onClick={() => actions.runAll()}>
             <Play className="fill-ink text-ink" />
             Run all
@@ -53,6 +60,11 @@ export function NotebookView() {
       </header>
       <div ref={scroller} className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[760px] px-4 pt-7 pb-40 sm:px-6">
+          {report && (
+            <ErrorBoundary what="The Verify report" className="mb-6 ml-11">
+              <VerifyReportView report={report} />
+            </ErrorBoundary>
+          )}
           {cells.length === 0 && <p className="ml-11 py-3 text-sm text-faint">This notebook is empty.</p>}
           {cells.map((cell, i) => (
             <Fragment key={cell.id}>
@@ -72,6 +84,7 @@ export function NotebookView() {
           </button>
         </div>
       </div>
+      <VerifyConfirm />
     </main>
   )
 }

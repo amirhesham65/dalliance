@@ -64,4 +64,5 @@ docs/                 you are here
 | Workspace | The folder in use, which is the open notebook's folder. It is the kernel's working directory, where new notebooks go, and the only folder the agent can read. |
 | Brief | `AGENTS.md` in the workspace. The agent reads it before every cell. |
 | Explore | Running a quick snippet to look at data, without it becoming the cell. |
+| Verify | Restart Python, rerun every cell's saved code without the agent, and report what came out the same, changed or failed. Leaves the saved outputs alone. |
 | Harness | `apps/desktop/electron/harness/`, the agent loop and its tools. |

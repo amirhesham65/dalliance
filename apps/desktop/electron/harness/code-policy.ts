@@ -5,6 +5,7 @@
  * The aim is few false alarms: names in comments and in ordinary strings don't count, and neither do
  * look-alikes such as os.environ, environment.csv or urllib.parse.
  */
+import { scanPython } from '@dalliance/shared/python'
 
 export type ConcernKind = 'secret' | 'shell' | 'network'
 
@@ -16,47 +17,8 @@ export interface CodeConcern {
   line: string
 }
 
-interface Scanned {
-  /** The source with comments and string contents blanked out, same length and line breaks. */
-  code: string
-  strings: { text: string; at: number }[]
-}
-
-/** Separates Python code from its comments and string literals, keeping offsets. */
-export function scanPython(src: string): Scanned {
-  let code = ''
-  const strings: Scanned['strings'] = []
-  let i = 0
-  while (i < src.length) {
-    const c = src[i]
-    if (c === '#') {
-      const end = src.indexOf('\n', i)
-      const stop = end === -1 ? src.length : end
-      code += ' '.repeat(stop - i)
-      i = stop
-      continue
-    }
-    if (c === '"' || c === "'") {
-      const quote = src.startsWith(c.repeat(3), i) ? c.repeat(3) : c
-      let j = i + quote.length
-      let text = ''
-      while (j < src.length && !src.startsWith(quote, j)) {
-        if (quote.length === 1 && src[j] === '\n') break
-        const step = src[j] === '\\' ? 2 : 1
-        text += src.slice(j, j + step)
-        j += step
-      }
-      const end = Math.min(src.length, src.startsWith(quote, j) ? j + quote.length : j)
-      strings.push({ text, at: i })
-      code += src.slice(i, end).replace(/[^\n]/g, ' ')
-      i = end
-      continue
-    }
-    code += c
-    i += 1
-  }
-  return { code, strings }
-}
+// The scanner is shared with Verify's checks in the renderer
+export { scanPython }
 
 /** A read_file path the agent may not open: `.env` or `.env.*`, in any case, with either kind of separator. */
 export function isSecretPath(p: string): boolean {

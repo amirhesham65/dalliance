@@ -33,3 +33,14 @@ describe('the View menu', () => {
     ])
   })
 })
+
+describe('the Kernel menu', () => {
+  it('offers Verify, which the renderer confirms before it restarts anything', () => {
+    const sent: string[] = []
+    buildMenu((action) => sent.push(action))
+    const kernel = built.at(-1)!.find((m) => m.label === 'Kernel')!
+    const verify = (kernel.submenu as MenuItemConstructorOptions[]).find((i) => i.label === 'Verify Notebook…')!
+    ;(verify.click as () => void)()
+    expect(sent).toEqual(['verify'])
+  })
+})

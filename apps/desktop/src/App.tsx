@@ -87,6 +87,10 @@ export default function App() {
           return actions.interrupt()
         case 'restart':
           return actions.restart()
+        case 'verify':
+          // Its confirmation shows over the notebook
+          if (useNotebook.getState().screen === 'notebook') actions.askVerify()
+          break
         case 'settings':
           actions.openSettings()
           break

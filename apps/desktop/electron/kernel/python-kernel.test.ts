@@ -59,6 +59,14 @@ for (const { name, env, skip } of PATHS) {
       expect(r.outputs).toEqual([{ type: 'text', text: '20' }])
     })
 
+    // What Verify has to catch: a cell that only works thanks to a name the agent's explore made
+    it('keeps names an exploratory run defines for later cells, without reporting them as assigned', async () => {
+      const explored = await kernel.execute('seen = x * 2', { store: false })
+      expect(explored.assigned).toEqual([])
+      const later = await kernel.execute('seen', { store: true })
+      expect(later.outputs).toEqual([{ type: 'text', text: '40' }])
+    })
+
     it('lists variables with their types', async () => {
       await kernel.execute('names = ["a", "b", "c"]', { store: true })
       const vars = await kernel.variables()
@@ -82,6 +90,8 @@ for (const { name, env, skip } of PATHS) {
       const r = await kernel.execute('x', { store: true })
       expect(r.ok).toBe(false)
       expect(r.executionCount).toBe(1)
+      const explored = await kernel.execute('seen', { store: false })
+      expect(explored.outputs.find((o) => o.type === 'error')).toMatchObject({ ename: 'NameError', evalue: "name 'seen' is not defined" })
     }, 20_000)
   })
 

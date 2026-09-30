@@ -46,6 +46,7 @@ Saved with the notebook: `notebook`. Everything else is session state:
 | `environment`, `environmentLoading`, `environmentStale` | The Python's libraries once the Environment view has asked, whether a read is under way, and whether they may be out of date. See [Side panes](#side-panes) |
 | `variablesView` | Which view the Variables & Environment pane shows |
 | `notice` | The message at the bottom of the window, with an Undo when the change can be taken back. See [Notices and errors](#notices-and-errors) |
+| `verify`, `verifyAsking` | The last Verify run's report, and whether its confirmation is showing. See [Verify](#verify) |
 
 `getApi()` and `setApi()` wrap `window.dalliance`, so tests and the demo can swap in a fake.
 
@@ -71,11 +72,25 @@ The notices for D D and M offer Undo through the same stack. Their button undoes
 
 `pump()` passes the cell as it was sent to `finish()`. The user can keep typing while the agent works. If the prompt or the code changed during the run, their edits stay, `generatedFrom` is the prompt that was sent, and the cell ends `edited` instead of `done`. The next run then regenerates for the new prompt, or runs their code. History keeps the version that ran.
 
-`interrupt()` empties the queue and drops queued runs, then calls the bridge. `deleteCell()` interrupts the cell if it's running. `restart()` interrupts, restarts the kernel, marks every cell that has run `stale` with no execution count, and calls `environmentChanged()`.
+`interrupt()` empties the queue and drops queued runs, then calls the bridge. `deleteCell()` interrupts the cell if it's running. `restart()` interrupts, restarts the kernel, marks every cell that has run `stale` with no execution count, and calls `environmentChanged()`. Verify's reruns go through the same queue, see [Verify](#verify).
 
 A result must land only in the cell and notebook that asked for it. `load()`, which New, Open, a recent file, the start page and session restore all go through, clears the queue and interrupts a running cell before it swaps the notebook in. That cell's id goes into `abandoned`, as does a running cell that is deleted, and `finish()` drops an abandoned result without touching any cell, even one with the same id: reopening the same file, or Undo after a delete, brings the id back. `finish()` also ignores a cell that no longer exists, and a `title` event for a missing cell changes nothing and leaves `dirty` alone.
 
 What `finish()` does to a cell is in [notebook-model.md](notebook-model.md#after-a-run).
+
+### Verify
+
+The Verify button in the notebook's header, and Kernel > Verify Notebook… in the menu, call `askVerify()`, which opens `VerifyConfirm` in `notebook/VerifyReport.tsx`. Its Verify calls `actions.verify()`:
+
+1. `interrupt()`, then `beforeVerify()`, the place for checks before the restart (see [notebook-model.md](notebook-model.md#verifying-a-notebook)).
+2. A report with one entry per prompt cell: its code and outputs as they are now, and the seed warnings read from the code. The phase is `restarting`.
+3. The same restart as `restart()`, through `restartKernel()`, so the tab keeps its one kernel. If it fails, the phase is `failed` with the reason, and nothing runs.
+4. Every cell with code goes on the queue, recorded in `verifyRuns` with the code it started with. `pump()` runs those with `generate: false` and `nameIt: false`, whatever `needsGeneration()` says, and hands the result to `finishVerify()` instead of `finish()`. The result lands in the report, never in the cell's outputs. Only a cell that came back the same changes, back to `done`.
+5. When no rerun is left, the phase is `done`, and the Activity pane gets one `verified` entry: "Verified 5 cells: 3 the same, 1 changed, 1 failed."
+
+Stop is the usual `interrupt()`. It drops the cells still waiting, which the report lists as not run, and the phase is `stopping` until the running cell answers, then `stopped`. Stopped during the restart, nothing runs. A cell deleted or made a note while it waits is listed as not run, and `load()` drops the report with the rest of the session state. While Verify runs the Verify button is off, and the report has its own Stop.
+
+`VerifyReportView` sits above the cells until it's closed. It says where the run is, then gives one row per prompt cell with its result in words. A failed row shows the error in one line and, for a `NameError`, why the name was missing. Seed warnings show under their cell. A changed row, or one whose figure differs, folds out the saved and new outputs side by side through `OutputList`, and offers Keep the new outputs. That calls `keepVerified()`, an undoable edit with a notice, which applies only while the cell still has the code that ran.
 
 ## Layout
 
@@ -255,7 +270,7 @@ Without Electron there's no `window.dalliance`. `main.tsx` then checks the URL:
 
 | URL | Shows |
 | --- | --- |
-| `/?demo` | A clinical trial notebook with results. The last cell asks a question when run |
+| `/?demo` | A clinical trial notebook with results. The last cell asks a question when run. Verify finds the over-65 cell changed and the rest the same |
 | `/?demo&welcome` | The start page |
 | `/?demo&setup` | The first-run setup with no key and no Python. Any key saves, except one containing `bad` |
 | anything else | The app with no bridge. Runs fail with "Running cells needs the desktop app." |

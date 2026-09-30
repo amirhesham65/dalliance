@@ -34,6 +34,7 @@ Jupyter makes you write the code before you see anything. Dalliance keeps the no
 - **Assumptions are editable.** The agent underlines how it read your prompt. Click one, correct it, and the cell regenerates.
 - **Reruns are free.** An unchanged prompt reruns its saved code on the kernel with no model call.
 - **Every version is kept.** The History pane restores any earlier run of a cell.
+- **Verify from a clean start.** Verify restarts Python, reruns every cell's saved code and reports what came out the same, what changed and what failed, without touching what you saved. It also flags random calls with no fixed seed.
 - **Any model.** Claude Sonnet 5.5 by default, or anything on the Vercel AI Gateway or the Anthropic API.
 
 <table>

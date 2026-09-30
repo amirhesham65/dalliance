@@ -79,6 +79,8 @@ Questions and approvals from the agent pause the loop. The session sends a `ques
   ipc.ts            DallianceApi, RunEvent, request and result types, IPC channel names
   leaked.ts         splitLeaked, leakedList: recovers tool markup a model wrote into text
   normalize.ts      normalizeOutputs, canonicalOutputs: outputs without their run-to-run noise, for hashing and comparing
+  python.ts         scanPython: Python source split into code, comments and strings, for reading code as text
+  verify.ts         compareOutputs, seedWarnings, missingNameCause: Verify's comparison and code checks
 
 apps/desktop/electron   Node and Electron only, never imported by src/
 apps/desktop/src        DOM only, never imports electron/

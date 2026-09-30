@@ -68,7 +68,7 @@ The script's request loop catches any exception per request. A request that fail
 
 With IPython, `run_shell()` replaces steps 1 to 4: `InteractiveShell.run_cell()` runs the code, then figures are collected and the last value is shown, in the same order. Steps 5 and 6 are the same on both paths. See [IPython](#ipython).
 
-`store: true` is a real cell run. It advances the execution count, sets `_`, and reports assigned variables. `store: false` is the agent's `explore`, and does none of those. Both share the same namespace, which is why the system prompt tells the model not to change state in `explore`.
+`store: true` is a real cell run. It advances the execution count, sets `_`, and reports assigned variables. `store: false` is the agent's `explore`, and does none of those. Both share the same namespace, which is why the system prompt tells the model not to change state in `explore`. A name an `explore` call defines anyway stays there for later cells and isn't reported as `assigned`, so a cell can come to depend on it unseen. A restart clears it, which is how Verify catches such a cell (see [notebook-model.md](notebook-model.md#verifying-a-notebook)).
 
 A `display()` function is injected into the namespace for showing values mid-cell. With IPython, it passes keyword arguments such as `display_id` on to IPython's `display()`.
 
@@ -191,7 +191,7 @@ Notes don't count against the budget. The `Output` type in `packages/shared` has
 - `ensureKernel()` starts it on demand and shares one start promise between concurrent callers.
 - `openWorkspace(dir)` restarts it in the new notebook's folder and remembers the folder. New and opened notebooks always get a fresh kernel.
 - `moveWorkspace(dir)` runs `os.chdir()` in the live kernel after Save As into another folder, so variables survive.
-- `restart()` bumps a generation counter, shuts the kernel down and warms up a new one. A kernel that was still starting when the restart came is discarded once it's up: it belongs to an older generation and may be in the old folder, so `ensureKernel()` shuts it down and hands its waiters the current one.
+- `restart()` bumps a generation counter, shuts the kernel down and warms up a new one. A kernel that was still starting when the restart came is discarded once it's up: it belongs to an older generation and may be in the old folder, so `ensureKernel()` shuts it down and hands its waiters the current one. Verify restarts through this too, so it never runs a second kernel beside the first.
 - `interrupt()` sends `SIGINT`, but only while the kernel is busy. The script ignores an interrupt that lands between requests.
 - If the run is still going 5 seconds after `interrupt()`, because the cell swallows `KeyboardInterrupt` or sits in C code that never checks for signals, `PythonKernel` `SIGKILL`s the process. The running request and everything queued behind it reject with `KILLED_AFTER_INTERRUPT`, "The kernel didn't stop, so it was restarted. Variables were lost.", and the status goes `dead` with that as the error. The session's next `ensureKernel()` starts a fresh kernel. Pressing Stop again doesn't push the deadline back, and a run that finishes in time cancels it. `interruptGraceMs` in the options changes the 5 seconds, for tests.
 - `shutdown()` closes stdin, sends `SIGTERM`, and `SIGKILL`s after 2 seconds.
