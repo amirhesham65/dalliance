@@ -128,7 +128,7 @@ Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the bu
 
 1. The prompt editor, with `@name` references coloured by `RefText`.
 2. The interpretation, when it has `[[assumptions]]`. Click one to correct it.
-3. Run progress: the activity list, a status line, and a question card or install bar.
+3. Run progress: the activity list, a status line, and a question card or install bar. Each step's label is plain words. A step that ran code, an `explore` or a `run_cell`, is a button that opens its code underneath. After the run, the list folds into the "N steps" toggle by the duration.
 4. A message for non-Python errors.
 5. Result and Code tabs. A question answered in words shows only the answer, without tabs.
 

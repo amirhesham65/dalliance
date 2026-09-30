@@ -3,8 +3,11 @@ import type { Correction, CreatedVariable, Notebook, Output } from './notebook'
 /** One line in a cell's activity log: what the agent did while writing the cell. */
 export interface ActivityItem {
   id: string
+  /** Plain words, never code. */
   label: string
   detail?: string
+  /** The Python an explore or run_cell call sent, shown when the user opens the step. */
+  code?: string
   status: 'running' | 'done' | 'error'
 }
 

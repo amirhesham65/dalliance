@@ -492,21 +492,43 @@ function ActivityList({ items }: { items: ActivityItem[] }) {
   return (
     <ol className="flex flex-col gap-1 text-[12.5px]">
       {items.map((a) => (
-        <li key={a.id} className="flex items-baseline gap-2">
-          <span className="w-3 shrink-0">
-            {a.status === 'running' ? (
-              <Loader2 className="size-3 animate-spin text-muted-foreground motion-reduce:animate-none" />
-            ) : a.status === 'error' ? (
-              <X className="size-3 text-destructive" />
-            ) : (
-              <Check className="size-3 text-go" />
-            )}
-          </span>
-          <span className={a.status === 'running' ? 'text-muted-foreground' : 'text-faint'}>{a.label}</span>
-          {a.detail && <span className="truncate font-mono text-[11.5px] text-faint">{a.detail}</span>}
-        </li>
+        <ActivityStep key={a.id} item={a} />
       ))}
     </ol>
+  )
+}
+
+/** One step. Its label is plain words; a step that ran code opens to show it. */
+function ActivityStep({ item: a }: { item: ActivityItem }) {
+  const [open, setOpen] = useState(false)
+  const tone = a.status === 'running' ? 'text-muted-foreground' : 'text-faint'
+  return (
+    <li className="flex flex-col gap-1">
+      <div className="flex items-baseline gap-2">
+        <span className="w-3 shrink-0">
+          {a.status === 'running' ? (
+            <Loader2 className="size-3 animate-spin text-muted-foreground motion-reduce:animate-none" />
+          ) : a.status === 'error' ? (
+            <X className="size-3 text-destructive" />
+          ) : (
+            <Check className="size-3 text-go" />
+          )}
+        </span>
+        {a.code ? (
+          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} title={open ? 'Hide the code' : 'Show the code'} className={cn('text-left hover:text-muted-foreground', tone)}>
+            {a.label}
+          </button>
+        ) : (
+          <span className={tone}>{a.label}</span>
+        )}
+        {a.detail && <span className="truncate font-mono text-[11.5px] text-faint">{a.detail}</span>}
+      </div>
+      {open && a.code && (
+        <pre className="code scrollbar-thin ml-5 max-h-48 overflow-auto rounded-md bg-raised px-2.5 py-2 font-mono text-[11.5px] leading-[1.6]">
+          <PythonTokens code={a.code} />
+        </pre>
+      )}
+    </li>
   )
 }
 

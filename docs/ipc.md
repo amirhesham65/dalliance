@@ -70,7 +70,7 @@ Each `on*` method subscribes and returns an unsubscribe function.
 | `type` | Meaning | Renderer effect |
 | --- | --- | --- |
 | `status` | Short text like "Reading the notebook" | The spinner line |
-| `activity` | A tool call started or finished, keyed by id | The live activity list |
+| `activity` | A tool call started, got its label, or finished, keyed by id. `explore` and `run_cell` steps carry their `code` | The live activity list |
 | `attempt` | A new `run_cell` attempt | Clears live outputs, shows the attempt's code |
 | `output` | One output from the running attempt | Appended to live outputs |
 | `question` | `ask_user` is waiting | The question card |

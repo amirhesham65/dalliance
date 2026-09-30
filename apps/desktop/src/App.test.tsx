@@ -47,6 +47,32 @@ describe('App', () => {
     expect(screen.getByRole('textbox', { name: 'Code' })).toHaveValue('orders.total.mean()')
   })
 
+  it("labels the agent's steps in words and keeps each step's code one click away", async () => {
+    const user = userEvent.setup()
+    const code = "patients.groupby('stage').size()"
+    const { api } = fakeApi(() =>
+      result({
+        code,
+        activity: [
+          { id: 'a', label: 'Checked variables', status: 'done' },
+          { id: 'b', label: 'Counting patients per stage', detail: 'Ran in 12 ms', code, status: 'done' },
+        ],
+      }),
+    )
+    setApi(api)
+    render(<App />)
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Patients per stage')
+    await user.keyboard('{Meta>}{Enter}{/Meta}')
+
+    await user.click(await screen.findByRole('button', { name: '2 steps' }))
+    expect(screen.queryByRole('button', { name: 'Checked variables' })).not.toBeInTheDocument()
+    const step = screen.getByRole('button', { name: 'Counting patients per stage' })
+    expect(screen.queryByText(code)).not.toBeInTheDocument()
+    await user.click(step)
+    expect(step).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText((_, el) => el?.tagName === 'PRE' && el.textContent === code)).toBeInTheDocument()
+  })
+
   it('asks the question the agent raises and sends back the answer', async () => {
     const user = userEvent.setup()
     let finish!: () => void

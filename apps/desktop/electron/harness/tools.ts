@@ -38,6 +38,9 @@ export interface ToolDeps {
   runTimeoutMs?: number
 }
 
+/** What the user sees while the agent works. First in the schema, so models tend to write it before the code. */
+const summaryInput = z.string().describe("3 to 7 plain words for the user on what this step does, starting with an -ing verb, e.g. 'Counting patients per stage'. No code.")
+
 const MAX_EXPLORE_CHARS = 4000
 /** Exploration should take seconds. Anything slower is usually scanning something huge. */
 export const EXPLORE_TIMEOUT_MS = 20_000
@@ -106,9 +109,9 @@ WHEN TO USE: checking columns, dtypes, value counts, a few rows, or whether a va
 WHEN NOT TO USE: running the cell itself (use run_cell).
 DO NOT USE FOR: creating, changing or deleting variables, files or state. It shares the kernel's namespace.
 EXAMPLES: subs.head(3) | subs.plan.value_counts() | sorted(events.type.unique())`,
-      inputSchema: z.object({ code: z.string().describe('Python to evaluate. The last expression is returned.') }),
-      execute: ({ code }) =>
-        guarded('explore', { code }, async () => {
+      inputSchema: z.object({ summary: summaryInput, code: z.string().describe('Python to evaluate. The last expression is returned.') }),
+      execute: ({ summary, code }) =>
+        guarded('explore', { summary, code }, async () => {
           let timedOut = false
           const timer = setTimeout(() => {
             timedOut = true
@@ -152,9 +155,9 @@ DO NOT USE FOR: files outside the notebook's folder.`,
 WHEN TO USE: every time you have a full version of the cell's code, including after fixing an error.
 WHEN NOT TO USE: quick looks at data (use explore).
 USAGE: pass the whole cell, not a diff. Only the last successful run is kept. After it succeeds, call finish.`,
-      inputSchema: z.object({ code: z.string().describe('The complete Python code for the cell') }),
-      execute: ({ code }) =>
-        tracked(guarded('run_cell', { code }, async () => {
+      inputSchema: z.object({ summary: summaryInput, code: z.string().describe('The complete Python code for the cell') }),
+      execute: ({ summary, code }) =>
+        tracked(guarded('run_cell', { summary, code }, async () => {
           state.attempts += 1
           deps.onAttempt(code)
           const limit = deps.runTimeoutMs ?? RUN_TIMEOUT_MS
