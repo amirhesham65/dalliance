@@ -37,18 +37,52 @@ export function resolveModel(config: ModelConfig): {
   return { model, providerOptions: agentProviderOptions(config) }
 }
 
+const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
+
 /**
- * Options for the agent's requests. Anthropic models take adaptive thinking with an effort level, OpenAI reasoning
- * models take a reasoning effort, both also through the gateway. Other makers get their defaults.
+ * What a Claude model accepts for reasoning, from Anthropic's model docs. Adaptive thinking came with the 4.6
+ * models, and xhigh with Opus 4.7. Opus 4.5 takes effort up to high but only budgeted thinking. Sonnet 4.5,
+ * Haiku 4.5 and older reject effort, so they get neither. Gateway ids like `anthropic/claude-haiku-4.5` count too.
+ * An unknown Claude id is taken to be newer than this list.
+ */
+export function claudeReasoning(model: string): { adaptive: boolean; efforts: readonly Effort[] } {
+  const id = model.toLowerCase().replace(/^anthropic\//, '').replace(/\./g, '-')
+  if (!id.startsWith('claude')) return { adaptive: false, efforts: [] }
+  if (/^claude-opus-4-5\b/.test(id)) return { adaptive: false, efforts: ['low', 'medium', 'high'] }
+  if (/^claude-(?:opus|sonnet)-4-6\b/.test(id)) return { adaptive: true, efforts: ['low', 'medium', 'high', 'max'] }
+  if (/^claude-(?:instant|[123])\b|^claude-(?:sonnet|haiku)-4-5\b|^claude-opus-4-1\b|^claude-(?:opus|sonnet)-4(?:$|-0\b|[-@]\d{8})/.test(id)) {
+    return { adaptive: false, efforts: [] }
+  }
+  return { adaptive: true, efforts: EFFORTS }
+}
+
+/** The chosen effort, or the nearest level below it that the model takes. */
+function supportedEffort(effort: Effort, allowed: readonly Effort[]): Effort {
+  for (let i = EFFORTS.indexOf(effort); i >= 0; i--) if (allowed.includes(EFFORTS[i])) return EFFORTS[i]
+  return allowed[0]
+}
+
+/**
+ * Options for the agent's requests. Anthropic models take adaptive thinking with an effort level where the model
+ * supports them (see claudeReasoning), OpenAI reasoning models take a reasoning effort, both also through the
+ * gateway. Other makers get their defaults.
  *
- * Anthropic models also get automatic caching: a top-level cacheControl puts a breakpoint on the last block of
- * every request, so each step of a cell reads the steps before it from the cache. It marks no message, so the
+ * Every Anthropic model also gets automatic caching: a top-level cacheControl puts a breakpoint on the last block
+ * of every request, so each step of a cell reads the steps before it from the cache. It marks no message, so the
  * history the model sees stays append-only.
  */
 export function agentProviderOptions(config: Pick<ModelConfig, 'provider' | 'model' | 'effort'>): ToolLoopAgentSettings['providerOptions'] {
   if (config.provider === 'anthropic' || config.model.startsWith('anthropic/')) {
-    // One tool call per step: finish must never race the run_cell it reports on
-    return { anthropic: { thinking: { type: 'adaptive' }, effort: config.effort, cacheControl: { type: 'ephemeral' }, disableParallelToolUse: true } }
+    const reasoning = claudeReasoning(config.model)
+    return {
+      anthropic: {
+        ...(reasoning.adaptive ? { thinking: { type: 'adaptive' } } : {}),
+        ...(reasoning.efforts.length ? { effort: supportedEffort(config.effort, reasoning.efforts) } : {}),
+        cacheControl: { type: 'ephemeral' },
+        // One tool call per step: finish must never race the run_cell it reports on
+        disableParallelToolUse: true,
+      },
+    }
   }
   if (config.model.startsWith('openai/')) {
     return { openai: { reasoningEffort: config.effort === 'low' || config.effort === 'medium' ? config.effort : 'high' } }

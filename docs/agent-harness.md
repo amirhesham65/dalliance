@@ -121,7 +121,16 @@ Two constraints shape the loop.
 
 `resolveModel()` throws `MissingKeyError` without a key. Effort maps per maker:
 
-- Anthropic models, direct or `anthropic/*` on the gateway, get `thinking: { type: 'adaptive' }`, `effort` and the top-level `cacheControl` described in [Context and caching](#context-and-caching). They also get `disableParallelToolUse: true`, which the provider sends as `tool_choice: { type: 'auto', disable_parallel_tool_use: true }`: one tool call per step, so the loop stays a sequence of run, look, fix.
+- Anthropic models, direct or `anthropic/*` on the gateway, get the top-level `cacheControl` described in [Context and caching](#context-and-caching), and `thinking: { type: 'adaptive' }` and `effort` where the model takes them. `claudeReasoning()` decides from the model id, with gateway dots read as dashes:
+
+  | Models | Thinking | Effort |
+  | --- | --- | --- |
+  | Opus 4.7 and later, Sonnet 5 and later, Fable, and any Claude id it doesn't know | Adaptive | All five levels |
+  | Opus 4.6, Sonnet 4.6 | Adaptive | `low` to `max`, no `xhigh`. `xhigh` becomes `high` |
+  | Opus 4.5 | None | `low` to `high`. Anything above becomes `high` |
+  | Sonnet 4.5, Haiku 4.5, Opus 4.1, Opus 4, Sonnet 4, Claude 3 | None | None. The API rejects `effort` on these, and they don't take adaptive thinking |
+
+  An effort a model doesn't take steps down to the nearest level it does. They also get `disableParallelToolUse: true`, which the provider sends as `tool_choice: { type: 'auto', disable_parallel_tool_use: true }`: one tool call per step, so the loop stays a sequence of run, look, fix.
 - `openai/*` models get `reasoningEffort`. `high`, `xhigh` and `max` all map to `high`.
 - Every other maker runs with its defaults.
 
