@@ -11,6 +11,7 @@ The agent lives in `apps/desktop/electron/harness/`. It follows Vercel's [Build 
 | `title.ts` | The small model that names cells |
 | `approval.ts` | Whether a package install needs a person |
 | `events.ts` | The event bus extensions hook into |
+| `extensions.ts` | The built-in extensions: the `.env` block and the run log |
 | `format.ts` | `clip()`, `outputsToText()`, `formatVariables()` |
 | `workspace.ts` | File listing and reading inside the notebook's folder |
 
@@ -157,9 +158,9 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 
 `EventBus` in `events.ts` has four events: `run_start`, `tool_call`, `tool_result`, `run_end`. Handlers run in registration order. The first `tool_call` handler that returns `{ block: true }` stops the call.
 
-`NotebookSession.installExtensions()` registers the built-in ones:
+`installExtensions()` in `extensions.ts` registers the built-in ones. `NotebookSession` calls it once, on its own bus:
 
-- Block `read_file` on `.env` and `.env.*`.
-- Append every event to `logs/agent.jsonl` in userData, with strings clipped to 2,000 characters.
+- `blockSecretFiles()` blocks `read_file` on `.env` and `.env.*`. `isSecretPath()` matches the file name in any case, after either separator, so `config\.Env.local` is blocked and `environment.csv` or `.envrc` are not.
+- `logRuns()` appends every event to `logs/agent.jsonl` in userData, with strings clipped to 2,000 characters.
 
 Add new policy here rather than inside a tool.
