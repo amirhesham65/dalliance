@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -8,6 +9,7 @@ import { MockLanguageModelV4, simulateReadableStream } from 'ai/test'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
+import { canonicalOutputs } from '@dalliance/shared/normalize'
 import { FakeKernel } from '../kernel/fake-kernel'
 import { createApproval } from './approval'
 import { type EventData, EventBus } from './events'
@@ -337,6 +339,101 @@ describe('observability', () => {
   })
 })
 
+describe('the record of how a cell was made', () => {
+  const sha256 = (s: string) => `sha256:${createHash('sha256').update(s).digest('hex')}`
+  const keyError = { type: 'error' as const, ename: 'KeyError', evalue: "'amount'", traceback: ['KeyError'] }
+
+  it('keeps the prompt, models, rationale, attempts, files read, approvals and hashes', async () => {
+    const good = 'import seaborn\norders = pd.read_csv("orders.csv")\nplans = pd.read_csv("plans.csv")\norders.total.mean()'
+    const bad = 'import seaborn\norders = pd.read_csv("orders.csv")\norders.amount.mean()'
+    const kernel = new FakeKernel((code) =>
+      code === bad
+        ? { ok: false, outputs: [keyError], filesRead: ['orders.csv'] }
+        : code === good
+          ? { ok: true, outputs: [table], filesRead: ['orders.csv', 'plans.csv'] }
+          : { ok: true, outputs: [{ type: 'text', text: '3' }], filesRead: ['notes/readme.txt'] },
+    )
+    const { model } = scriptedModel([
+      { tool: 'read_file', input: { path: './orders.csv' }, thinking: 'Check the header first.' },
+      { tool: 'install_packages', input: { packages: ['seaborn'] } },
+      { tool: 'run_cell', input: { summary: 'Averaging order value', code: bad } },
+      { tool: 'run_cell', input: { summary: 'Averaging order value', code: good }, thinking: 'The column is total, not amount.' },
+      { tool: 'explore', input: { summary: 'Averaging order value', code: 'len(open("notes/readme.txt").readlines())' } },
+      { tool: 'finish', input: { interpretation: 'Order value is [[total including tax]].', answer: 'The mean is 41.2.' } },
+    ])
+    const { deps } = harness(model, kernel, { modelId: 'anthropic/claude-sonnet-5.5', effort: 'medium', requestApproval: async () => true })
+    writeFileSync(path.join(deps.workspaceDir, 'orders.csv'), 'plan,total\npro,40\n')
+    const corrections = [{ from: 'total', to: 'total including tax' }]
+
+    const result = await runCell(request({ corrections }), deps)
+
+    expect(result.ok).toBe(true)
+    expect(result.provenance).toEqual({
+      prompt: 'Average order value by month',
+      corrections,
+      madeAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
+      model: 'anthropic/claude-sonnet-5.5',
+      effort: 'medium',
+      steps: [1, 2, 3, 4, 5, 6].map((step) => ({ step, model: 'mock-model-id', fallback: false })),
+      rationale: { from: 'summaries', text: ['Check the header first.', 'The column is total, not amount.'] },
+      attemptCount: 2,
+      attempts: [
+        { code: bad, error: "KeyError: 'amount'", changed: null },
+        { code: good, error: null, changed: '- orders.amount.mean()\n+ plans = pd.read_csv("plans.csv")\n+ orders.total.mean()' },
+      ],
+      // The final code's reads come first. The agent's own reads follow, once each
+      filesRead: [
+        { path: 'orders.csv', by: 'code' },
+        { path: 'plans.csv', by: 'code' },
+        { path: 'notes/readme.txt', by: 'agent' },
+      ],
+      filesReadTruncated: false,
+      approvals: [{ kind: 'packages', detail: 'pip install seaborn', outcome: 'approved' }],
+      codeHash: sha256(good),
+      outputsHash: sha256(canonicalOutputs([table])),
+    })
+  })
+
+  it('falls back to the interpretation and answer when no step has a reasoning summary', async () => {
+    const { model } = scriptedModel([
+      { tool: 'run_cell', input: { summary: 'Averaging order value', code: 'orders.total.mean()' } },
+      { tool: 'finish', input: { interpretation: 'Order value is [[total including tax]].', answer: 'August averaged $41.20.' } },
+    ])
+    const result = await runCell(request(), harness(model, new FakeKernel(() => ({ ok: true, outputs: [table] }))).deps)
+    expect(result.provenance?.rationale).toEqual({ from: 'interpretation', text: ['Order value is [[total including tax]].', 'August averaged $41.20.'] })
+  })
+
+  it('records secret files the agent was kept from, and code allowed without asking', async () => {
+    const code = 'import requests\nrates = requests.get(URL).json()'
+    const { model } = scriptedModel([
+      { tool: 'read_file', input: { path: '.env' } },
+      { tool: 'run_cell', input: { summary: 'Fetching exchange rates', code } },
+      { tool: 'run_cell', input: { summary: 'Fetching exchange rates', code } },
+      { tool: 'finish', input: { interpretation: '', answer: '' } },
+    ])
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [] })), { needsApproval: createApproval({ mode: 'background' }) })
+    installExtensions(deps.bus, { logDir: mkdtempSync(path.join(tmpdir(), 'dalliance-log-')) })
+    const result = await runCell(request(), deps)
+    expect(result.provenance).toMatchObject({
+      // The same approval twice is kept once
+      approvals: [
+        { kind: 'secret', detail: '.env', outcome: 'blocked' },
+        { kind: 'network', detail: 'import requests', outcome: 'trusted' },
+      ],
+      attempts: [{ code, changed: null }, { code, changed: '' }],
+      filesRead: [],
+      rationale: { from: 'none', text: [] },
+    })
+  })
+
+  it('records a failed generation too, since the cell keeps its code', async () => {
+    const { model } = scriptedModel([{ tool: 'run_cell', input: { summary: 'Averaging order value', code: 'orders.amount.mean()' } }, { text: 'I could not fix it.' }])
+    const result = await runCell(request(), harness(model, new FakeKernel(() => ({ ok: false, outputs: [keyError] }))).deps)
+    expect(result.ok).toBe(false)
+    expect(result.provenance).toMatchObject({ attemptCount: 1, attempts: [{ code: 'orders.amount.mean()', error: "KeyError: 'amount'" }], codeHash: sha256('orders.amount.mean()') })
+  })
+})
+
 describe('runCell without generation', () => {
   it('runs the existing code directly without calling the model', async () => {
     const kernel = new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '42' }] }))
@@ -346,6 +443,8 @@ describe('runCell without generation', () => {
     expect(calls()).toBe(0)
     expect(result).toMatchObject({ ok: true, generated: false, code: '6 * 7', executionCount: 1 })
     expect(events).toContainEqual({ type: 'output', output: { type: 'text', text: '42' } })
+    // A plain run makes no record, so the cell keeps the one from when its code was written
+    expect(result.provenance).toBeUndefined()
   })
 })
 

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type PromptCell, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
-import { fakeApi, fakeSettings, result } from '@/test/fake-api'
+import { fakeApi, fakeSettings, provenance, result } from '@/test/fake-api'
 import { actions, setApi, useNotebook } from './notebook-store'
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
@@ -47,6 +47,27 @@ describe('running cells', () => {
     actions.run(cell(0).id)
     await flush()
     expect(requests[1].generate).toBe(true)
+  })
+
+  it('keeps the record of how the code was made through a plain rerun, and replaces it on the next generation', async () => {
+    const made = provenance()
+    const { api } = fakeApi((req) =>
+      req.generate ? result({ code: 'orders.total.mean()', provenance: req.prompt === 'Mean' ? made : provenance({ prompt: req.prompt }) }) : result({ generated: false, code: req.code }),
+    )
+    setApi(api)
+    load(newPromptCell('Mean'))
+    actions.run(cell(0).id)
+    await flush()
+    expect(cell(0).provenance).toEqual(made)
+
+    actions.run(cell(0).id)
+    await flush()
+    expect(cell(0).provenance).toBe(made)
+
+    actions.setPrompt(cell(0).id, 'Median')
+    actions.run(cell(0).id)
+    await flush()
+    expect(cell(0).provenance?.prompt).toBe('Median')
   })
 
   it('runs queued cells one at a time, in order, with earlier cells as context', async () => {

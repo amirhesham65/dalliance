@@ -62,6 +62,78 @@ export interface Correction {
   to: string
 }
 
+/** One run_cell attempt of a generation. */
+export interface ProvenanceAttempt {
+  code: string
+  /** The Python error, like `KeyError: 'plan'`, or why the run stopped. Null when it ran cleanly. */
+  error: string | null
+  /**
+   * The lines that differ from the attempt before, `- ` removed and `+ ` added, at most 12. Empty when the code was
+   * the same, and null for the first attempt.
+   */
+  changed: string | null
+}
+
+/** A file read while the cell was made, as a path relative to the workspace. */
+export interface ProvenanceFile {
+  path: string
+  /** `code`: the final code opened it. `agent`: the agent read it with read_file, explore or an earlier attempt. */
+  by: 'code' | 'agent'
+}
+
+/** Something the agent needed allowing, and how it went. */
+export interface ProvenanceApproval {
+  kind: 'packages' | 'shell' | 'network' | 'secret'
+  /** The install command, the line of code, or the secret file. */
+  detail: string
+  /**
+   * `approved`: a person said yes. `trusted`: nobody was asked, because approvals are off or it was approved earlier
+   * in the session. `declined`: a person said no. `blocked`: it touched secrets, which is never allowed.
+   */
+  outcome: 'approved' | 'trusted' | 'declined' | 'blocked'
+}
+
+/**
+ * The agent's stated rationale. `summaries` are the model's own reasoning summaries, one per step that had one.
+ * When no step had one, `interpretation` holds the cell's interpretation and answer instead. `none` when there was
+ * neither.
+ */
+export interface StatedRationale {
+  from: 'summaries' | 'interpretation' | 'none'
+  text: string[]
+}
+
+/**
+ * How a prompt cell's code was made: the record of its last generation. A plain run of saved code keeps it. Saved
+ * under metadata.dalliance.provenance, with only the final attempt. See docs/notebook-model.md.
+ */
+export interface Provenance {
+  /** The prompt the agent was given. */
+  prompt: string
+  /** Corrections to the agent's assumptions that the run was given. */
+  corrections: Correction[]
+  /** When the run ended, as an ISO 8601 date. */
+  madeAt: string
+  /** The model chosen in Settings, and its effort. */
+  model: string | null
+  effort: string | null
+  /** The model that answered each step. `fallback` is true when the chosen model declined and a fallback answered. */
+  steps: { step: number; model: string | null; fallback: boolean }[]
+  rationale: StatedRationale
+  /** How many times the code ran. */
+  attemptCount: number
+  /** The attempts, oldest first. The file keeps only the last one. The full trail is in logs/agent.jsonl. */
+  attempts: ProvenanceAttempt[]
+  filesRead: ProvenanceFile[]
+  /** True when more files were read than the record lists. */
+  filesReadTruncated: boolean
+  approvals: ProvenanceApproval[]
+  /** SHA-256 of the final code, as `sha256:<hex>`. */
+  codeHash: string
+  /** SHA-256 of canonicalOutputs() of the final outputs, from normalize.ts. */
+  outputsHash: string
+}
+
 /** Prompts this short ("Load orders") already read as a title, so they aren't sent to be named. */
 export const MIN_TITLE_PROMPT = 16
 
@@ -115,6 +187,8 @@ export interface PromptCell {
   executionCount: number | null
   state: CellState
   durationMs: number | null
+  /** How the agent made the code. Null until a generation runs, and for plain Jupyter cells. */
+  provenance: Provenance | null
   /** What Jupyter wrote that Dalliance doesn't use. Absent for cells made in Dalliance. */
   jupyter?: JupyterCell
 }
@@ -162,6 +236,7 @@ export function newPromptCell(prompt = '', code = ''): PromptCell {
     executionCount: null,
     state: 'idle',
     durationMs: null,
+    provenance: null,
   }
 }
 

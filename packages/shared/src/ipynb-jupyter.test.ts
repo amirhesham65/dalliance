@@ -219,4 +219,27 @@ describe.skipIf(!hasNbformat)('nbformat.validate', () => {
     )
     expect(nbformatErrors(save({ ...nb, cells }))).toBe('')
   })
+
+  it('accepts a cell with the record of how it was made', () => {
+    const cell: PromptCell = {
+      ...newPromptCell('Mean total', 'orders.total.mean()'),
+      provenance: {
+        prompt: 'Mean total',
+        corrections: [],
+        madeAt: '2026-09-30T12:00:00.000Z',
+        model: 'anthropic/claude-sonnet-5.5',
+        effort: 'medium',
+        steps: [{ step: 1, model: 'anthropic/claude-sonnet-5.5', fallback: false }],
+        rationale: { from: 'interpretation', text: ['The mean of the total column.'] },
+        attemptCount: 1,
+        attempts: [{ code: 'orders.total.mean()', error: null, changed: null }],
+        filesRead: [{ path: 'orders.csv', by: 'code' }],
+        filesReadTruncated: false,
+        approvals: [],
+        codeHash: `sha256:${'0'.repeat(64)}`,
+        outputsHash: `sha256:${'1'.repeat(64)}`,
+      },
+    }
+    expect(nbformatErrors(save({ cells: [cell] }))).toBe('')
+  })
 })

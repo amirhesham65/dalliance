@@ -1,4 +1,4 @@
-import type { Correction, CreatedVariable, Notebook, Output } from './notebook'
+import type { Correction, CreatedVariable, Notebook, Output, Provenance } from './notebook'
 
 /** One line in a cell's activity log: what the agent did while writing the cell. */
 export interface ActivityItem {
@@ -96,6 +96,8 @@ export interface CellRunResult {
   steps: RunStep[]
   /** What the model calls cost. Only with Show costs on, and only for a run that called a model. */
   cost?: RunCost
+  /** How a generated run made the code. Absent for a plain run of saved code, which keeps the cell's record. */
+  provenance?: Provenance | null
   /** Why the run failed, when the problem was not a Python error (no API key, stopped, the agent gave up). */
   error: string | null
 }

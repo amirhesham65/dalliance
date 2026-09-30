@@ -48,7 +48,8 @@ export interface EventData {
   usage?: StepUsage
 }
 
-export type EventResult = { block: true; reason: string } | void
+/** A block. `secret` is set when the call touched something that may hold secrets: the file or the line, for the cell's record. */
+export type EventResult = { block: true; reason: string; secret?: string } | void
 
 type Handler = (data: EventData) => Promise<EventResult> | EventResult
 
@@ -63,10 +64,10 @@ export class EventBus {
   }
 
   /** Runs handlers in registration order and stops at the first block. */
-  async emit(event: HarnessEvent, data: EventData): Promise<{ blocked: boolean; reason?: string }> {
+  async emit(event: HarnessEvent, data: EventData): Promise<{ blocked: boolean; reason?: string; secret?: string }> {
     for (const handler of this.handlers.get(event) ?? []) {
       const result = await handler(data)
-      if (result && result.block) return { blocked: true, reason: result.reason }
+      if (result && result.block) return { blocked: true, reason: result.reason, ...(result.secret != null ? { secret: result.secret } : {}) }
     }
     return { blocked: false }
   }

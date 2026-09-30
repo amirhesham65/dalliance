@@ -2,7 +2,7 @@ import { Activity, CircleAlert, File, FolderOpen, History, LocateFixed, Pencil, 
 import { type ReactNode, useEffect, useState } from 'react'
 import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { IconButton } from '@/components/app/IconButton'
-import { PythonTokens } from '@/components/notebook/CellView'
+import { PythonTokens } from '@/components/notebook/PythonTokens'
 import { InlineText } from '@/components/notebook/InlineText'
 import { OutputList } from '@/components/notebook/outputs/OutputView'
 import { RefText } from '@/components/notebook/RefText'

@@ -16,6 +16,7 @@ import { generationIdOf, stepUsage } from './cost'
 import type { EventBus } from './events'
 import { clip, formatVariables } from './format'
 import { buildCellPrompt, buildSystemPrompt } from './prompt'
+import { buildProvenance, newTrail } from './provenance'
 import { type CellTools, type RunState, createCellTools } from './tools'
 import { listFiles } from './workspace'
 
@@ -28,6 +29,8 @@ export interface HarnessDeps {
   pythonVersion: string | null
   projectInstructions: string | null
   modelId?: string | null
+  /** The effort chosen in Settings, for the cell's record. */
+  effort?: string | null
   /** Whether to ask for suggested next prompts. On unless the user turned them off. */
   suggestNext?: boolean
   emit: (event: RunEvent) => void
@@ -79,7 +82,7 @@ async function executeCell(request: RunCellRequest, deps: HarnessDeps): Promise<
 
 async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise<CellRunResult> {
   const started = Date.now()
-  const state: RunState = { lastRun: null, finished: null, attempts: 0 }
+  const state: RunState = { lastRun: null, finished: null, attempts: 0, trail: newTrail() }
   const activity = new Map<string, ActivityItem>()
   const track = (item: ActivityItem) => {
     activity.set(item.id, item)
@@ -268,21 +271,37 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
       : clip(text.trim(), 600) || 'The agent stopped without running any code.'
   }
 
+  const code = answeredInWords ? '' : (last?.code ?? request.code)
+  const outputs = last?.result.outputs ?? []
+  const interpretation = state.finished?.interpretation ?? null
+  // If the model answered in text instead of calling finish, keep that answer
+  const answer = state.finished?.answer ?? (succeeded && text.trim() ? clip(text.trim(), 1200) : null)
   return {
     ok: error == null && succeeded,
-    code: answeredInWords ? '' : (last?.code ?? request.code),
-    outputs: last?.result.outputs ?? [],
+    code,
+    outputs,
     executionCount: last?.result.executionCount ?? null,
     durationMs: Date.now() - started,
     generated: true,
-    interpretation: state.finished?.interpretation ?? null,
+    interpretation,
     variables: created(last?.result.assigned ?? []),
-    // If the model answered in text instead of calling finish, keep that answer
-    answer: state.finished?.answer ?? (succeeded && text.trim() ? clip(text.trim(), 1200) : null),
+    answer,
     // A model may still write some after being told not to
     suggestions: deps.suggestNext === false ? [] : (state.finished?.suggestions ?? []),
     activity: [...activity.values()],
     steps,
+    provenance: buildProvenance({
+      prompt: request.prompt,
+      corrections: request.corrections,
+      model: deps.modelId ?? null,
+      effort: deps.effort ?? null,
+      steps,
+      trail: state.trail,
+      code,
+      outputs,
+      interpretation,
+      answer,
+    }),
     error,
   }
 }

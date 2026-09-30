@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Output } from '@dalliance/shared/notebook'
@@ -158,6 +158,74 @@ for (const { name, env, skip } of PATHS) {
       const child = 'import subprocess\nsubprocess.run([sys.executable, "-c", "import sys; print(len(sys.stdin.read()))"], capture_output=True, text=True).stdout'
       expect(await value(child)).toEqual([{ type: 'text', text: "'0\\n'" }])
       expect(await value('1 + 1')).toEqual([{ type: 'text', text: '2' }])
+    })
+  })
+
+  describe.skipIf(skip)(`PythonKernel files read (${name})`, () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'dalliance-kernel-'))
+    const outside = mkdtempSync(path.join(tmpdir(), 'dalliance-outside-'))
+    const kernel = new PythonKernel({ python: python!, cwd: dir, scratchDir: mkdtempSync(path.join(tmpdir(), 'dalliance-scratch-')), env })
+
+    beforeAll(() => {
+      mkdirSync(path.join(dir, 'data'))
+      writeFileSync(path.join(dir, 'data', 'orders.csv'), 'plan,total\npro,40\n')
+      writeFileSync(path.join(dir, 'notes.txt'), 'hello\n')
+      writeFileSync(path.join(outside, 'elsewhere.csv'), 'a\n1\n')
+      return kernel.start()
+    }, 20_000)
+    afterAll(() => kernel.shutdown())
+
+    it('reports the files in the folder a cell opened for reading, once each, in order', async () => {
+      const code = [
+        'open("data/orders.csv").read()',
+        'import pathlib, os',
+        'pathlib.Path("notes.txt").read_text()',
+        'open("data/orders.csv", "rb").read()',
+        'os.close(os.open("notes.txt", os.O_RDONLY))',
+      ].join('\n')
+      const r = await kernel.execute(code, { store: true })
+      expect(r.ok).toBe(true)
+      expect(r.filesRead).toEqual({ paths: ['data/orders.csv', 'notes.txt'], truncated: false })
+    })
+
+    it('leaves out writes, missing files, folders and files outside the folder', async () => {
+      const code = [
+        'import os',
+        'open("out.txt", "w").write("x")',
+        'open("out.txt", "a").write("y")',
+        'try:\n    open("missing.csv")\nexcept FileNotFoundError:\n    pass',
+        `open(${JSON.stringify(path.join(outside, 'elsewhere.csv'))}).read()`,
+        'os.close(os.open("data", os.O_RDONLY))',
+      ].join('\n')
+      const r = await kernel.execute(code, { store: true })
+      expect(r.ok).toBe(true)
+      expect(r.filesRead).toEqual({ paths: [], truncated: false })
+    })
+
+    it('counts explore runs and imports from the folder, but not their bytecode caches', async () => {
+      writeFileSync(path.join(dir, 'reader.py'), 'def first():\n    return open("notes.txt").readline().strip()\n')
+      const r = await kernel.execute('import reader\nreader.first()', { store: false })
+      expect(r.outputs).toEqual([{ type: 'text', text: "'hello'" }])
+      expect(r.filesRead?.paths).toEqual(['reader.py', 'notes.txt'])
+      // Each run starts a fresh list, and a failed cell still reports what it read
+      const failed = await kernel.execute('open("notes.txt").read()\n1 / 0', { store: true })
+      expect(failed.ok).toBe(false)
+      expect(failed.filesRead?.paths).toEqual(['notes.txt'])
+    })
+
+    it('lists at most 100 files and says when it left some out', async () => {
+      mkdirSync(path.join(dir, 'many'))
+      for (let i = 0; i < 105; i++) writeFileSync(path.join(dir, 'many', `f${String(i).padStart(3, '0')}.txt`), `${i}\n`)
+      const r = await kernel.execute('for i in range(105):\n    open(f"many/f{i:03}.txt").read()', { store: true })
+      expect(r.filesRead?.paths).toHaveLength(100)
+      expect(r.filesRead?.paths[0]).toBe('many/f000.txt')
+      expect(r.filesRead?.truncated).toBe(true)
+    })
+
+    it.skipIf(!hasData)('sees files pandas reads', async () => {
+      const r = await kernel.execute('import pandas as pd\norders = pd.read_csv("data/orders.csv")\nlen(orders)', { store: true })
+      expect(r.outputs).toEqual([{ type: 'text', text: '1' }])
+      expect(r.filesRead?.paths).toEqual(['data/orders.csv'])
     })
   })
 
