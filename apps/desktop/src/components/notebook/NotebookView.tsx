@@ -78,12 +78,13 @@ export function NotebookView() {
 
 /**
  * A thin line between two cells, so it is clear where one ends. Hover it to add a cell there. The line is one
- * piece, a little narrower than the cells, and the buttons sit over its middle.
+ * piece, a little narrower than the cells, and the buttons sit over its middle. Both live in the cells' column,
+ * ml-11 like the cells, so the line and the buttons share one centre.
  */
 const CellInserter = memo(function CellInserter({ index, divider }: { index: number; divider: boolean }) {
   const button = 'flex items-center gap-1 rounded px-1.5 py-0.5 text-faint hover:bg-hover hover:text-foreground'
   return (
-    <div className="group/add relative flex h-5 items-center justify-center pl-11">
+    <div className="group/add relative ml-11 flex h-5 items-center justify-center">
       {divider && <div aria-hidden data-slot="cell-divider" className="pointer-events-none absolute inset-x-3 top-1/2 h-px bg-foreground/10 transition-colors group-hover/add:bg-foreground/20" />}
       <div className="relative flex gap-1 rounded bg-background px-1 text-[11.5px] opacity-0 transition-opacity group-focus-within/add:opacity-100 group-hover/add:opacity-100">
         <button type="button" className={button} onClick={() => actions.insertCell(index, 'prompt')}>
