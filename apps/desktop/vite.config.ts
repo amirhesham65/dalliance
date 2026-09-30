@@ -37,4 +37,20 @@ export default defineConfig({
     }),
   ],
   resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
+  build: {
+    rolldownOptions: {
+      output: {
+        // Vendor code in its own chunks, so no chunk passes Vite's 500 kB warning and an app-only
+        // change leaves the vendor files byte for byte the same
+        codeSplitting: {
+          groups: [
+            { name: 'react', test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/, priority: 3 },
+            { name: 'ui', test: /[\\/]node_modules[\\/](radix-ui|@radix-ui|@floating-ui|cmdk|react-resizable-panels)[\\/]/, priority: 2 },
+            { name: 'icons', test: /[\\/]node_modules[\\/]lucide-react[\\/]/, priority: 2 },
+            { name: 'vendor', test: /[\\/]node_modules[\\/]/, priority: 1 },
+          ],
+        },
+      },
+    },
+  },
 })
