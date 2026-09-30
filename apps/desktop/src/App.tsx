@@ -44,10 +44,10 @@ export default function App() {
     async (action: MenuAction) => {
       if (!api) return
       const selected = useNotebook.getState().selectedId
-      // Edit > Undo and Redo. MenuAction in @dalliance/shared doesn't list them yet, so compare as strings
-      const name: string = action
-      if (name === 'undo' || name === 'redo') return editFromMenu(name)
       switch (action) {
+        case 'undo':
+        case 'redo':
+          return editFromMenu(action)
         case 'new':
           if (await api.confirmDiscard()) {
             actions.load(welcomeNotebook(), null)

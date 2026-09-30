@@ -189,6 +189,8 @@ export type MenuAction =
   | 'open'
   | 'save'
   | 'save-as'
+  | 'undo'
+  | 'redo'
   | 'run-cell'
   | 'run-all'
   | 'interrupt'
