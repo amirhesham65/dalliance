@@ -237,6 +237,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
             detail: outcome.detail,
             code: prev?.code,
             status: outcome.failed ? 'error' : 'done',
+            ...(outcome.warning ? { warning: true } : {}),
           })
           deps.emit({ type: 'status', text: 'Thinking' })
           break
@@ -350,7 +351,7 @@ export function describeCall(toolName: string, input: unknown): string {
  * How a call ended. A step keeps the summary it ran under, or gets a past-tense generic label without one.
  * A detail is a duration or the one line of an error, never a line of code or traceback.
  */
-export function describeResult(toolName: string, output: unknown, input?: unknown): { label?: string; detail?: string; failed?: boolean } {
+export function describeResult(toolName: string, output: unknown, input?: unknown): { label?: string; detail?: string; failed?: boolean; warning?: boolean } {
   const text = typeof output === 'string' ? output : JSON.stringify(output)
   if (text.startsWith('Blocked:')) return { detail: text, failed: true }
   const summarized = summaryOf((input ?? {}) as Record<string, unknown>) != null
@@ -373,8 +374,11 @@ export function describeResult(toolName: string, output: unknown, input?: unknow
     case 'finish':
       return text === 'Done.' ? { label: 'Finished' } : { label: 'Tried to finish early', detail: text }
     case 'explore':
-      // An exploration that raised still did its job of looking, so it isn't a failed step
-      return { label: summarized ? undefined : 'Explored the data', detail: errorLine(text) }
+      // An exploration that raised still did its job of looking, so it isn't a failed step, only a warned one
+    {
+      const detail = errorLine(text)
+      return { label: summarized ? undefined : 'Explored the data', detail, ...(detail ? { warning: true } : {}) }
+    }
     default:
       return {}
   }

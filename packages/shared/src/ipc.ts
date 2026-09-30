@@ -9,6 +9,8 @@ export interface ActivityItem {
   /** The Python an explore or run_cell call sent, shown when the user opens the step. */
   code?: string
   status: 'running' | 'done' | 'error'
+  /** A step that ended but hit an error it could get past, like an exploration that raised. */
+  warning?: boolean
 }
 
 export type RunEvent =

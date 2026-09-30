@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import type { RecentNotebook, SettingsView } from '@dalliance/shared/ipc'
 import { newPromptCell } from '@dalliance/shared/notebook'
 import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
+import { modelReady } from '@/lib/keys'
 import { Onboarding } from './Onboarding'
 import { Kbd } from '@/components/ui/kbd'
 import { Wordmark } from './parts'
@@ -30,6 +31,7 @@ export function WelcomeScreen() {
 
 function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
   const settings = useNotebook((s) => s.settings)
+  const account = useNotebook((s) => s.account)
   const python = useNotebook((s) => s.python)
   const canReturn = useNotebook((s) => s.canReturn)
   const path = useNotebook((s) => s.path)
@@ -43,7 +45,9 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
 
   const cwd = useNotebook((s) => s.kernel.cwd)
   const keySource = settings?.keySource ?? null
-  const hasKey = keySource != null
+  const onCloud = settings?.provider === 'cloud'
+  // Dalliance Cloud takes no key: a signed-in account is what it needs
+  const hasKey = settings != null && modelReady(settings, account)
   const hasPython = pythonReady(python)
   const name = path ? (path.split(/[\\/]/).pop() ?? path).replace(/\.ipynb$/, '') : 'Untitled'
 
@@ -138,8 +142,16 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
               <ul className="flex flex-col gap-1 px-3 pb-3">
                 <SetupItem
                   done={hasKey}
-                  title="A model key"
-                  detail={keySource ? KEY_SOURCES[keySource] : 'Writes the code for each cell'}
+                  title={onCloud ? 'A Dalliance account' : 'A model key'}
+                  detail={
+                    onCloud
+                      ? account?.user
+                        ? `Signed in as ${account.user.name || account.user.email}`
+                        : 'Runs prompts on your plan'
+                      : keySource
+                        ? KEY_SOURCES[keySource]
+                        : 'Writes the code for each cell'
+                  }
                   onClick={() => onSetup(1)}
                 />
                 <SetupItem

@@ -68,7 +68,7 @@ A settings file that chose `cloud`, opened by a build without it, reads as `gate
 
 ## Credits per run
 
-With Show costs on, the Activity pane shows the credits each run used on Dalliance Cloud, and never dollars, since the plan pays in credits. Each step of a run keeps the gateway's generation id, which the proxy passes through, and the run's cost names those ids. `countCredits()` asks `Billing.credits()`, which subscribes to the service's `usage:credits` query with them. The service answers for the signed-in user's own calls only. Each call's row lands a few seconds after the call, so the subscription stays open until every id is there, or 90 seconds pass, and then closes. See [agent-harness.md](agent-harness.md#costs).
+With Show costs on, the Activity pane shows the credits each run used on Dalliance Cloud, counted for every run so turning it on shows earlier ones too, and never dollars, since the plan pays in credits. Each step of a run keeps the gateway's generation id, which the proxy passes through, and the run's cost names those ids. `countCredits()` asks `Billing.credits()`, which subscribes to the service's `usage:credits` query with them. The service answers for the signed-in user's own calls only. Each call's row lands a few seconds after the call, so the subscription stays open until every id is there, or 90 seconds pass, and then closes. See [agent-harness.md](agent-harness.md#costs).
 
 ## What the service promises
 

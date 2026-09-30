@@ -91,7 +91,7 @@ Each tool call is a line in the cell's activity list, and its label doubles as t
 2. `tool-input-delta`: the harness collects the input's JSON per call id and reads it with `parsePartialJson()`. Once the summary is complete, which means a later field has started or the input is whole, it becomes the label. A summary still being written never shows.
 3. `tool-call`: the whole input confirms the label, and the call's code, clipped to 4,000 characters, goes on the item as `code`. The user opens the step to see it.
 
-An empty summary falls back to the generic label, and to "Explored the data" or "Ran the cell" when the call ends. A call without one fails the schema and goes back to the model; its step says the call was malformed, since the SDK's error quotes the whole input. A step's detail is the run's duration, "Ran in 84 ms", or the error's `Name: message` line, never the traceback around it. A step still running when the stream ends, cut off by a stop or an error, is marked failed.
+An empty summary falls back to the generic label, and to "Explored the data" or "Ran the cell" when the call ends. A call without one fails the schema and goes back to the model; its step says the call was malformed, since the SDK's error quotes the whole input. A step's detail is the run's duration, "Ran in 84 ms", or the error's `Name: message` line, never the traceback around it. A step still running when the stream ends, cut off by a stop or an error, is marked failed. An exploration that raised isn't a failed step, since it still did its job of looking, but it carries `warning: true`, so the list doesn't show a check beside an error.
 
 ### guarded()
 
@@ -190,7 +190,7 @@ The call has a 10 second timeout, one retry and 1,024 output tokens, since reaso
 
 ## Costs
 
-With Show costs on, `showCosts` in Settings and off by default, `NotebookSession` prices each run and each cell name, and hands the renderer a `RunCost`. The math is in `cost.ts`. With the setting off nothing is priced, and a pricing failure never fails the run.
+`NotebookSession` prices each run and each cell name, and hands the renderer a `RunCost`. The math is in `cost.ts`. It prices them whether or not Show costs (`showCosts` in Settings, off by default) is on, so turning the setting on shows the runs made while it was off; the renderer only shows costs with it on. A pricing failure never fails the run.
 
 `stepUsage()` reads the AI SDK's usage. Its `inputTokens` already counts cache reads and writes, and `outputTokens` already counts reasoning, so `callCost()` charges the input left after the cache tokens at the input rate, cache reads and writes at their own rates, and the output at the output rate. Reasoning tokens are never added on top. On a real cache write call and a cache read call this matched the cost the gateway reported for each.
 

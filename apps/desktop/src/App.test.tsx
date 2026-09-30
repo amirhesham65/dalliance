@@ -74,34 +74,27 @@ describe('App', () => {
     expect(screen.getByText((_, el) => el?.tagName === 'PRE' && el.textContent === code)).toBeInTheDocument()
   })
 
-  it('shows how a cell was made only when asked, and keeps it through a plain rerun', async () => {
+  it('keeps the record of how a cell was made out of the UI, and through a plain rerun', async () => {
     const user = userEvent.setup()
     const { api, requests } = fakeApi((req) =>
       req.generate ? result({ code: 'orders.total.mean()', provenance: provenance() }) : result({ generated: false, code: req.code }),
     )
     setApi(api)
     render(<App />)
-    // A cell made before the record existed has no button for it
-    expect(screen.queryByRole('button', { name: 'How this was made' })).not.toBeInTheDocument()
-
     await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Average order value')
     await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
-    const toggle = await screen.findByRole('button', { name: 'How this was made' })
-    // Hidden until asked for, and never a tab beside Result and Code
-    expect(screen.queryByRole('region', { name: 'How this was made' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('tab', { name: 'How this was made' })).not.toBeInTheDocument()
-    await user.click(toggle)
-    const view = screen.getByRole('region', { name: 'How this was made' })
-    expect(within(view).getByRole('heading', { name: 'Stated rationale' })).toBeInTheDocument()
-    expect(view).toHaveTextContent('The column is total, not amount.')
-    await user.click(within(view).getByRole('button', { name: 'Show the code' }))
-    expect(within(view).getByLabelText('Code the agent wrote')).toHaveTextContent('orders.total.mean()')
+    await screen.findByRole('tab', { name: 'Code' })
+    // The record is saved with the notebook for Verify, but the cell never shows it
+    expect(screen.queryByText(/How this was made/)).not.toBeInTheDocument()
+    expect(screen.queryByText('The column is total, not amount.')).not.toBeInTheDocument()
+    const record = () => (useNotebook.getState().notebook.cells[0] as PromptCell).provenance
 
+    expect(record()).not.toBeNull()
     // Running the saved code again doesn't ask the agent, and the record stays
     await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
     await waitFor(() => expect(requests).toHaveLength(2))
     expect(requests[1].generate).toBe(false)
-    expect(await screen.findByRole('button', { name: 'How this was made' })).toBeInTheDocument()
+    expect(record()).not.toBeNull()
   })
 
   it('asks the question the agent raises and sends back the answer', async () => {
@@ -315,21 +308,6 @@ describe('question cells', () => {
     expect(screen.queryByRole('tab', { name: 'Code' })).not.toBeInTheDocument()
   })
 
-  it('shows how a written answer was made when asked', async () => {
-    const user = userEvent.setup()
-    const record = provenance({ attempts: [], attemptCount: 0, rationale: { from: 'interpretation', text: ['A question about modelling, answered in words.'] } })
-    setApi(fakeApi(() => result({ code: '', outputs: [], executionCount: null, answer: 'Predict returns.', provenance: record })).api)
-    render(<App />)
-    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'What model could we build?')
-    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
-    const toggle = await screen.findByRole('button', { name: 'How this was made' })
-    expect(screen.queryByRole('region', { name: 'How this was made' })).not.toBeInTheDocument()
-    await user.click(toggle)
-    const view = screen.getByRole('region', { name: 'How this was made' })
-    expect(view).toHaveTextContent(/^The agent answered this on/)
-    expect(view).toHaveTextContent('so this is its interpretation of the prompt and its answer.')
-    expect(within(view).queryByRole('button', { name: 'Show the code' })).not.toBeInTheDocument()
-  })
 
   it('runs a suggested next prompt as a new cell', async () => {
     const user = userEvent.setup()
@@ -748,6 +726,21 @@ describe('question cells', () => {
     expect(screen.queryByRole('button', { name: 'Open Settings' })).not.toBeInTheDocument()
   })
 
+  it("never asks for an API key on Dalliance Cloud, only for a sign-in when signed out", async () => {
+    const { api } = fakeApi(() => result())
+    api.getSettings = async () => ({ ...fakeSettings(), provider: 'cloud', cloud: true, keySource: null, hasKey: { gateway: false, anthropic: false } })
+    api.getAccount = async () => ({ user: { name: 'Amir', email: 'amir@example.com' }, checking: false, waiting: false, error: null })
+    setApi(api)
+    render(<App />)
+    await waitFor(() => expect(useNotebook.getState().account?.user).not.toBeNull())
+    expect(screen.queryByText('Add an API key to turn prompts into code.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Sign in to Dalliance to run prompts.')).not.toBeInTheDocument()
+
+    act(() => useNotebook.setState({ account: { user: null, checking: false, waiting: false, error: null } }))
+    expect(screen.getByText('Sign in to Dalliance to run prompts.')).toBeInTheDocument()
+    expect(screen.queryByText('Add an API key to turn prompts into code.')).not.toBeInTheDocument()
+  })
+
   it('shows the notice again when its message changes, or when the problem comes back', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result())
@@ -1121,5 +1114,13 @@ describe('Show costs', () => {
     expect(log).toHaveTextContent('Wrote “Revenue by month”')
     expect(log).not.toHaveTextContent(/\$|estimated|tokens|credits/)
     expect(screen.queryByLabelText("This notebook's cost")).not.toBeInTheDocument()
+  })
+
+  it('shows what runs cost while it was off, once it is turned on', async () => {
+    const log = await runWithCost({ showCosts: false }, { unit: 'usd', usd: 0.0421, unpricedTokens: 0 })
+    expect(log).not.toHaveTextContent(/\$/)
+    act(() => useNotebook.setState((s) => ({ settings: { ...s.settings!, showCosts: true } })))
+    expect(screen.getByRole('list', { name: 'Run log' })).toHaveTextContent('$0.04')
+    expect(screen.getByLabelText("This notebook's cost")).toBeInTheDocument()
   })
 })
