@@ -132,6 +132,25 @@ describe('App', () => {
     expect(useNotebook.getState().dirty).toBe(false)
   })
 
+  it('shows a notebook that fails to open, and keeps the one that was open', async () => {
+    const { api } = fakeApi(() => result())
+    let menu!: (action: 'open') => void
+    api.onMenu = (l) => {
+      menu = l
+      return () => {}
+    }
+    api.openNotebook = async () => {
+      throw new Error("Error invoking remote method 'open-notebook': Error: Unexpected token in JSON at position 12")
+    }
+    setApi(api)
+    render(<App />)
+    const before = useNotebook.getState().notebook
+    await waitFor(() => expect(menu).toBeDefined())
+    menu('open')
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't open the notebook. Unexpected token in JSON at position 12")
+    expect(useNotebook.getState().notebook).toBe(before)
+  })
+
   it('keeps the notebook up when one cell fails to draw, and Retry draws it again', async () => {
     const user = userEvent.setup()
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})

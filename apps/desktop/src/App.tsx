@@ -56,8 +56,12 @@ export default function App() {
           break
         case 'open':
           if (await api.confirmDiscard()) {
-            const opened = await api.openNotebook()
-            if (opened) actions.load(opened.notebook, opened.path)
+            try {
+              const opened = await api.openNotebook()
+              if (opened) actions.load(opened.notebook, opened.path)
+            } catch (err) {
+              actions.notifyFailure("Couldn't open the notebook", err)
+            }
           }
           break
         case 'save':
