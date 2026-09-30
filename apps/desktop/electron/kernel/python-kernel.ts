@@ -4,6 +4,7 @@ import path from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Readable } from 'node:stream'
 import type { Output } from '@dalliance/shared/notebook'
+import { ENV_KEYS } from '../settings'
 import type { ExecuteOptions, ExecuteResult, Kernel, KernelInfo, KernelStatus, VariableInfo } from './kernel'
 import kernelSource from './dalliance_kernel.py?raw'
 
@@ -52,9 +53,12 @@ export class PythonKernel implements Kernel {
     this.error = null
     this.stderrTail = ''
 
+    const env: NodeJS.ProcessEnv = { ...process.env, ...this.options.env, MPLBACKEND: 'Agg', PYTHONUNBUFFERED: '1' }
+    // API keys stay in the main process, so code in a cell can't read them
+    for (const key of Object.values(ENV_KEYS)) delete env[key]
     const child = spawn(this.options.python, ['-u', script], {
       cwd: this.options.cwd,
-      env: { ...process.env, ...this.options.env, MPLBACKEND: 'Agg', PYTHONUNBUFFERED: '1' },
+      env,
       stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
     })
     this.child = child

@@ -16,12 +16,16 @@ Dalliance doesn't use Jupyter's kernel protocol or ZeroMQ. It runs its own small
 
 | fd | Direction | Carries |
 | --- | --- | --- |
-| 0 stdin | main to kernel | Requests, one JSON object per line |
+| 0 stdin | main to kernel | Requests, one JSON object per line. The script moves this pipe to a private fd at startup |
 | 1 stdout | kernel to main | Ignored. C extensions and stray prints land here |
 | 2 stderr | kernel to main | The last 4,000 characters are kept for crash messages |
 | 3 | kernel to main | Protocol replies, one JSON object per line |
 
 Replies go on fd 3 so that nothing a library prints can corrupt the protocol. Inside a cell, `sys.stdout` and `sys.stderr` are swapped for `Stream` objects that send `stream` outputs.
+
+Requests can't be read by a cell either. At startup the script reads requests from a copy of fd 0 and puts `/dev/null` on fd 0 and `sys.stdin`. Reading stdin in a cell, or in a subprocess it starts, returns nothing. `input()` raises `EOFError` saying cells can't read input.
+
+The child's environment is `process.env` minus the API keys in `ENV_KEYS` from `settings.ts`. Code in a cell can't read the model's keys.
 
 Requests:
 
@@ -43,6 +47,8 @@ Replies:
 
 `PythonKernel.request()` chains every request on a promise queue, so they run one at a time in order, like a Jupyter shell channel.
 
+The script's request loop catches any exception per request. A request that fails outside the cell's own `try` gets an `error` output and a `done` with `ok: false`, and the kernel keeps running.
+
 ## Executing code
 
 `run(code, store)` in the script works like a notebook cell:
@@ -56,6 +62,10 @@ Replies:
 `store: true` is a real cell run. It advances the execution count, sets `_`, and reports assigned variables. `store: false` is the agent's `explore`, and does none of those. Both share the same namespace, which is why the system prompt tells the model not to change state in `explore`.
 
 A `display()` function is injected into the namespace for showing values mid-cell.
+
+`sys.path` starts with `''`, the working directory, and leaves out the folder the script was written to. `import helpers` finds `helpers.py` in the notebook's folder, and still does after `os.chdir()`. Import caches are cleared before each run, so a file written since the last cell imports too.
+
+Variables are described by `describe()`, which reads the value's type, shape and a short `repr`. If that throws for some value, the entry keeps its name and type with an empty shape and detail.
 
 ## Rich outputs
 
