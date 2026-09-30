@@ -22,7 +22,8 @@ interface Stored {
 
 const MAX_RECENT = 8
 
-export const ENV_KEYS: Record<Provider, string> = { gateway: 'AI_GATEWAY_API_KEY', anthropic: 'ANTHROPIC_API_KEY' }
+import { ENV_KEYS } from './env-keys'
+export { ENV_KEYS }
 
 const DEFAULTS: Stored = {
   provider: 'gateway',
