@@ -137,7 +137,9 @@ function importAliases(code: string, module: string): string[] {
     for (const part of m[1].split(',')) {
       const words = part.trim().split(/\s+/)
       if (words[0] !== module) continue
-      aliases.push(words[1] === 'as' && words[2] ? words[2] : module)
+      const alias = words[1] === 'as' ? words[2] : module
+      // Only a real identifier: the alias goes into a RegExp, and a malformed cell must not break Verify
+      if (alias && /^[A-Za-z_]\w*$/.test(alias)) aliases.push(alias)
     }
   }
   return aliases

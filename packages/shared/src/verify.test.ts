@@ -37,6 +37,11 @@ describe('compareOutputs', () => {
 describe('seedWarnings', () => {
   const calls = (code: string, above: string[] = []) => seedWarnings(code, above).map((w) => w.call)
 
+  it("doesn't throw on an import line that isn't valid Python", () => {
+    expect(() => seedWarnings('import numpy as np)\nnp.random.rand()')).not.toThrow()
+    expect(() => seedWarnings('import random as (r\nr.random()')).not.toThrow()
+  })
+
   it("warns about NumPy's global generator with no seed", () => {
     expect(calls('import numpy as np\nx = np.random.choice(ids, 50)')).toEqual(['np.random.choice'])
     expect(calls('import numpy\nnumpy.random.shuffle(ids)')).toEqual(['numpy.random.shuffle'])
