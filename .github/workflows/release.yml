@@ -27,7 +27,13 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      # The same checks as CI, so a tag never ships code that fails them.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: pip install pandas numpy matplotlib
       - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run lint typecheck test
       - run: pnpm --filter @dalliance/desktop dist:mac --publish never
       - name: Publish the release
         env:
