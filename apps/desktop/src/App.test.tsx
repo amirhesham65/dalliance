@@ -314,6 +314,24 @@ describe('question cells', () => {
     expect(await screen.findByText(/Couldn't list the libraries: spawn failed/)).toBeInTheDocument()
   })
 
+  it('switches views with the arrow keys, and keeps the view when the pane reopens', async () => {
+    const user = userEvent.setup()
+    useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })
+    setApi(fakeApi(() => result()).api)
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    const tabs = screen.getByRole('tablist', { name: 'View' })
+    within(tabs).getByRole('tab', { name: 'Variables' }).focus()
+    await user.keyboard('{ArrowRight}')
+    expect(within(tabs).getByRole('tab', { name: 'Environment', selected: true })).toHaveFocus()
+    expect(await screen.findByRole('list', { name: 'Libraries' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    await user.click(screen.getByRole('button', { name: /Variables & Environment/ }))
+    expect(screen.getByRole('tab', { name: 'Environment', selected: true })).toBeInTheDocument()
+  })
+
   it('reads the libraries again when shown after a run, and not while hidden', async () => {
     const user = userEvent.setup()
     useNotebook.setState({ pane: null, variablesView: 'variables', environment: null, environmentStale: false })

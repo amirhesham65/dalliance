@@ -7,12 +7,13 @@ import { InlineText } from '@/components/notebook/InlineText'
 import { OutputList } from '@/components/notebook/outputs/OutputView'
 import { RefText } from '@/components/notebook/RefText'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ago, cellTitle } from '@/lib/notebook/text'
 import { useNow } from '@/lib/use-now'
 import { cn } from '@/lib/utils'
 import type { EnvironmentView as EnvironmentInfo, FileEntry } from '@dalliance/shared/ipc'
 import type { PromptCell, Revision } from '@dalliance/shared/notebook'
-import { type LogEntry, actions, getApi, useNotebook } from '@/store/notebook-store'
+import { type LogEntry, type VariablesView, actions, getApi, useNotebook } from '@/store/notebook-store'
 import { BriefPane } from './BriefPane'
 import { Pane } from './Pane'
 
@@ -71,36 +72,37 @@ function VariablesPane() {
         </IconButton>
       }
     >
-      <div role="tablist" aria-label="View" className="mx-4 mb-2 flex rounded-lg bg-hover p-0.5 text-xs">
-        {(['variables', 'environment'] as const).map((v) => (
-          <button
-            key={v}
-            type="button"
-            role="tab"
-            aria-selected={view === v}
-            onClick={() => actions.showVariablesView(v)}
-            className={cn('flex-1 rounded-md py-1', view === v ? 'bg-background text-foreground shadow-pane' : 'text-muted-foreground hover:text-foreground')}
-          >
-            {v === 'variables' ? 'Variables' : 'Environment'}
-          </button>
-        ))}
-      </div>
-      {view === 'environment' ? <EnvironmentView environment={environment} loading={loading} /> : variables.length ? (
-        <ul className="flex flex-col px-2 pb-3">
-          {variables.map((v) => (
-            <li key={v.name} className="rounded-lg px-2 py-2 hover:bg-hover" title={v.detail || v.type}>
-              <div className="flex items-baseline gap-2">
-                <span className="truncate font-mono text-[12.5px] text-ref">{v.name}</span>
-                <span className="text-xs text-faint">{v.type}</span>
-                <span className="ml-auto shrink-0 font-mono text-[11.5px] text-muted-foreground tabular-nums">{v.shape}</span>
-              </div>
-              {v.detail && <p className="mt-0.5 truncate font-mono text-[11px] text-faint">{v.detail}</p>}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <Empty>Nothing in memory yet. Variables appear here as cells run, and later cells can use them with @name.</Empty>
-      )}
+      <Tabs value={view} onValueChange={(v) => actions.showVariablesView(v as VariablesView)} className="gap-0">
+        <TabsList aria-label="View" className="mx-4 mb-2 flex h-8 w-auto bg-hover">
+          <TabsTrigger value="variables" className="text-xs font-normal">
+            Variables
+          </TabsTrigger>
+          <TabsTrigger value="environment" className="text-xs font-normal">
+            Environment
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="variables">
+          {variables.length ? (
+            <ul className="flex flex-col px-2 pb-3">
+              {variables.map((v) => (
+                <li key={v.name} className="rounded-lg px-2 py-2 hover:bg-hover" title={v.detail || v.type}>
+                  <div className="flex items-baseline gap-2">
+                    <span className="truncate font-mono text-[12.5px] text-ref">{v.name}</span>
+                    <span className="text-xs text-faint">{v.type}</span>
+                    <span className="ml-auto shrink-0 font-mono text-[11.5px] text-muted-foreground tabular-nums">{v.shape}</span>
+                  </div>
+                  {v.detail && <p className="mt-0.5 truncate font-mono text-[11px] text-faint">{v.detail}</p>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <Empty>Nothing in memory yet. Variables appear here as cells run, and later cells can use them with @name.</Empty>
+          )}
+        </TabsContent>
+        <TabsContent value="environment">
+          <EnvironmentView environment={environment} loading={loading} />
+        </TabsContent>
+      </Tabs>
     </Pane>
   )
 }
