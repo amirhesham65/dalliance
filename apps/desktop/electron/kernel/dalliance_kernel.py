@@ -13,6 +13,8 @@ Replies:  {"id": "...", "type": "output", "output": {...}}   zero or more
 
 import ast
 import base64
+import builtins
+import importlib
 import io
 import json
 import math
@@ -22,6 +24,26 @@ import time
 import traceback
 
 PROTOCOL = os.fdopen(3, "w", buffering=1, encoding="utf-8")
+
+# Requests come in on the real stdin. Move it to a private fd and put /dev/null on fd 0,
+# so neither input() in a cell nor a subprocess it starts can swallow the next request.
+REQUESTS = os.fdopen(os.dup(0), "r", encoding="utf-8")
+_null = os.open(os.devnull, os.O_RDONLY)
+os.dup2(_null, 0)
+os.close(_null)
+sys.stdin = open(os.devnull, "r", encoding="utf-8")
+
+
+def no_input(prompt=""):
+    raise EOFError("Dalliance cells can't read input. Put the value in the code instead.")
+
+
+builtins.input = no_input
+
+# Imports resolve from the notebook's folder, which is the working directory, not from
+# the folder this script was written to. '' follows os.chdir() when the notebook moves.
+_here = os.path.dirname(os.path.abspath(__file__))
+sys.path[:] = [""] + [p for p in sys.path if p and os.path.abspath(p) != _here]
 MAX_TABLE_ROWS = 100
 MAX_TEXT = 20_000
 
@@ -229,6 +251,7 @@ def run(code, store):
     real_out, real_err = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = stdout, stderr
     ok = True
+    importlib.invalidate_caches()  # see files written since the last cell
     try:
         tree = ast.parse(code, filename=f"<cell {execution_count}>", mode="exec")
         last = tree.body[-1] if tree.body and isinstance(tree.body[-1], ast.Expr) else None
@@ -263,10 +286,9 @@ def run(code, store):
     assigned = []
     if store:
         for name, value in list(namespace.items()):
-            if name.startswith("_") or name == "display" or before.get(name) == id(value):
+            if not listed(name, value) or before.get(name) == id(value):
                 continue
-            if user_visible(value):
-                assigned.append(describe(name, value))
+            assigned.append(describe_safely(name, value))
     send(
         {
             "id": current_id,
@@ -279,10 +301,24 @@ def run(code, store):
     )
 
 
-def user_visible(value):
+def listed(name, value):
+    """Whether a namespace entry shows up in the variables list."""
     import types
 
-    return not isinstance(value, (types.ModuleType, types.FunctionType, types.BuiltinFunctionType, type))
+    if not isinstance(name, str) or name.startswith("_") or name == "display":
+        return False
+    try:
+        return not isinstance(value, (types.ModuleType, types.FunctionType, types.BuiltinFunctionType, type))
+    except Exception:
+        return True
+
+
+def describe_safely(name, value):
+    """describe(), but a value that breaks it gets a bare entry instead of killing the kernel."""
+    try:
+        return describe(name, value)
+    except Exception:
+        return {"name": name, "type": type(value).__name__, "shape": "", "detail": ""}
 
 
 def describe(name, value):
@@ -316,9 +352,8 @@ def describe(name, value):
 def variables():
     result = []
     for name, value in list(namespace.items()):
-        if name.startswith("_") or name == "display" or not user_visible(value):
-            continue
-        result.append(describe(name, value))
+        if listed(name, value):
+            result.append(describe_safely(name, value))
     send({"id": current_id, "type": "variables", "variables": result})
 
 
@@ -328,7 +363,7 @@ def main():
     send({"id": None, "type": "ready", "python": sys.version.split()[0], "executable": sys.executable})
     while True:
         try:
-            line = sys.stdin.readline()
+            line = REQUESTS.readline()
         except KeyboardInterrupt:
             continue  # an interrupt that arrives between cells
         if not line:
@@ -336,6 +371,8 @@ def main():
         try:
             request = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        if not isinstance(request, dict):
             continue
         current_id = request.get("id")
         try:
@@ -347,6 +384,10 @@ def main():
                 send({"id": current_id, "type": "done", "ok": False, "executionCount": None, "durationMs": 0})
         except KeyboardInterrupt:
             send({"id": current_id, "type": "done", "ok": False, "executionCount": None, "durationMs": 0})
+        except BaseException as error:  # one bad request fails on its own; the kernel keeps running
+            frames = traceback.format_exception(type(error), error, error.__traceback__)
+            emit({"type": "error", "ename": type(error).__name__, "evalue": str(error), "traceback": frames})
+            send({"id": current_id, "type": "done", "ok": False, "executionCount": None, "durationMs": 0, "assigned": []})
 
 
 if __name__ == "__main__":
