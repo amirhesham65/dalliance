@@ -10,7 +10,7 @@ import { KILLED_AFTER_INTERRUPT, PythonKernel } from './python-kernel'
 
 const python = await findSystemPython()
 const hasData = python !== null && spawnSync(python, ['-c', 'import pandas, matplotlib'], { stdio: 'ignore' }).status === 0
-const hasIPython = python !== null && spawnSync(python, ['-c', 'import sys, IPython; sys.exit(IPython.version_info[0] < 8)'], { stdio: 'ignore' }).status === 0
+const hasIPython = python !== null && spawnSync(python, ['-c', 'import sys, IPython; sys.exit(IPython.version_info[0] not in (8, 9))'], { stdio: 'ignore' }).status === 0
 
 /**
  * Every suite runs on both of the script's paths: through IPython's InteractiveShell when it is installed,

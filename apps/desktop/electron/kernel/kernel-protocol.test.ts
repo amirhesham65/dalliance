@@ -11,7 +11,7 @@ import { findSystemPython } from './python-env'
 
 const python = await findSystemPython()
 const script = fileURLToPath(new URL('./dalliance_kernel.py', import.meta.url))
-const hasIPython = python !== null && spawnSync(python, ['-c', 'import sys, IPython; sys.exit(IPython.version_info[0] < 8)'], { stdio: 'ignore' }).status === 0
+const hasIPython = python !== null && spawnSync(python, ['-c', 'import sys, IPython; sys.exit(IPython.version_info[0] not in (8, 9))'], { stdio: 'ignore' }).status === 0
 
 type Message = { id: string | null; type: string; [key: string]: unknown }
 

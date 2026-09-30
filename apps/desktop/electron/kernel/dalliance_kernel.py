@@ -725,7 +725,7 @@ def stop_command(process):
 def start_ipython():
     """
     An IPython InteractiveShell over the kernel's namespace, set up to send Dalliance outputs,
-    or None when IPython is missing, older than 8, or turned off with DALLIANCE_KERNEL_NO_IPYTHON=1.
+    or None when IPython is missing, not version 8 or 9, or turned off with DALLIANCE_KERNEL_NO_IPYTHON=1.
     """
     global IPYTHON_DIR
     if os.environ.get("DALLIANCE_KERNEL_NO_IPYTHON") == "1":
@@ -734,7 +734,8 @@ def start_ipython():
     try:
         import IPython
 
-        if IPython.version_info[0] < 8:
+        # configure() patches IPython internals checked against 8 and 9. A later version may have moved them.
+        if IPython.version_info[0] not in IPYTHON_MAJORS:
             return None
         from IPython.core.displayhook import DisplayHook
         from IPython.core.displaypub import DisplayPublisher
@@ -925,6 +926,8 @@ def configure(ip):
 
 
 IPYTHON_DIR = "\0"  # IPython's package folder, whose frames tracebacks leave out
+# The IPython major versions cells run through. Keep in step with IPYTHON_SPEC in python-env.ts.
+IPYTHON_MAJORS = (8, 9)
 
 
 # --- Requests ------------------------------------------------------------------------------

@@ -78,7 +78,7 @@ Variables are described by `describe()`, which reads the value's type, shape and
 
 ## IPython
 
-At startup `start_ipython()` imports IPython and creates an `InteractiveShell` over the kernel's namespace. It needs IPython 8 or newer. If IPython is missing, older, fails to start, or `DALLIANCE_KERNEL_NO_IPYTHON=1` is set, `shell` stays `None` and every cell takes the plain path above, exactly as before IPython support. IPython is in `BASE_PACKAGES`, so the managed environment has it, and `installMissingBasePackages()` adds it to environments made before. A Python the user brings works either way. It adds about 125 ms to the time before `ready`: 400 ms instead of 280 ms, median of seven starts with IPython 9.17 and matplotlib on Linux.
+At startup `start_ipython()` imports IPython and creates an `InteractiveShell` over the kernel's namespace. It needs IPython 8 or 9, since `configure()` patches internals checked against those two. If IPython is missing, another version, fails to start, or `DALLIANCE_KERNEL_NO_IPYTHON=1` is set, `shell` stays `None` and every cell takes the plain path above, exactly as before IPython support. IPython is in `BASE_PACKAGES`, installed as `ipython>=8,<10`, so the managed environment has it, and `installMissingBasePackages()` adds it to environments made before. A Python the user brings works either way. It adds about 125 ms to the time before `ready`: 400 ms instead of 280 ms, median of seven starts with IPython 9.17 and matplotlib on Linux.
 
 There is no ZeroMQ and no ipykernel. The shell lives inside the script, and every protocol rule above still holds: replies go through the writer thread on fd 3, one request runs at a time, `SIGINT` only raises while `interruptible` is set, and `input()` still refuses.
 
@@ -160,7 +160,7 @@ Each execute gets a fresh `Budget`, so one cell can't flood the app or the agent
 
 Notes don't count against the budget. The `Output` type in `packages/shared` has no field for them, so a note is an ordinary stderr stream.
 
-`python-kernel.test.ts` covers each limit and the interrupt escalation below. `kernel-protocol.test.ts` drives the script over raw pipes, interrupts printing loops again and again, and checks that every line parses and every request gets its `done`. Both files run these suites twice, through IPython and on the plain path with `DALLIANCE_KERNEL_NO_IPYTHON=1`, and `python-kernel.test.ts` adds one suite for what only IPython does. The IPython runs are skipped when the test machine's Python lacks IPython 8 or newer. CI installs it.
+`python-kernel.test.ts` covers each limit and the interrupt escalation below. `kernel-protocol.test.ts` drives the script over raw pipes, interrupts printing loops again and again, and checks that every line parses and every request gets its `done`. Both files run these suites twice, through IPython and on the plain path with `DALLIANCE_KERNEL_NO_IPYTHON=1`, and `python-kernel.test.ts` adds one suite for what only IPython does. The IPython runs are skipped when the test machine's Python lacks IPython 8 or 9. CI installs it.
 
 ## Lifecycle
 

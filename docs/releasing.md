@@ -35,7 +35,7 @@ Releases publish from a version tag. `.github/workflows/release.yml` does the bu
    git push origin v0.2.0
    ```
 
-3. The workflow checks that the tag matches the version and fails if it doesn't. It sets up Python 3.12 with pandas, NumPy, matplotlib and IPython and runs `pnpm turbo run lint typecheck test`, the same checks as CI, so a failing test stops the release. Then it runs `dist:mac --publish never` and `gh release create` with `Dalliance.dmg` and notes generated from the merged pull requests.
+3. The workflow checks that the tag matches the version and fails if it doesn't. It sets up Python 3.12 with pandas, NumPy, matplotlib and IPython 8 or 9 and runs `pnpm turbo run lint typecheck test`, the same checks as CI, so a failing test stops the release. Then it runs `dist:mac --publish never` and `gh release create` with `Dalliance.dmg` and notes generated from the merged pull requests.
 4. Edit the release on GitHub and add the install notes below. Generated notes only list pull requests.
 
 Keep the asset name `Dalliance.dmg`. The website's `/download` points at `releases/latest/download/Dalliance.dmg`, and so does the repo README.
