@@ -59,7 +59,8 @@ export function NotebookName({ name, path }: { name: string; path: string | null
         aria-describedby={error ? 'notebook-name-error' : undefined}
         autoFocus
         value={draft}
-        disabled={saving}
+        // readOnly, not disabled: a disabled field loses focus, and a refused name would then ignore Enter and Esc
+        readOnly={saving}
         onFocus={(e) => e.currentTarget.select()}
         onChange={(e) => {
           setDraft(e.target.value)

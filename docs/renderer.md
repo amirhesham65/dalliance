@@ -97,7 +97,7 @@ The main process menu owns the global shortcuts. The renderer owns the rest.
 
 | Keys | Where | Does |
 | --- | --- | --- |
-| Cmd+N, Cmd+O, Cmd+S, Shift+Cmd+S | Menu | New, Open, Save, Save As |
+| Cmd+N, Cmd+O, Shift+Cmd+O, Cmd+S, Shift+Cmd+S | Menu | New, Open, Open Folder, Save, Save As |
 | Cmd+Z, Shift+Cmd+Z | Menu, and command mode | Undo, Redo. In a text field, the field's own undo. Elsewhere, notebook edits. See [Undo and redo](#undo-and-redo) |
 | Cmd+, | Menu | Settings |
 | Shift+Cmd+Enter | Menu | Run all |
@@ -199,7 +199,7 @@ Changes save as they're made. Selects save on change. The model id and the Pytho
 
 ## First run and the start page
 
-`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. The key step links to each provider's keys page, switches provider to match a pasted key, and checks the key before saving it, see [storage.md](storage.md#settings-and-keys). Skipping any step still sets `onboarded`. The start page offers new, open, open folder, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New and Open folder go through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, so nothing the start page opens is unsaved. File > Open Folder and the notebook tab's menu do the same, and both name the folder in use with `folderName()`.
+`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. The key step links to each provider's keys page, switches provider to match a pasted key, and checks the key before saving it, see [storage.md](storage.md#settings-and-keys). Skipping any step still sets `onboarded`. The start page offers new, open, open folder, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New goes through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, and Open folder asks for a folder first, then does the same in it, so nothing the start page opens is unsaved. File > Open Folder and the notebook tab's menu do the same, and both name the folder in use with `folderName()`.
 
 ## Theming
 

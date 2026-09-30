@@ -77,6 +77,22 @@ async function openFile(file: string): Promise<OpenedNotebook> {
 const ipynbText = (notebook: Notebook) => `${JSON.stringify(toIpynb(notebook), null, 1)}\n`
 
 /**
+ * Write a notebook under the first free "Untitled" name in `dir`. The `wx` flag never overwrites a file that
+ * appeared after the name was picked: that name is skipped and the next free one tried.
+ */
+async function writeNewNotebook(dir: string, notebook: Notebook): Promise<string> {
+  for (let attempt = 0; ; attempt++) {
+    const file = newNotebookPath(dir)
+    try {
+      await writeFile(file, ipynbText(notebook), { flag: 'wx' })
+      return file
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST' || attempt >= 4) throw err
+    }
+  }
+}
+
+/**
  * A new notebook is a file from the start, in the folder it was made for, with a fresh kernel there. When the folder
  * can't be written to, the reason is shown in a dialog and the result is null, so the window stays as it was.
  */
@@ -84,11 +100,11 @@ async function createNotebook(dir: string, notebook: Notebook): Promise<OpenedNo
   try {
     // The folder may have been moved or deleted since it was chosen
     await mkdir(dir, { recursive: true })
-    const file = newNotebookPath(dir)
-    await writeFile(file, ipynbText(notebook))
+    const file = await writeNewNotebook(dir, notebook)
+    await session.openWorkspace(dir)
+    // Only once the notebook is really open, so a failure above leaves no recent entry behind
     app.addRecentDocument(file)
     settings.addRecent(file)
-    await session.openWorkspace(dir)
     drafts.update({ path: file, dirty: false, notebook })
     return { path: file, notebook }
   } catch (err) {
@@ -335,7 +351,9 @@ function registerIpc() {
 
   handle(IPC.renameNotebook, async (_e, current: string | null, name: string, notebook: Notebook): Promise<RenameResult> => {
     try {
-      if (current) {
+      if (current !== null) {
+        // Only ever a notebook file: the window names what to rename, so any other path is refused
+        if (!isNotebookPath(current)) return { error: "Couldn't rename the notebook: that isn't a notebook file." }
         const renamed = await renameNotebookFile(current, name)
         if ('error' in renamed) return renamed
         if (renamed.path !== current) {
@@ -349,11 +367,17 @@ function registerIpc() {
         }
         return { path: renamed.path, saved: false }
       }
-      // A notebook that was never a file is written under its new name, in the folder in use
+      // A notebook that was never a file is written under its new name, in the folder in use.
+      // wx: a file that appeared under that name since the check is never overwritten.
       await mkdir(session.dir, { recursive: true })
       const target = notebookPathIn(session.dir, name)
       if ('error' in target) return target
-      await writeFile(target.path, ipynbText(notebook))
+      try {
+        await writeFile(target.path, ipynbText(notebook), { flag: 'wx' })
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return { error: `There is already a notebook called "${path.basename(target.path, '.ipynb')}" in this folder.` }
+        throw err
+      }
       app.addRecentDocument(target.path)
       settings.addRecent(target.path)
       drafts.update({ path: target.path, dirty: false, notebook })
