@@ -18,7 +18,7 @@ type T = Tab<View, Session>
  * Tabs over fake views and sessions. `answers` are the close dialog's choices, in order. `saves` says whether each
  * requested save lands: the fake page answers the way the renderer's saveNotebook() does, through finishSave().
  */
-function setup({ answers = [] as CloseChoice[], saves = [] as boolean[] } = {}) {
+function setup({ answers = [] as CloseChoice[], saves = [] as boolean[], onAsk = (_tab: T) => {} } = {}) {
   const log: string[] = []
   let windowClosed = 0
   const views: View[] = []
@@ -45,6 +45,7 @@ function setup({ answers = [] as CloseChoice[], saves = [] as boolean[] } = {}) 
     },
     askToSave: async (tab) => {
       log.push(`ask ${tab.id}${tabs.active === tab ? ' (showing)' : ''}`)
+      onAsk(tab)
       return answers.shift() ?? 'cancel'
     },
     requestSave: (tab) => {
@@ -213,6 +214,19 @@ describe('Tabs', () => {
     const c = open({ dirty: true })
     expect(await tabs.confirmAll()).toBe(true)
     expect(log).toEqual([`ask ${a.id} (showing)`, `save ${a.id}`, `ask ${c.id} (showing)`, `forget ${c.id}`])
+  })
+
+  it('also asks about a tab that gets unsaved changes while another tab’s dialog is up', async () => {
+    let a!: T
+    const { tabs, open, log } = setup({
+      answers: ['discard', 'discard'],
+      // A run in the first tab finishes and marks it changed while the second tab's dialog shows
+      onAsk: (tab) => tab !== a && tabs.report(a, { ...a.doc, dirty: true }),
+    })
+    a = open({ path: '/work/a.ipynb' })
+    const b = open({ dirty: true })
+    expect(await tabs.confirmAll()).toBe(true)
+    expect(log).toEqual([`ask ${b.id} (showing)`, `ask ${a.id} (showing)`, `forget ${b.id}`, `forget ${a.id}`])
   })
 
   it('stops the whole close on Cancel, keeping the changes of a tab that said Don’t Save before it', async () => {

@@ -204,16 +204,23 @@ export class Tabs<V, S> {
   /**
    * Before the window closes or the app quits: walk every tab with unsaved changes through Save / Don't Save /
    * Cancel, in strip order. Cancel, or a save that doesn't land, stops the whole close. Don't Save only forgets the
-   * changes once every tab has answered, so a Cancel later on keeps them.
+   * changes once every tab has answered, so a Cancel later on keeps them. A tab that gets unsaved changes while
+   * another tab's dialog is up, such as when a run finishes, is asked too.
    */
   async confirmAll(): Promise<boolean> {
     const discarded: Tab<V, S>[] = []
-    for (const tab of [...this.list]) {
-      if (!this.list.includes(tab) || !tab.doc.dirty) continue
+    const answered = new Set<Tab<V, S>>()
+    for (let tab = this.nextToAsk(answered); tab; tab = this.nextToAsk(answered)) {
       if (!(await this.settle(tab, discarded))) return false
+      answered.add(tab)
     }
     for (const tab of discarded) this.host.forgetChanges(tab)
     return true
+  }
+
+  /** The first tab in strip order with unsaved changes that hasn't answered yet. */
+  private nextToAsk(answered: Set<Tab<V, S>>) {
+    return this.list.find((t) => t.doc.dirty && !answered.has(t))
   }
 
   get anyDirty(): boolean {
