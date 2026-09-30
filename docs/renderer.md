@@ -25,7 +25,7 @@ src/
 
 ## The store
 
-`src/store/notebook-store.ts` exports `useNotebook`, a zustand store, and `actions`, plain functions that change it. Components read with selectors, `useNotebook((s) => s.pane)`, and call `actions.*`. Besides the actions, `App.tsx`, `main.tsx` and the Settings sections write bridge results straight into `settings`, `python`, `kernel` and `tabs`.
+`src/store/notebook-store.ts` exports `useNotebook`, a zustand store, and `actions`, plain functions that change it. Components read with selectors, `useNotebook((s) => s.pane)`, and call `actions.*`. Besides the actions, `App.tsx`, `main.tsx` and the Settings sections write bridge results straight into `settings`, `python`, `kernel`, `tabs`, `account` and `billing`.
 
 Every tab is its own page with its own store, so the store only ever holds one notebook. Settings and the Python come from the main process to every tab when any tab changes them, through `onSettingsChanged` and `onPythonState`.
 
@@ -182,6 +182,8 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 
 `actions.notify(text, { undo, tone })` puts one message at the bottom of the window for 6 seconds. `NoticeToast` in `App.tsx` draws it. With `undo` it shows an Undo button, without it a Dismiss button. A newer notice replaces the one showing, and loading a notebook clears it. D D and M use it to offer Undo, which goes through the notebook's undo stack, see [Undo and redo](#undo-and-redo).
 
+Opening the model picker loads the model list. On Dalliance Cloud, a saved model the list doesn't offer goes back to the default with a notice, since the service only offers models with zero data retention.
+
 A bridge call the user started should never fail silently. `actions.notifyFailure(what, err)` shows "Couldn't save the notebook." and the reason, with the `Error invoking remote method` wrapper stripped by `errorText()`. Saving, writing the brief, refreshing the variables and restarting Python all report failures this way. A new notebook the main process can't write gets a dialog with the reason from there instead, and the window stays as it was. Background calls, like the variables refresh after each run, stay quiet.
 
 `ErrorBoundary` in `components/app/` wraps every cell, the open side pane and the overview. A throw while drawing one of them shows "This cell couldn't be shown." with the error and a Retry button in its place, and the rest of the window keeps working. The side pane's boundary is keyed by pane, so opening another pane starts fresh.
@@ -210,9 +212,10 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 
 | Section | Component | Holds |
 | --- | --- | --- |
-| Models | `ModelSettings` | Provider, key, model id, effort |
+| Models | `ModelSettings` | Provider, key, model id, effort. With Dalliance Cloud chosen, `CloudStatus` stands in for the key: sign in, choose a plan, or the credits left. The provider's line says what it means for data retention, see [cloud.md](cloud.md#zero-data-retention) |
 | Agent | `AgentSettings` | Approvals (package installs, shell and network code), cell names, suggested next prompts |
 | Python | `PythonSettings` | The managed environment and a Python path |
+| Account | `AccountSettings` | The Dalliance account, the plan and its credits. Only in builds with Dalliance Cloud, when `settings.cloud` is true. See [cloud.md](cloud.md) |
 
 It sits over the area under the top bar with the screen below still mounted and `inert`, so the setup's step, the notebook's scroll and the resizable columns come back as they were. Command mode and the Cmd+number keys stay off while it's up. Esc goes back, unless a select or menu is open, or a text field has focus, which it leaves instead.
 
@@ -220,7 +223,7 @@ Changes save as they're made. Selects save on change. The model id and the Pytho
 
 ## First run and the start page
 
-`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. The key step links to each provider's keys page, switches provider to match a pasted key, and checks the key before saving it, see [storage.md](storage.md#settings-and-keys). Skipping any step still sets `onboarded`. The start page offers new, open, open folder, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New goes through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, and Open folder asks for a folder first, then does the same in it, so nothing the start page opens is unsaved. File > Open Folder does the same, and the start page names the folder in use with `folderName()`. `startWith()` loads what comes back only when the notebook opened in this tab, which happens only when the tab is an untouched Untitled. Over a notebook, from Help > Welcome, it opens in a new tab and this one keeps its notebook, so nothing needs a Discard prompt.
+`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. In builds with Dalliance Cloud the key step offers it first, and shows `CloudStatus` in place of the key field while it's chosen; the step counts as done once there's a plan. The key step links to each provider's keys page, switches provider to match a pasted key, and checks the key before saving it, see [storage.md](storage.md#settings-and-keys). Skipping any step still sets `onboarded`. The start page offers new, open, open folder, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New goes through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, and Open folder asks for a folder first, then does the same in it, so nothing the start page opens is unsaved. File > Open Folder does the same, and the start page names the folder in use with `folderName()`. `startWith()` loads what comes back only when the notebook opened in this tab, which happens only when the tab is an untouched Untitled. Over a notebook, from Help > Welcome, it opens in a new tab and this one keeps its notebook, so nothing needs a Discard prompt.
 
 ## Theming
 

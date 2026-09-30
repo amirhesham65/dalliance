@@ -35,6 +35,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo run lint typecheck test
       - run: pnpm --filter @dalliance/desktop dist:mac --publish never
+        env:
+          # The Cloud switch: the repository variable turns Dalliance Cloud on in official builds. Forks without it
+          # build the app on the user's own key. See docs/cloud.md
+          DALLIANCE_CLOUD_URL: ${{ vars.DALLIANCE_CLOUD_URL }}
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}

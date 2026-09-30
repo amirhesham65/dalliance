@@ -59,6 +59,15 @@ describe('the run log', () => {
     })
   })
 
+  it("keeps a step's reasoning summary whole, however long", async () => {
+    const { bus, lines, log } = setup()
+    const reasoning = 'Check the stages first. '.repeat(300)
+    await bus.emit('step', { cellId: 'c1', step: 1, reasoning })
+    await bus.emit('step', { cellId: 'c1', step: 2, reasoning: null })
+    await log.idle()
+    expect(lines().map((l) => l.reasoning)).toEqual([reasoning, null])
+  })
+
   it('logs a blocked call before the block stops the other handlers', async () => {
     const { bus, lines, log } = setup()
     expect(await bus.emit('tool_call', { cellId: 'c1', toolName: 'read_file', input: { path: '.env' } })).toMatchObject({ blocked: true })

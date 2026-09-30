@@ -70,6 +70,8 @@ In GitHub > Settings > Secrets and variables > Actions:
 
 The release job already gets `GITHUB_TOKEN`. Nothing else needs a secret.
 
+Under Variables, `DALLIANCE_CLOUD_URL` turns Dalliance Cloud on in release builds, set to `https://cloud.dalliance.io`. Without it the release is the app on the user's own key. See [cloud.md](cloud.md#the-switch).
+
 ### 3. Add the entitlements
 
 - [ ] Create `apps/desktop/build/entitlements.mac.plist`. With the hardened runtime on, Electron's V8 needs JIT and executable memory. The kernel is a separate `python` process, so spawning it needs no entitlement, and the app isn't sandboxed, so there's no sandbox key.

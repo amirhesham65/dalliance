@@ -31,6 +31,16 @@ export interface RunCellRequest {
   previousCells: { kind: 'prompt' | 'note'; text: string; code?: string }[]
 }
 
+/** One model call of a run, for the record of how a cell was made. */
+export interface RunStep {
+  /** Which model call of the run, from 1. */
+  step: number
+  /** The model that answered. It can differ from the chosen one, after a fallback. */
+  modelId: string | null
+  /** The model's reasoning summary for this call. Null when it returned none, never left out. */
+  reasoning: string | null
+}
+
 export interface CellRunResult {
   ok: boolean
   code: string
@@ -45,6 +55,8 @@ export interface CellRunResult {
   /** Variables the final run assigned. */
   variables: CreatedVariable[]
   activity: ActivityItem[]
+  /** Every model call of a generated run, in order. Empty for a plain run of saved code. */
+  steps: RunStep[]
   /** Why the run failed, when the problem was not a Python error (no API key, stopped, the agent gave up). */
   error: string | null
 }
@@ -65,7 +77,13 @@ export interface KernelState {
   error: string | null
 }
 
-export type Provider = 'gateway' | 'anthropic'
+/** A provider the user brings a key for. */
+export type KeyProvider = 'gateway' | 'anthropic'
+/**
+ * Where models run: on the user's own key, or on their Dalliance account through Dalliance Cloud. `cloud` is only
+ * offered in builds that have a Cloud URL. See docs/cloud.md.
+ */
+export type Provider = KeyProvider | 'cloud'
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export interface SettingsView {
@@ -82,17 +100,19 @@ export interface SettingsView {
   onboarded: boolean
   /** Where the key for the chosen provider comes from: Settings, the app's environment, the user's shell profile, or nowhere. */
   keySource: 'settings' | 'environment' | 'shell' | null
-  hasKey: Record<Provider, boolean>
+  hasKey: Record<KeyProvider, boolean>
   /**
    * Providers whose saved key is there but can't be decrypted, usually because an update changed the app's
    * keychain identity. The user has to paste it again. Optional so older views and test fixtures still type.
    */
-  unreadableKeys?: Provider[]
+  unreadableKeys?: KeyProvider[]
   /**
    * How each provider's key is kept: the saved key's form, or for no saved key, how a new one would be saved.
    * `plain` means settings.json holds it unencrypted because the system has no keychain.
    */
-  keyStorage?: Record<Provider, KeyStorage>
+  keyStorage?: Record<KeyProvider, KeyStorage>
+  /** True when this build has Dalliance Cloud, so `cloud` can be chosen and Settings shows the account. */
+  cloud: boolean
 }
 
 export type KeyStorage = 'keychain' | 'plain'
@@ -107,7 +127,7 @@ export interface SettingsUpdate {
   suggestNext?: boolean
   onboarded?: boolean
   /** Set a key for a provider. An empty string removes it. */
-  apiKey?: { provider: Provider; key: string }
+  apiKey?: { provider: KeyProvider; key: string }
 }
 
 /** A model the chosen provider can run, for the model picker. */
@@ -251,6 +271,58 @@ export type MenuAction =
 /** The side panes, as the menu names them. */
 export type PaneName = 'brief' | 'variables' | 'history' | 'files' | 'pinned' | 'activity'
 
+/** The Dalliance account, as the renderer sees it. The session itself stays in the main process. */
+export interface AccountView {
+  /** Null when signed out. */
+  user: { name: string; email: string } | null
+  /** True until the first answer about the stored session. */
+  checking: boolean
+  /** True while the sign-in page is open in the browser, so the renderer can offer the code field. */
+  waiting: boolean
+  /** Why the account couldn't be checked or a code didn't work. The last known user stays. */
+  error: string | null
+}
+
+/** A plan Dalliance Cloud sells. Mirrors what `billing:plans` returns in the dalliance-cloud repo. */
+export interface PlanOption {
+  key: 'pro'
+  name: string
+  description: string | null
+  /** Like "$20 / month". */
+  price: string | null
+  /** The credits included each billing period. */
+  credits: number | null
+}
+
+/** The signed-in user's subscription. Mirrors `billing:status` in the dalliance-cloud repo. */
+export interface SubscriptionView {
+  /** Which plan it is, when it's one on offer. */
+  key: string | null
+  name: string
+  /** `active`, `trialing`, `past_due`, `canceled` and the like. */
+  status: string
+  price: string | null
+  /** When the period ends: the renewal date, or the last day when it's cancelling. ISO. */
+  currentPeriodEnd: string | null
+  cancelAtPeriodEnd: boolean
+}
+
+/** The plan, as the renderer sees it. The main process talks to Dalliance Cloud. */
+export interface BillingView {
+  /** False when this build has no Dalliance Cloud. */
+  available: boolean
+  plans: PlanOption[]
+  /** Null when signed out or without a plan. */
+  subscription: SubscriptionView | null
+  /** Credits used this billing period, against what the plan includes. Null without a plan. */
+  usage: { spentCredits: number; planCredits: number | null } | null
+  /** True until the first answer from Dalliance Cloud. */
+  loading: boolean
+  /** True once checkout opened in the browser, until a plan arrives. */
+  checkingOut: boolean
+  error: string | null
+}
+
 /** Everything the preload script exposes as window.dalliance. */
 export interface DallianceApi {
   platform: string
@@ -267,7 +339,7 @@ export interface DallianceApi {
   getSettings(): Promise<SettingsView>
   listModels(): Promise<ModelList>
   /** Ask the provider whether a key works, without saving it. */
-  checkKey(provider: Provider, key: string): Promise<KeyCheck>
+  checkKey(provider: KeyProvider, key: string): Promise<KeyCheck>
   updateSettings(update: SettingsUpdate): Promise<SettingsView>
   pythonState(): Promise<PythonState>
   setupPython(): Promise<PythonState>
@@ -310,6 +382,19 @@ export interface DallianceApi {
   /** Closes a tab, asking to save it first when it has unsaved changes. The last tab closes the window. */
   closeTab(id: string): Promise<void>
   switchTab(id: string): Promise<void>
+  getAccount(): Promise<AccountView>
+  /** Opens the sign-in page in the browser. */
+  signIn(): Promise<AccountView>
+  /** Redeems the code the sign-in page shows when the browser couldn't open the app. */
+  redeemSignInCode(code: string): Promise<AccountView>
+  signOut(): Promise<AccountView>
+  onAccount(listener: (account: AccountView) => void): () => void
+  getBilling(): Promise<BillingView>
+  /** Opens checkout for a plan in the browser. */
+  startCheckout(plan: PlanOption['key']): Promise<BillingView>
+  /** Opens the billing portal in the browser: invoices, the card, cancelling. */
+  openBillingPortal(): Promise<BillingView>
+  onBilling(listener: (billing: BillingView) => void): () => void
 }
 
 export const IPC = {
@@ -352,4 +437,13 @@ export const IPC = {
   newTab: 'new-tab',
   closeTab: 'close-tab',
   switchTab: 'switch-tab',
+  getAccount: 'get-account',
+  signIn: 'sign-in',
+  redeemSignInCode: 'redeem-sign-in-code',
+  signOut: 'sign-out',
+  accountChanged: 'account-changed',
+  getBilling: 'get-billing',
+  startCheckout: 'start-checkout',
+  openBillingPortal: 'open-billing-portal',
+  billingChanged: 'billing-changed',
 } as const

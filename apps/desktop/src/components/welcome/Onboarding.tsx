@@ -3,10 +3,12 @@ import { type ReactNode, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { PROVIDERS, keySourceText, providerForKey, saveKey } from '@/lib/keys'
+import { CloudStatus } from '@/components/cloud/CloudStatus'
+import { cloudReady } from '@/lib/cloud'
+import { CLOUD, PROVIDERS, keySourceText, providerForKey, saveKey } from '@/lib/keys'
 import { sampleNotebook } from '@/lib/notebook/samples'
 import { cn } from '@/lib/utils'
-import type { DallianceApi, Provider, PythonState, SettingsView } from '@dalliance/shared/ipc'
+import type { DallianceApi, KeyProvider, Provider, PythonState, SettingsView } from '@dalliance/shared/ipc'
 import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
 import { Kbd } from '@/components/ui/kbd'
 import { StepBar, Wordmark } from './parts'
@@ -22,11 +24,14 @@ const STEPS = ['Welcome', 'Model', 'Python', 'Start']
 export function Onboarding({ initialStep = 0, onClose }: { initialStep?: number; onClose: () => void }) {
   const settings = useNotebook((s) => s.settings)
   const python = useNotebook((s) => s.python)
+  const account = useNotebook((s) => s.account)
+  const billing = useNotebook((s) => s.billing)
   const [step, setStep] = useState(initialStep)
   const api = getApi()
   if (!settings || !api) return null
 
-  const ready = [true, settings.keySource != null, pythonReady(python), true]
+  const modelReady = settings.provider === 'cloud' ? cloudReady(account, billing) : settings.keySource != null
+  const ready = [true, modelReady, pythonReady(python), true]
   const last = step === STEPS.length - 1
   const later = async () => {
     await finishOnboarding()
@@ -57,7 +62,7 @@ export function Onboarding({ initialStep = 0, onClose }: { initialStep?: number;
             {step === 0 && <IntroStep />}
             {step === 1 && <ModelStep settings={settings} api={api} />}
             {step === 2 && <PythonStep python={python} api={api} />}
-            {step === 3 && <StartStep missing={[!ready[1] && 'a model key', !ready[2] && 'Python'].filter((m): m is string => !!m)} />}
+            {step === 3 && <StartStep missing={[!ready[1] && (settings.provider === 'cloud' ? 'a Dalliance plan' : 'a model key'), !ready[2] && 'Python'].filter((m): m is string => !!m)} />}
           </div>
         </div>
 
@@ -170,7 +175,10 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
   const [replacing, setReplacing] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const provider = PROVIDERS[settings.provider]
+  const onCloud = settings.provider === 'cloud'
+  // Dalliance Cloud comes first where it's offered: it needs no key
+  const choices: Provider[] = [...(settings.cloud ? (['cloud'] as const) : []), ...(Object.keys(PROVIDERS) as KeyProvider[])]
+  const provider = PROVIDERS[settings.provider === 'cloud' ? 'gateway' : settings.provider]
 
   const update = async (u: Parameters<DallianceApi['updateSettings']>[0]) => {
     useNotebook.setState({ settings: await api.updateSettings(u) })
@@ -202,12 +210,15 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
   return (
     <>
       <StepHeading title="Connect a model">
-        The agent needs an API key to write code. It is stored encrypted with your system keychain and only sent to the provider you choose.
+        {settings.cloud
+          ? 'The agent needs a model to write code. Run it on a Dalliance plan, or bring your own API key, stored encrypted with your system keychain.'
+          : 'The agent needs an API key to write code. It is stored encrypted with your system keychain and only sent to the provider you choose.'}
       </StepHeading>
 
       <div role="radiogroup" aria-label="Model provider" className="grid gap-2 sm:grid-cols-2">
-        {(Object.keys(PROVIDERS) as Provider[]).map((p) => {
+        {choices.map((p) => {
           const checked = settings.provider === p
+          const { label, blurb } = p === 'cloud' ? CLOUD : PROVIDERS[p]
           return (
             <button
               key={p}
@@ -222,6 +233,7 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
               }}
               className={cn(
                 'flex flex-col gap-1 rounded-lg border px-3.5 py-3 text-left transition-colors',
+                p === 'cloud' && 'sm:col-span-2',
                 checked ? 'border-ink/70 bg-background ring-1 ring-ink/70' : 'hover:border-ring/70 hover:bg-hover/60',
               )}
             >
@@ -229,17 +241,19 @@ function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceAp
                 <span className={cn('flex size-3.5 items-center justify-center rounded-full border', checked ? 'border-ink' : 'border-ring')}>
                   {checked && <span className="size-1.5 rounded-full bg-ink" />}
                 </span>
-                {PROVIDERS[p].label}
-                {settings.hasKey[p] && <span className="ml-auto text-xs font-normal text-faint">key saved</span>}
+                {label}
+                {p !== 'cloud' && settings.hasKey[p] && <span className="ml-auto text-xs font-normal text-faint">key saved</span>}
               </span>
-              <span className="pl-5.5 text-[12.5px] leading-[1.5] text-muted-foreground">{PROVIDERS[p].blurb}</span>
+              <span className="pl-5.5 text-[12.5px] leading-[1.5] text-muted-foreground">{blurb}</span>
             </button>
           )
         })}
       </div>
 
       <div className="mt-5">
-        {settings.keySource && !replacing ? (
+        {onCloud ? (
+          <CloudStatus api={api} />
+        ) : settings.keySource && !replacing ? (
           <div className="flex items-center gap-2.5 rounded-lg bg-raised px-3.5 py-3 text-[13px]" role="status">
             <span className="flex size-4 items-center justify-center rounded-full bg-go text-background">
               <Check className="size-2.5" strokeWidth={3.5} />

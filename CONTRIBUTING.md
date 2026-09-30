@@ -6,7 +6,7 @@ Thanks for helping. This repository is the open-source core of Dalliance: the de
 
 Anything that works on one computer with the user's own key: the notebook, cells, the agent and its tools, the Python kernel, `.ipynb` support, settings, the website.
 
-Hosted features are a separate product and don't belong here: accounts, collaboration, credits, billing and the hosted agent. The core must never depend on them. If an idea needs a server, open an issue first so we can agree where it goes.
+The hosted service is a separate, private product: the accounts, billing and model proxy behind Dalliance Cloud. The app has a small client for it in `apps/desktop/electron/cloud/`, off unless a build sets `DALLIANCE_CLOUD_URL`, and everything else must work without it, on the user's own key. See [docs/cloud.md](docs/cloud.md). If an idea needs a server, open an issue first so we can agree where it goes.
 
 ## License
 

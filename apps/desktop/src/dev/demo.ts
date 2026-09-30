@@ -215,12 +215,12 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
     return { status: 'ok', detail: provider === 'gateway' ? '$5.00 in credits' : null }
   }
   // Like the real store, switching provider swaps a default model name for the other provider's
-  const defaults = { gateway: 'anthropic/claude-opus-5', anthropic: 'claude-opus-5' }
+  const defaults = { gateway: 'anthropic/claude-opus-5', anthropic: 'claude-opus-5', cloud: 'anthropic/claude-opus-5' }
   api.updateSettings = async ({ apiKey, ...rest }) => {
     const model = rest.provider && rest.provider !== settings.provider && settings.model === defaults[settings.provider] ? defaults[rest.provider] : settings.model
     settings = { ...settings, model, ...rest }
     if (apiKey) settings.hasKey = { ...settings.hasKey, [apiKey.provider]: apiKey.key.trim() !== '' }
-    settings.keySource = settings.hasKey[settings.provider] ? 'settings' : null
+    settings.keySource = settings.provider !== 'cloud' && settings.hasKey[settings.provider] ? 'settings' : null
     return settings
   }
   // A first launch finds no Python; setting one up streams a few lines and succeeds

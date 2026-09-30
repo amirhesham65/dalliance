@@ -1,11 +1,12 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createGateway } from '@ai-sdk/gateway'
 import { type LanguageModel, generateText } from 'ai'
-import type { ModelConfig } from './model'
+import { type ModelConfig, cloudGateway } from './model'
 
 /**
  * The small, cheap model that names cells, whatever model writes the code: GPT-6 Luna through the gateway.
  * The Anthropic API only serves Claude, so there it's Haiku, which takes neither thinking nor effort settings.
+ * Dalliance Cloud serves the gateway's models, so it uses Luna too, on the user's plan.
  */
 export const TITLE_MODELS = { gateway: 'openai/gpt-6-luna', anthropic: 'claude-haiku-4-5' } as const
 
@@ -23,10 +24,15 @@ export interface TitleModel {
 }
 
 export function titleModel(config: ModelConfig): TitleModel | null {
+  // Luna reasons before it answers; low effort keeps a title to a second or so
+  const luna = { openai: { reasoningEffort: 'low' } }
+  if (config.provider === 'cloud') {
+    if (!config.cloud?.signedIn()) return null
+    return { model: cloudGateway(config.cloud)(TITLE_MODELS.gateway), providerOptions: luna }
+  }
   if (!config.apiKey) return null
   if (config.provider === 'anthropic') return { model: createAnthropic({ apiKey: config.apiKey })(TITLE_MODELS.anthropic) }
-  // Luna reasons before it answers; low effort keeps a title to a second or so
-  return { model: createGateway({ apiKey: config.apiKey })(TITLE_MODELS.gateway), providerOptions: { openai: { reasoningEffort: 'low' } } }
+  return { model: createGateway({ apiKey: config.apiKey })(TITLE_MODELS.gateway), providerOptions: luna }
 }
 
 /** Tidy what the model sent back: first line, no quotes, prefix or trailing punctuation, at most 6 words. */

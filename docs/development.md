@@ -12,6 +12,8 @@ pnpm dev
 
 Put `AI_GATEWAY_API_KEY` in `apps/desktop/.env`, or `ANTHROPIC_API_KEY` if you switch the provider in Settings. You can also skip the file and paste a key into Settings, where it's stored encrypted. The `.env` file is only read in development. Packaged builds also find either variable when your shell profile exports it.
 
+`DALLIANCE_CLOUD_URL` in the same file points a development build at a Dalliance Cloud, such as a local copy of the service. Leave it out to work on the app without one. See [cloud.md](cloud.md).
+
 `pnpm-workspace.yaml` allows only `electron` to run install scripts. If you add a dependency that needs a postinstall step, add it to `onlyBuiltDependencies`.
 
 ## Dependencies

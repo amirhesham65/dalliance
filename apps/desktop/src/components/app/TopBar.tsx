@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useSidebar } from '@/components/ui/sidebar'
+import { providerLabel } from '@/lib/keys'
 import { makerOfModel } from '@/lib/makers'
 import { modelLabel } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
@@ -167,7 +168,7 @@ function ModelChip() {
           <div className="mt-1 border-t pt-1">
             <MenuButton
               icon={<Settings />}
-              label={`Provider: ${settings.provider === 'gateway' ? 'Vercel AI Gateway' : 'Anthropic API'}…`}
+              label={`Provider: ${providerLabel(settings.provider)}…`}
               onClick={() => {
                 setOpen(false)
                 actions.openSettings('models')

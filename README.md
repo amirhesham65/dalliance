@@ -119,7 +119,7 @@ The [internal docs](docs/README.md) cover the architecture, the agent loop and i
 
 ## License
 
-The core is open source under the [Apache License 2.0](LICENSE): the notebook, the agent, the kernel and the file format, running on your own model key. Hosted features such as accounts, collaboration and credits are a separate product and aren't in this repository.
+The core is open source under the [Apache License 2.0](LICENSE): the notebook, the agent, the kernel and the file format, running on your own model key. Official builds can also sign in to Dalliance Cloud, a separate hosted service, to run models on a Dalliance plan instead. Every model through Dalliance Cloud runs with zero data retention. With your own key, data retention depends on your agreement with the provider. The service isn't in this repository, and builds from source leave it off.
 
 The name, logo and icon are trademarks and aren't covered by the license. See [TRADEMARKS.md](TRADEMARKS.md).
 

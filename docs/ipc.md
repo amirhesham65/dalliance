@@ -44,6 +44,13 @@ The wrappers then hand the listener the tab whose page sent the call, not the ev
 | `listFiles()` | invoke | `session.files` | Workspace files, empty for broad folders |
 | `restoreSession()` | invoke | `drafts.restore` | The notebook the tab shows at load, or a `RestoreFailure` with the reason it couldn't reopen, or null for the start page. See [storage.md](storage.md#session-and-drafts) |
 | `saveDraft(state)` | send | `drafts.update` | Mirrors the tab's document to the main process |
+| `getAccount()` | invoke | `account.current` | The Dalliance account as an `AccountView`. Signed out in builds without Dalliance Cloud. See [cloud.md](cloud.md) |
+| `signIn()` | invoke | `account.signIn` | Opens the sign-in page in the browser and sets `waiting` |
+| `redeemSignInCode(code)` | invoke | `account.redeem` | The code the sign-in page shows when the browser couldn't open the app |
+| `signOut()` | invoke | `account.signOut` | Signs out here. The server session expires on its own |
+| `getBilling()` | invoke | `billing.current` | The plan as a `BillingView`. `available` is false in builds without Dalliance Cloud |
+| `startCheckout(plan)` | invoke | `billing.checkout` | Opens checkout for the plan in the browser. Only takes `pro` |
+| `openBillingPortal()` | invoke | `billing.portal` | Opens the billing portal in the browser |
 | `setDocumentState({ path, dirty, running })` | send | `tabs.report` | The tab's name, unsaved changes and whether a cell is queued or running, for the tab strip. For the tab showing, also the window title and the macOS edited dot |
 | `listTabs()` | invoke | `tabs.info` | The window's tabs as a `TabsState`: each `TabInfo` in order, `activeId`, and `selfId`, the tab asking |
 | `newTab()` | invoke | `openTab` | A tab on the start page, at the end of the strip, shown |
@@ -63,6 +70,8 @@ Each `on*` method subscribes and returns an unsubscribe function.
 | `onTabs` | `tabs-changed` | `TabsState`, each time a tab opens, closes or switches, or one's name, unsaved changes or running state changes |
 | `onSettingsChanged` | `settings-changed` | The new `SettingsView`, after any tab changed a setting |
 | `onPythonState` | `python-state-changed` | The new `PythonState`, after a setup or a new Python path in any tab |
+| `onAccount` | `account-changed` | `AccountView`, after sign-in, sign-out or a session check. Every tab gets it |
+| `onBilling` | `billing-changed` | `BillingView`, whenever the plan or its credits change. Every tab gets it |
 
 `onRunEvent` and `onKernelState` only reach the tab that owns the run or the kernel.
 
@@ -111,6 +120,8 @@ A tab that has the file open already just comes forward. Anything else goes thro
 3. The renderer calls `openNotebook()`, which takes the queued file instead of showing the dialog. A file that doesn't parse gets a message box, and `openNotebook()` returns null.
 
 At launch this runs after `restoreSession()`, so the last tabs come back first and the file then opens beside them.
+
+In builds with Dalliance Cloud, links on the `io.dalliance.app` scheme arrive the same ways: `open-url` on macOS, and the command line elsewhere. They never go through `OpenQueue`. `openLink()` hands them to the account and brings the window forward. See [cloud.md](cloud.md#signing-in).
 
 ## Saving and closing
 

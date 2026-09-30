@@ -15,6 +15,7 @@ Dalliance is an Electron app. You write a notebook cell in plain language, an ag
 | Calls between the renderer and the main process | [ipc.md](ipc.md) |
 | React, the store, panes, shortcuts, theming | [renderer.md](renderer.md) |
 | Settings, keys, drafts, logs and other files on disk | [storage.md](storage.md) |
+| Signing in and hosted models, in builds with Dalliance Cloud | [cloud.md](cloud.md) |
 | Running tests or writing new ones | [testing.md](testing.md) |
 | Setup, commands, conventions | [development.md](development.md) |
 | Building the .dmg and publishing a release | [releasing.md](releasing.md) |
@@ -26,6 +27,7 @@ Dalliance is an Electron app. You write a notebook cell in plain language, an ag
 ```
 apps/desktop/         the Electron app, @dalliance/desktop
   electron/           main process: window, menus, settings, the agent, the kernel
+    cloud/            the optional Dalliance Cloud client, off unless a build sets DALLIANCE_CLOUD_URL
   src/                renderer: React 19, zustand, shadcn, Tailwind v4
 apps/web/             dalliance.io, Next.js 16, @dalliance/web
 packages/shared/      types and pure functions both sides import, @dalliance/shared
@@ -44,6 +46,7 @@ docs/                 you are here
 7. **One cell runs at a time in each tab.** Every tab has its own page, session and kernel. A tab's renderer queues its cells and its kernel queues requests, while cells in different tabs run at the same time. Don't add parallel runs within a tab without reworking both. See [architecture.md](architecture.md#tabs).
 8. **`.ipynb` stays valid nbformat 4.** Dalliance fields live under `metadata.dalliance`. Jupyter must still open the file.
 9. **No AI attribution** in commits, PRs, comments or docs. See [AGENTS.md](../AGENTS.md).
+10. **Zero data retention is Dalliance Cloud's, and only Cloud's.** The service's proxy enforces it on every call. Copy may claim it for Cloud, never for the own-key routes, which run on the user's own agreements. See [cloud.md](cloud.md#zero-data-retention).
 
 ## Words used in the code
 

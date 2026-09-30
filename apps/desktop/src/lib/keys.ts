@@ -1,9 +1,16 @@
-import type { DallianceApi, Provider, SettingsView } from '@dalliance/shared/ipc'
+import type { DallianceApi, KeyProvider, Provider, SettingsView } from '@dalliance/shared/ipc'
 
-export const PROVIDERS: Record<Provider, { label: string; blurb: string; keyLabel: string; placeholder: string; env: string; keysUrl: string; keysSite: string }> = {
+/**
+ * Dalliance Cloud's proxy enforces zero data retention on every call. An own key runs on the user's own agreements,
+ * so nothing here may claim it for them. See docs/cloud.md.
+ */
+export const OWN_KEY_RETENTION = 'With your own key, data retention depends on your agreement with the provider.'
+export const CLOUD_RETENTION = 'Every model through Dalliance Cloud runs with zero data retention.'
+
+export const PROVIDERS: Record<KeyProvider, { label: string; blurb: string; keyLabel: string; placeholder: string; env: string; keysUrl: string; keysSite: string }> = {
   gateway: {
     label: 'Vercel AI Gateway',
-    blurb: 'One key for Claude, GPT, Gemini and others. Switch models any time.',
+    blurb: `One key for Claude, GPT, Gemini and others. Switch models any time. ${OWN_KEY_RETENTION}`,
     keyLabel: 'AI Gateway key',
     placeholder: 'vck_…',
     env: 'AI_GATEWAY_API_KEY',
@@ -13,7 +20,7 @@ export const PROVIDERS: Record<Provider, { label: string; blurb: string; keyLabe
   },
   anthropic: {
     label: 'Anthropic API',
-    blurb: 'Claude models only, billed by Anthropic.',
+    blurb: `Claude models only, billed by Anthropic. ${OWN_KEY_RETENTION}`,
     keyLabel: 'Anthropic API key',
     placeholder: 'sk-ant-…',
     env: 'ANTHROPIC_API_KEY',
@@ -23,15 +30,25 @@ export const PROVIDERS: Record<Provider, { label: string; blurb: string; keyLabe
 }
 
 /** Which provider a key belongs to, from its prefix, or null when it doesn't say. */
-export function providerForKey(key: string): Provider | null {
+export function providerForKey(key: string): KeyProvider | null {
   const k = key.trim()
   if (k.startsWith('vck_')) return 'gateway'
   if (k.startsWith('sk-ant-')) return 'anthropic'
   return null
 }
 
+/** Dalliance Cloud's entry in the provider list, in builds that have it. It runs on the account, not a key. */
+export const CLOUD = {
+  label: 'Dalliance Cloud',
+  blurb: `No key needed. Claude, GPT, Gemini and others on your Dalliance plan, paid for in credits. ${CLOUD_RETENTION}`,
+}
+
+/** The provider's name, for menus and labels. */
+export const providerLabel = (provider: Provider) => (provider === 'cloud' ? CLOUD.label : PROVIDERS[provider].label)
+
 /** How a key got there, for the line under a saved key. */
 export function keySourceText(settings: SettingsView): string {
+  if (settings.provider === 'cloud') return ''
   const env = PROVIDERS[settings.provider].env
   if (settings.keySource === 'environment') return `Using ${env} from the environment.`
   if (settings.keySource === 'shell') return `Using ${env} from your shell profile.`
@@ -53,7 +70,8 @@ export interface SavedKey {
  */
 export async function saveKey(api: DallianceApi, current: Provider, raw: string): Promise<SavedKey> {
   const key = raw.trim()
-  const provider = providerForKey(key) ?? current
+  // A key without a telltale prefix, pasted with Dalliance Cloud chosen, is taken for a gateway key
+  const provider = providerForKey(key) ?? (current === 'cloud' ? 'gateway' : current)
   const check = await api.checkKey(provider, key)
   if (check.status === 'rejected') return { view: null, note: null, error: check.detail }
   const view = await api.updateSettings({ provider, apiKey: { provider, key } })

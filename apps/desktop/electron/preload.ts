@@ -54,6 +54,15 @@ const api: DallianceApi = {
   newTab: () => ipcRenderer.invoke(IPC.newTab),
   closeTab: (id) => ipcRenderer.invoke(IPC.closeTab, id),
   switchTab: (id) => ipcRenderer.invoke(IPC.switchTab, id),
+  getAccount: () => ipcRenderer.invoke(IPC.getAccount),
+  signIn: () => ipcRenderer.invoke(IPC.signIn),
+  redeemSignInCode: (code) => ipcRenderer.invoke(IPC.redeemSignInCode, code),
+  signOut: () => ipcRenderer.invoke(IPC.signOut),
+  onAccount: (listener) => subscribe(IPC.accountChanged, listener),
+  getBilling: () => ipcRenderer.invoke(IPC.getBilling),
+  startCheckout: (plan) => ipcRenderer.invoke(IPC.startCheckout, plan),
+  openBillingPortal: () => ipcRenderer.invoke(IPC.openBillingPortal),
+  onBilling: (listener) => subscribe(IPC.billingChanged, listener),
 }
 
 contextBridge.exposeInMainWorld('dalliance', api)

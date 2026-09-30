@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { agentProviderOptions, claudeReasoning } from './model'
 
 describe('agentProviderOptions', () => {
-  it('turns on thinking, effort, automatic caching and one tool per step for Anthropic models, direct or through the gateway', () => {
-    const expected = { anthropic: { thinking: { type: 'adaptive' }, effort: 'high', cacheControl: { type: 'ephemeral' }, disableParallelToolUse: true } }
+  it('turns on summarized thinking, effort, automatic caching and one tool per step for Anthropic models, direct or through the gateway', () => {
+    const expected = { anthropic: { thinking: { type: 'adaptive', display: 'summarized' }, effort: 'high', cacheControl: { type: 'ephemeral' }, disableParallelToolUse: true } }
     expect(agentProviderOptions({ provider: 'anthropic', model: 'claude-opus-5', effort: 'high' })).toEqual(expected)
     expect(agentProviderOptions({ provider: 'gateway', model: 'anthropic/claude-opus-5', effort: 'high' })).toEqual(expected)
   })
 
-  it('sends no Anthropic options to other makers', () => {
-    expect(agentProviderOptions({ provider: 'gateway', model: 'openai/gpt-6', effort: 'xhigh' })).toEqual({ openai: { reasoningEffort: 'high' } })
+  it('sends no Anthropic options to other makers, and asks OpenAI models for reasoning summaries', () => {
+    expect(agentProviderOptions({ provider: 'gateway', model: 'openai/gpt-6', effort: 'xhigh' })).toEqual({ openai: { reasoningEffort: 'high', reasoningSummary: 'auto' } })
     expect(agentProviderOptions({ provider: 'gateway', model: 'google/gemini-3-pro', effort: 'high' })).toBeUndefined()
   })
 

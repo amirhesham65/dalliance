@@ -1,6 +1,6 @@
 import { GatewayError } from '@ai-sdk/gateway'
 import { APICallError, type LanguageModel, RetryError, ToolLoopAgent, type ToolLoopAgentSettings, stepCountIs } from 'ai'
-import type { ActivityItem, CellRunResult, RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
+import type { ActivityItem, CellRunResult, RunCellRequest, RunEvent, RunStep } from '@dalliance/shared/ipc'
 import type { Output } from '@dalliance/shared/notebook'
 import type { Kernel } from '../kernel/kernel'
 import type { EventBus } from './events'
@@ -58,6 +58,7 @@ async function executeCell(request: RunCellRequest, deps: HarnessDeps): Promise<
     suggestions: [],
     variables: created(result.assigned),
     activity: [],
+    steps: [],
     error: null,
   }
 }
@@ -129,6 +130,9 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
   let error: string | null = null
   let step = 0
   let stepStarted = Date.now()
+  const steps: RunStep[] = []
+  // The reasoning summary of the step under way, from its reasoning parts
+  let reasoning = ''
   try {
     const result = await agent.stream({ prompt, abortSignal: deps.signal })
     for await (const part of result.fullStream) {
@@ -136,13 +140,20 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
         case 'start-step':
           step += 1
           stepStarted = Date.now()
+          reasoning = ''
+          break
+        case 'reasoning-delta':
+          reasoning += part.text
           break
         case 'finish-step': {
           const { usage } = part
+          const record: RunStep = { step, modelId: part.response.modelId || deps.modelId || null, reasoning: reasoning.trim() || null }
+          steps.push(record)
           await deps.bus.emit('step', {
             cellId: request.cellId,
             step,
-            modelId: part.response.modelId || deps.modelId || undefined,
+            modelId: record.modelId ?? undefined,
+            reasoning: record.reasoning,
             finishReason: part.finishReason,
             durationMs: Date.now() - stepStarted,
             usage: {
@@ -216,6 +227,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     // A model may still write some after being told not to
     suggestions: deps.suggestNext === false ? [] : (state.finished?.suggestions ?? []),
     activity: [...activity.values()],
+    steps,
     error,
   }
 }
@@ -295,10 +307,45 @@ function statusOf(err: unknown): number | undefined {
 
 const NETWORK = /\b(?:fetch failed|cannot connect to api|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|network error)\b/i
 
+/**
+ * A refusal from Dalliance Cloud's proxy: signed out, out of credits, a model it doesn't offer. Its message is
+ * written for the user, so it's shown as is. The gateway provider wraps an error type it doesn't know, like the
+ * proxy's `dalliance_account`, in a generic error, so the proxy's own response is read from the cause.
+ */
+function accountRefusal(err: unknown): string | null {
+  for (let e: unknown = err, depth = 0; e != null && depth < 5; depth++) {
+    if (RetryError.isInstance(e)) e = e.lastError
+    if (APICallError.isInstance(e) && e.responseBody) {
+      try {
+        const body = JSON.parse(e.responseBody) as { error?: { type?: unknown; message?: unknown } }
+        if (body.error?.type === 'dalliance_account' && typeof body.error.message === 'string') return body.error.message
+      } catch {
+        // Not JSON, so not the proxy's
+      }
+    }
+    e = e instanceof Error ? e.cause : null
+  }
+  return null
+}
+
+/**
+ * Anthropic's own answer, on a direct key, when a model needs data retention and the key's organization has zero
+ * data retention. Only from api.anthropic.com, so a gateway error that mentions retention keeps its own words.
+ */
+function needsRetention(err: unknown, status: number | undefined, message: string): boolean {
+  const call = RetryError.isInstance(err) ? err.lastError : err
+  return status === 400 && APICallError.isInstance(call) && /^https:\/\/api\.anthropic\.com\//.test(call.url) && /\bdata retention\b/i.test(message)
+}
+
 export function friendlyError(err: unknown): string {
+  const refusal = accountRefusal(err)
+  if (refusal) return refusal
   const message = errorMessage(err)
   const detail = clip(message, 200)
   const status = statusOf(err)
+  if (needsRetention(err, status, message)) {
+    return "This model needs data retention, and your Anthropic organization has zero data retention. Choose another model in Settings."
+  }
   if (status === 401 || status === 403 || (status == null && /\b(?:invalid (?:x-)?api[ -]key|unauthorized|authentication (?:error|failed))\b/i.test(message))) {
     return `The model provider rejected the API key. Check it in Settings. (${detail})`
   }

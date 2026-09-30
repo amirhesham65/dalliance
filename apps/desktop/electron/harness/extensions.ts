@@ -98,7 +98,8 @@ export function createRunLog(logDir: string, options: { maxBytes?: number } = {}
     file,
     write(event, data) {
       // Serialized now, so the timestamp and the data are those of the moment the event happened
-      const line = `${JSON.stringify({ at: new Date().toISOString(), event, ...data }, (_k, v) => (typeof v === 'string' && v.length > MAX_LOG_STRING ? `${v.slice(0, MAX_LOG_STRING)}…` : v))}\n`
+      // Reasoning summaries stay whole: they're the record of why a cell was made, see docs/agent-harness.md
+      const line = `${JSON.stringify({ at: new Date().toISOString(), event, ...data }, (k, v) => (k !== 'reasoning' && typeof v === 'string' && v.length > MAX_LOG_STRING ? `${v.slice(0, MAX_LOG_STRING)}…` : v))}\n`
       queue = queue
         .then(() => append(line))
         .catch(() => {

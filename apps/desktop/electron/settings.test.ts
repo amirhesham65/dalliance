@@ -149,4 +149,33 @@ describe('SettingsStore', () => {
       expect(settings.view().unreadableKeys).toEqual(['anthropic'])
     })
   })
+
+  describe('Dalliance Cloud', () => {
+    const access = { baseURL: 'https://cloud.example/api/ai', signedIn: () => true, token: async () => 'jwt' }
+
+    it("can't be chosen in a build without it", () => {
+      const store = new SettingsStore(dir())
+      expect(store.update({ provider: 'cloud' }).provider).toBe('gateway')
+      expect(store.view().cloud).toBe(false)
+    })
+
+    it('runs on the account, with no key and the gateway model default', () => {
+      const store = new SettingsStore(dir())
+      store.setCloud(access)
+      const view = store.update({ provider: 'cloud' })
+      expect(view).toMatchObject({ provider: 'cloud', cloud: true, keySource: null, model: 'anthropic/claude-opus-5' })
+      expect(store.modelConfig()).toMatchObject({ provider: 'cloud', apiKey: null, cloud: access })
+    })
+
+    it('reads as the gateway when a build without it opens settings that chose it', () => {
+      const folder = dir()
+      writeFileSync(path.join(folder, 'settings.json'), JSON.stringify({ provider: 'cloud', model: 'google/gemini-3.8-flash' }))
+      const store = new SettingsStore(folder)
+      expect(store.view().provider).toBe('gateway')
+      expect(store.modelConfig()).toMatchObject({ provider: 'gateway', model: 'anthropic/claude-opus-5' })
+      // And a build with it gets the choice back
+      store.setCloud(access)
+      expect(store.modelConfig()).toMatchObject({ provider: 'cloud', model: 'google/gemini-3.8-flash' })
+    })
+  })
 })

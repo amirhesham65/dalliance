@@ -1,7 +1,9 @@
 import { create } from 'zustand'
 import { cellTitle } from '@/lib/notebook/text'
 import type {
+  AccountView,
   ActivityItem,
+  BillingView,
   Brief,
   CellRunResult,
   KernelState,
@@ -87,6 +89,9 @@ export interface NotebookState {
   /** Which view the Variables & Environment pane shows. */
   variablesView: VariablesView
   settings: SettingsView | null
+  /** The Dalliance account and its plan, in builds with Dalliance Cloud. Null until the main process answers. */
+  account: AccountView | null
+  billing: BillingView | null
   /** The Settings section on screen, or null when Settings is closed. It covers whatever screen is under it. */
   settingsPage: SettingsSection | null
   python: PythonState | null
@@ -130,7 +135,7 @@ export function welcomeNotebook(): Notebook {
 const initial = welcomeNotebook()
 
 /** The sections of Settings, in the order the side list shows them. */
-export const SETTINGS_SECTIONS = ['models', 'agent', 'python'] as const
+export const SETTINGS_SECTIONS = ['models', 'agent', 'python', 'account'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 // Settings reopens where it was left
@@ -153,6 +158,8 @@ export const useNotebook = create<NotebookState>(() => ({
   environmentStale: false,
   variablesView: 'variables',
   settings: null,
+  account: null,
+  billing: null,
   settingsPage: null,
   python: null,
   focusId: null,
@@ -479,8 +486,22 @@ export const actions = {
 
   async loadModels(force = false) {
     const { models, settings } = get()
-    if (!api || (!force && models && models.provider === settings?.provider && !models.error)) return
-    set({ models: await api.listModels().catch((err: unknown) => ({ provider: settings?.provider ?? 'gateway', models: [], error: String(err) })) })
+    if (!api) return
+    // A cached list is reused, but the saved model is still checked against it below
+    const cached = !force && models && models.provider === settings?.provider && !models.error
+    const list = cached ? models : await api.listModels().catch((err: unknown) => ({ provider: settings?.provider ?? 'gateway', models: [], error: String(err) }))
+    if (!cached) set({ models: list })
+    // Dalliance Cloud only offers models with zero data retention. A saved model it doesn't offer goes back to the
+    // default (an empty model resets it), rather than failing every run
+    const current = get().settings
+    if (list.provider === 'cloud' && current?.provider === 'cloud' && !list.error && list.models.length && !list.models.some((m) => m.id === current.model)) {
+      try {
+        set({ settings: await api.updateSettings({ model: '' }) })
+        actions.notify(`${current.model} isn't offered on Dalliance Cloud, so the model is back to the default.`)
+      } catch (err) {
+        actions.notifyFailure("Couldn't reset the model", err)
+      }
+    }
   },
 
   async loadBrief() {
@@ -866,6 +887,7 @@ function failed(request: RunCellRequest, err: unknown): CellRunResult {
     suggestions: [],
     variables: [],
     activity: [],
+    steps: [],
     error: err instanceof Error ? err.message : String(err),
   }
 }

@@ -1,11 +1,24 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { GatewayError, createGateway } from '@ai-sdk/gateway'
 import type { LanguageModel, ToolLoopAgentSettings } from 'ai'
-import type { Effort, KeyCheck, ModelList, ModelOption, Provider } from '@dalliance/shared/ipc'
+import type { Effort, KeyCheck, KeyProvider, ModelList, ModelOption, Provider } from '@dalliance/shared/ipc'
 
 export const DEFAULT_MODELS: Record<Provider, string> = {
   gateway: 'anthropic/claude-opus-5',
   anthropic: 'claude-opus-5',
+  cloud: 'anthropic/claude-opus-5',
+}
+
+/**
+ * How to reach Dalliance Cloud's model proxy, in builds that have it. The proxy speaks AI Gateway's protocol, so
+ * the gateway provider talks to it, with the account's Convex token in place of a key. See docs/cloud.md.
+ */
+export interface CloudAccess {
+  /** The proxy, like `https://cloud.dalliance.io/api/ai`. */
+  baseURL: string
+  signedIn: () => boolean
+  /** A token fetched per request, so a long run outlives any one token. Null when signed out. */
+  token: () => Promise<string | null>
 }
 
 export interface ModelConfig {
@@ -13,10 +26,15 @@ export interface ModelConfig {
   model: string
   effort: Effort
   apiKey: string | null
+  /** Null in builds without Dalliance Cloud. */
+  cloud?: CloudAccess | null
 }
 
-export class MissingKeyError extends Error {
-  constructor(provider: Provider) {
+/** Models can't run until the user does something in Settings. The message says what. */
+export class ModelSetupError extends Error {}
+
+export class MissingKeyError extends ModelSetupError {
+  constructor(provider: KeyProvider) {
     super(
       provider === 'gateway'
         ? 'Add an AI Gateway key in Settings to run prompts.'
@@ -25,10 +43,37 @@ export class MissingKeyError extends Error {
   }
 }
 
+const SIGNED_OUT = 'Sign in to Dalliance to run prompts on your plan. Settings > Account.'
+
+/** The access for a config set to Dalliance Cloud, or the reason it can't run. */
+function cloudAccess(config: ModelConfig): CloudAccess {
+  if (!config.cloud) throw new ModelSetupError("This build of Dalliance doesn't include Dalliance Cloud. Choose another provider in Settings.")
+  if (!config.cloud.signedIn()) throw new ModelSetupError(SIGNED_OUT)
+  return config.cloud
+}
+
+/** The gateway provider pointed at Dalliance Cloud's proxy, with the account's token put on each request. */
+export function cloudGateway(access: CloudAccess) {
+  return createGateway({
+    baseURL: access.baseURL,
+    // The provider wants a key up front; each request replaces it with the current token
+    apiKey: 'dalliance-cloud',
+    fetch: async (input, init) => {
+      const token = await access.token()
+      // Answered in the proxy's own error shape, so the SDK shows the message as written
+      if (!token) return Response.json({ error: { message: SIGNED_OUT, type: 'dalliance_account' } }, { status: 401 })
+      const headers = new Headers(init?.headers)
+      headers.set('authorization', `Bearer ${token}`)
+      return fetch(input, { ...init, headers })
+    },
+  })
+}
+
 export function resolveModel(config: ModelConfig): {
   model: LanguageModel
   providerOptions: ToolLoopAgentSettings['providerOptions']
 } {
+  if (config.provider === 'cloud') return { model: cloudGateway(cloudAccess(config))(config.model), providerOptions: agentProviderOptions(config) }
   if (!config.apiKey) throw new MissingKeyError(config.provider)
   const model =
     config.provider === 'gateway'
@@ -65,7 +110,7 @@ function supportedEffort(effort: Effort, allowed: readonly Effort[]): Effort {
 /**
  * Options for the agent's requests. Anthropic models take adaptive thinking with an effort level where the model
  * supports them (see claudeReasoning), OpenAI reasoning models take a reasoning effort, both also through the
- * gateway. Other makers get their defaults.
+ * gateway. Both are asked for reasoning summaries, which the run keeps per step. Other makers get their defaults.
  *
  * Every Anthropic model also gets automatic caching: a top-level cacheControl puts a breakpoint on the last block
  * of every request, so each step of a cell reads the steps before it from the cache. It marks no message, so the
@@ -76,7 +121,8 @@ export function agentProviderOptions(config: Pick<ModelConfig, 'provider' | 'mod
     const reasoning = claudeReasoning(config.model)
     return {
       anthropic: {
-        ...(reasoning.adaptive ? { thinking: { type: 'adaptive' } } : {}),
+        // Summarized, so each step's reasoning can be kept with the run. See docs/agent-harness.md
+        ...(reasoning.adaptive ? { thinking: { type: 'adaptive', display: 'summarized' } } : {}),
         ...(reasoning.efforts.length ? { effort: supportedEffort(config.effort, reasoning.efforts) } : {}),
         cacheControl: { type: 'ephemeral' },
         // One tool call per step: finish must never race the run_cell it reports on
@@ -85,7 +131,7 @@ export function agentProviderOptions(config: Pick<ModelConfig, 'provider' | 'mod
     }
   }
   if (config.model.startsWith('openai/')) {
-    return { openai: { reasoningEffort: config.effort === 'low' || config.effort === 'medium' ? config.effort : 'high' } }
+    return { openai: { reasoningEffort: config.effort === 'low' || config.effort === 'medium' ? config.effort : 'high', reasoningSummary: 'auto' } }
   }
   return undefined
 }
@@ -106,7 +152,7 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
  * Whether a key works, before it is saved. The gateway reports its credit balance, which also proves the key.
  * Anthropic has no balance endpoint, so listing one model does. A network failure is `unchecked`, not a rejection.
  */
-export async function checkKey(provider: Provider, apiKey: string): Promise<KeyCheck> {
+export async function checkKey(provider: KeyProvider, apiKey: string): Promise<KeyCheck> {
   const key = apiKey.trim()
   if (!key) return { status: 'rejected', detail: 'Paste a key first.' }
   try {
@@ -183,14 +229,28 @@ const CACHE_MS = 10 * 60_000
 
 /** The language models the chosen provider offers, for the model picker. Cached for ten minutes. */
 export async function listModels(config: ModelConfig): Promise<ModelList> {
-  if (!config.apiKey) return { provider: config.provider, models: [], error: new MissingKeyError(config.provider).message }
-  const key = `${config.provider}:${config.apiKey.slice(-6)}`
+  let gateway: ReturnType<typeof createGateway> | null = null
+  let key: string
+  if (config.provider === 'cloud') {
+    try {
+      gateway = cloudGateway(cloudAccess(config))
+    } catch (err) {
+      return { provider: config.provider, models: [], error: (err as Error).message }
+    }
+    key = 'cloud'
+  } else {
+    if (!config.apiKey) return { provider: config.provider, models: [], error: new MissingKeyError(config.provider).message }
+    if (config.provider === 'gateway') gateway = createGateway({ apiKey: config.apiKey })
+    key = `${config.provider}:${config.apiKey.slice(-6)}`
+  }
   const hit = cache.get(key)
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.list
   let models: ModelOption[]
   try {
-    if (config.provider === 'gateway') {
-      const { models: entries } = await createGateway({ apiKey: config.apiKey }).getAvailableModels()
+    if (gateway) {
+      const { models: entries } = await gateway.getAvailableModels()
+      // Cloud models are paid for in credits, so dollar prices would only mislead
+      const priced = config.provider !== 'cloud'
       models = entries
         .filter((m) => m.modelType == null || m.modelType === 'language')
         .map((m) => {
@@ -201,12 +261,12 @@ export async function listModels(config: ModelConfig): Promise<ModelList> {
             name: m.name,
             maker: makerOf(m.id),
             description: m.description ?? undefined,
-            price: input && output ? `${input} / ${output}` : undefined,
+            price: priced && input && output ? `${input} / ${output}` : undefined,
           }
         })
     } else {
       const res = await fetch('https://api.anthropic.com/v1/models?limit=100', {
-        headers: { 'x-api-key': config.apiKey, 'anthropic-version': '2023-06-01' },
+        headers: { 'x-api-key': config.apiKey!, 'anthropic-version': '2023-06-01' },
       })
       if (!res.ok) throw new Error(`Anthropic answered ${res.status}`)
       const body = (await res.json()) as { data: { id: string; display_name?: string }[] }
