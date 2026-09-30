@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { Sidebar } from '@/components/app/Sidebar'
 import { TopBar } from '@/components/app/TopBar'
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { SidebarProvider, useSidebar } from '@/components/ui/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { useMediaQuery } from '@/hooks/use-media-query'
 import { useDefaultLayout } from 'react-resizable-panels'
 import type { MenuAction } from '@dalliance/shared/ipc'
 import { PANE_ORDER, actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
@@ -24,11 +25,6 @@ export default function App() {
   const screen = useNotebook((s) => s.screen)
   const settingsPage = useNotebook((s) => s.settingsPage)
   const api = getApi()
-
-  const deleteCell = useCallback((id: string) => {
-    const removed = actions.deleteCell(id)
-    if (removed) actions.notify('Cell deleted', { undo: () => actions.restoreCell(removed.cell, removed.index) })
-  }, [])
 
   const save = useCallback(
     async (as: boolean) => {
@@ -48,6 +44,9 @@ export default function App() {
     async (action: MenuAction) => {
       if (!api) return
       const selected = useNotebook.getState().selectedId
+      // Edit > Undo and Redo. MenuAction in @dalliance/shared doesn't list them yet, so compare as strings
+      const name: string = action
+      if (name === 'undo' || name === 'redo') return editFromMenu(name)
       switch (action) {
         case 'new':
           if (await api.confirmDiscard()) {
@@ -119,7 +118,7 @@ export default function App() {
     api?.setDocumentState({ path, dirty })
   }, [api, path, dirty])
 
-  useCommandMode(deleteCell)
+  useCommandMode()
   useScopedSelectAll()
 
   useEffect(() => writeStored('dalliance-sidebar', sidebarOpen ? 'open' : 'closed'), [sidebarOpen])
@@ -171,7 +170,7 @@ export default function App() {
                     </Button>
                   </div>
                 )}
-                <Workspace onDelete={deleteCell} />
+                <Workspace />
               </>
             )}
           </div>
@@ -226,17 +225,23 @@ function writeStored(key: string, value: string) {
 
 const layoutStorage = { getItem: readStored, setItem: writeStored }
 
+/** Below this window width a side pane floats over the notebook instead of taking a column from it. */
+const NARROW_WINDOW = '(max-width: 1199px)'
+
 /**
  * The overview, the open side pane and the notebook, left to right, with draggable gaps between them.
  * The overview sits in its own group, so opening or closing a side pane never changes its width.
  * Cmd+B hides the overview and the side pane together, leaving the notebook.
+ * In a narrow window the side pane opens over the notebook, so the notebook keeps its width.
  */
-function Workspace({ onDelete }: { onDelete: (id: string) => void }) {
+function Workspace() {
   const { open, openMobile, isMobile } = useSidebar()
   const pane = useNotebook((s) => s.pane)
+  const narrow = useMediaQuery(NARROW_WINDOW)
   const visible = isMobile ? openMobile : open
+  const docked = visible && pane != null && !narrow
   const outer = useDefaultLayout({ id: 'dalliance-overview', panelIds: visible ? ['overview', 'main'] : ['main'], storage: layoutStorage })
-  const inner = useDefaultLayout({ id: 'dalliance-panes', panelIds: visible && pane ? ['side', 'notebook'] : ['notebook'], storage: layoutStorage })
+  const inner = useDefaultLayout({ id: 'dalliance-panes', panelIds: docked ? ['side', 'notebook'] : ['notebook'], storage: layoutStorage })
   return (
     <ResizablePanelGroup orientation="horizontal" defaultLayout={outer.defaultLayout} onLayoutChanged={outer.onLayoutChanged} className="min-h-0 flex-1 px-2 pb-2">
       {visible && (
@@ -249,9 +254,9 @@ function Workspace({ onDelete }: { onDelete: (id: string) => void }) {
           <Gap />
         </>
       )}
-      <ResizablePanel id="main" minSize={360} className="flex">
+      <ResizablePanel id="main" minSize={360} className="relative flex">
         <ResizablePanelGroup orientation="horizontal" defaultLayout={inner.defaultLayout} onLayoutChanged={inner.onLayoutChanged}>
-          {visible && pane && (
+          {docked && (
             <>
               <ResizablePanel id="side" defaultSize={380} minSize={280} maxSize={680} groupResizeBehavior="preserve-pixel-size" className="flex">
                 <SidePane />
@@ -260,11 +265,56 @@ function Workspace({ onDelete }: { onDelete: (id: string) => void }) {
             </>
           )}
           <ResizablePanel id="notebook" minSize={360} className="flex">
-            <NotebookView onDelete={onDelete} />
+            <NotebookView />
           </ResizablePanel>
         </ResizablePanelGroup>
+        {visible && pane != null && narrow && <PaneOverlay />}
       </ResizablePanel>
     </ResizablePanelGroup>
+  )
+}
+
+/**
+ * The side pane over the notebook's left edge, for windows too narrow for both. Esc or a click on the
+ * notebook closes it. Closed from the keyboard, focus goes back where it was; closed by a click, it stays
+ * with the notebook so command mode works there at once.
+ */
+function PaneOverlay() {
+  const ref = useRef<HTMLDivElement>(null)
+  const clickedAway = useRef(false)
+  useEffect(() => {
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const box = ref.current
+    if (box && !box.contains(document.activeElement)) box.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || useNotebook.getState().settingsPage) return
+      // A field, menu or dialog takes Esc for itself first
+      if ((e.target as HTMLElement).closest('input, textarea, [contenteditable="true"], [role="dialog"], [role="listbox"], [role="menu"]')) return
+      e.preventDefault()
+      actions.openPane(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      if (clickedAway.current || !returnTo?.isConnected) return
+      if (!document.activeElement || document.activeElement === document.body) returnTo.focus()
+    }
+  }, [])
+  return (
+    <>
+      <div
+        aria-hidden="true"
+        data-testid="pane-scrim"
+        className="absolute inset-0 z-20 rounded-xl bg-black/10 dark:bg-black/30"
+        onMouseDown={() => {
+          clickedAway.current = true
+          actions.openPane(null)
+        }}
+      />
+      <div ref={ref} tabIndex={-1} className="absolute inset-y-0 left-0 z-30 flex w-[min(400px,calc(100%-48px))] rounded-xl shadow-2xl outline-none">
+        <SidePane />
+      </div>
+    </>
   )
 }
 
@@ -295,23 +345,63 @@ function useScopedSelectAll() {
   }, [])
 }
 
+const TEXT_FIELD = 'textarea, input, [contenteditable="true"], [contenteditable=""]'
+
+// The Edit menu's accelerator and the page's keydown can both see one Cmd+Z, depending on the platform.
+// Whichever comes second within a moment is the same key press, and is ignored.
+let lastEdit: { which: 'undo' | 'redo'; from: 'menu' | 'key'; at: number } | null = null
+
+function notebookEdit(which: 'undo' | 'redo', from: 'menu' | 'key') {
+  const now = performance.now()
+  if (lastEdit && lastEdit.which === which && lastEdit.from !== from && now - lastEdit.at < 150) return
+  lastEdit = { which, from, at: now }
+  if (which === 'undo') actions.undo()
+  else actions.redo()
+}
+
+/**
+ * Edit > Undo and Redo. A text field keeps its own undo, which the menu's items have to ask for since they
+ * replace the built-in roles. Anywhere else they undo notebook edits.
+ */
+function editFromMenu(which: 'undo' | 'redo') {
+  const el = document.activeElement
+  if (el instanceof HTMLElement && el.matches(TEXT_FIELD)) {
+    document.execCommand(which)
+    return
+  }
+  const { screen, settingsPage } = useNotebook.getState()
+  if (screen === 'notebook' && !settingsPage) notebookEdit(which, 'menu')
+}
+
 /**
  * Jupyter's command mode: when no editor has focus, single keys act on the selected cell.
- * A/B insert above/below, M/Y switch to note/prompt, T folds tables, D D deletes, arrows or J/K move, Enter edits.
+ * A/B insert above/below, M/Y switch to note/prompt, T folds tables, D D deletes, arrows or J/K move, Enter edits,
+ * Cmd+Z and Shift+Cmd+Z undo and redo notebook edits.
+ * It listens only while focus is in the notebook or on nothing at all, so keys pressed on a button in the
+ * overview or a side pane never act on the selected cell.
  */
-function useCommandMode(deleteCell: (id: string) => void) {
+function useCommandMode() {
   useEffect(() => {
     let lastD = 0
+    // A new window starts with no recent edit, so an Undo left over from the last one can't swallow the first
+    lastEdit = null
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
+      if (e.defaultPrevented) return
       if (useNotebook.getState().screen !== 'notebook' || useNotebook.getState().settingsPage) return
-      if (target.closest('textarea, input, [contenteditable="true"], [role="dialog"], [role="alertdialog"], [role="listbox"]')) return
+      if (target !== document.body && target !== document.documentElement && !target.closest('[data-command-scope]')) return
+      if (target.closest(`${TEXT_FIELD}, [role="dialog"], [role="alertdialog"], [role="listbox"]`)) return
       if (target.closest('button, a, summary, [role="tab"]') && (e.key === 'Enter' || e.key === ' ')) return
+      const key = e.key
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && key.toLowerCase() === 'z') {
+        e.preventDefault()
+        notebookEdit(e.shiftKey ? 'redo' : 'undo', 'key')
+        return
+      }
       const { selectedId, notebook } = useNotebook.getState()
       if (!selectedId) return
       const index = notebook.cells.findIndex((c) => c.id === selectedId)
       if (index < 0) return
-      const key = e.key
       if (key === 'Enter' && e.shiftKey) {
         e.preventDefault()
         actions.runAndAdvance(selectedId)
@@ -336,12 +426,12 @@ function useCommandMode(deleteCell: (id: string) => void) {
         if (index < notebook.cells.length - 1) actions.select(notebook.cells[index + 1].id)
       } else if (key === 'd') {
         if (Date.now() - lastD < 500) {
-          deleteCell(selectedId)
+          actions.deleteCell(selectedId)
           lastD = 0
         } else lastD = Date.now()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [deleteCell])
+  }, [])
 }

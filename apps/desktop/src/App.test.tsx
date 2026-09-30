@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { type PromptCell, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
 import { fakeApi, fakeSettings, result } from '@/test/fake-api'
@@ -12,6 +12,7 @@ vi.setConfig({ testTimeout: 15_000 })
 beforeEach(() => {
   actions.load({ cells: [newNoteCell('# Sales review'), newPromptCell('')] }, null)
   actions.closeSettings()
+  actions.openPane(null)
 })
 
 describe('App', () => {
@@ -40,7 +41,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Show table' }))
     expect(screen.getByRole('cell', { name: 'Aug' })).toBeInTheDocument()
     // Shift+Enter on the last cell adds a new prompt cell
-    expect(screen.getAllByRole('article', { name: 'Prompt cell' })).toHaveLength(2)
+    expect(screen.getAllByRole('article', { name: /^Prompt cell/ })).toHaveLength(2)
 
     await user.click(screen.getByRole('tab', { name: 'Code' }))
     expect(screen.getByRole('textbox', { name: 'Code' })).toHaveValue('orders.total.mean()')
@@ -59,7 +60,7 @@ describe('App', () => {
     setApi(api)
     render(<App />)
     await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Total sales')
-    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
 
     const card = await screen.findByRole('alertdialog', { name: 'Which sales data?' })
     await user.click(within(card).getByRole('button', { name: 'orders.csv' }))
@@ -72,7 +73,7 @@ describe('App', () => {
     setApi(fakeApi(() => result({ ok: false, outputs: [], executionCount: null, error: 'Add an AI Gateway key in Settings to run prompts.' })).api)
     render(<App />)
     await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Plot revenue')
-    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Add an AI Gateway key')
   })
 
@@ -104,7 +105,7 @@ describe('App', () => {
 
     await user.click(screen.getByText('Revenue rose.'))
     await user.keyboard('m')
-    expect(screen.queryByRole('article', { name: 'Prompt cell' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('article', { name: /^Prompt cell/ })).not.toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Made the cell a note')
 
     await user.click(screen.getByRole('button', { name: 'Undo' }))
@@ -179,7 +180,7 @@ describe('result layout', () => {
     )
     render(<App />)
     await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Load orders')
-    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
 
     expect(await screen.findByText('2,863 orders')).toHaveProperty('tagName', 'STRONG')
     // An interpretation without [[assumptions]] is not shown
@@ -205,7 +206,7 @@ describe('folding tables', () => {
     setApi(fakeApi(() => result({ answer: null, outputs: [table] })).api)
     render(<App />)
     await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Top customers')
-    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
     expect(await screen.findByRole('cell', { name: 'C0001' })).toBeInTheDocument()
   })
 
@@ -214,7 +215,7 @@ describe('folding tables', () => {
     setApi(fakeApi(() => result({ answer: 'C0001 spent the most.', outputs: [table] })).api)
     render(<App />)
     await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Top customers')
-    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
     await screen.findByText('C0001 spent the most.')
     expect(screen.queryByRole('cell', { name: 'C0001' })).not.toBeInTheDocument()
 
@@ -232,7 +233,7 @@ describe('question cells', () => {
     setApi(fakeApi(() => result({ code: '', outputs: [], executionCount: null, answer: 'Predict returns.\n- target: returned\n- features: region' })).api)
     render(<App />)
     await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'What model could we build?')
-    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
     expect(await screen.findByText('Predict returns.')).toBeInTheDocument()
     expect(screen.getByText('target: returned').closest('li')).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Code' })).not.toBeInTheDocument()
@@ -249,14 +250,14 @@ describe('question cells', () => {
     render(<App />)
 
     await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Revenue by month')
-    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
     const list = await screen.findByRole('list', { name: 'Suggested next prompts' })
     await user.click(within(list).getByRole('button', { name: 'Plot revenue by month' }))
 
     expect(await screen.findByText('Here is the chart.')).toBeInTheDocument()
     expect(requests.map((r) => r.prompt)).toEqual(['Revenue by month', 'Plot revenue by month'])
     // The empty cell below the first one is reused rather than stacking a new one
-    expect(screen.getAllByRole('article', { name: 'Prompt cell' })).toHaveLength(2)
+    expect(screen.getAllByRole('article', { name: /^Prompt cell/ })).toHaveLength(2)
     await user.click(screen.getByRole('button', { name: /Activity/ }))
     expect(screen.getByRole('list', { name: 'Run log' })).toHaveTextContent('Wrote “Plot revenue by month”')
   })
@@ -269,11 +270,11 @@ describe('question cells', () => {
 
     const prompt = screen.getByRole('textbox', { name: 'Prompt' })
     await user.type(prompt, 'Total sales')
-    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
     await screen.findByRole('tab', { name: 'Code' })
     await user.clear(prompt)
     await user.type(prompt, 'Average sale')
-    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
     await waitFor(() => expect(useNotebook.getState().runs).toEqual({}))
 
     await user.click(screen.getByRole('button', { name: /History/ }))
@@ -315,7 +316,7 @@ describe('question cells', () => {
 
     expect(screen.getByText('Nothing has run yet. Press Run all, or Shift+Enter in a cell.')).toBeInTheDocument()
     await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Total sales')
-    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
     expect(await screen.findByText('The cell is up to date.')).toBeInTheDocument()
   })
 
@@ -402,13 +403,13 @@ describe('question cells', () => {
     render(<App />)
 
     await user.type(screen.getByRole('textbox', { name: 'Prompt' }), long)
-    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
     const outline = screen.getByRole('complementary', { name: 'Overview' })
     expect(await within(outline).findByRole('button', { name: 'Return rate by category' })).toBeInTheDocument()
     expect(requests[0].nameIt).toBe(true)
 
     // Rerunning the same prompt doesn't ask again, and editing it shows the prompt until it's named anew
-    await user.click(screen.getByRole('button', { name: 'Run cell' }))
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
     await waitFor(() => expect(requests).toHaveLength(2))
     expect(requests[1].nameIt).toBeFalsy()
     await user.type(screen.getByRole('textbox', { name: 'Prompt' }), ' for Pro')
@@ -456,5 +457,209 @@ describe('question cells', () => {
     fireEvent.keyDown(document.body, { key: 'a', metaKey: true })
     expect(window.getSelection()!.toString()).toBe('August averaged 41.2.')
     block.remove()
+  })
+})
+
+/** The fake bridge, with a handle on the menu the main process would drive. */
+function withMenu(api: ReturnType<typeof fakeApi>['api']) {
+  const menu: { send?: (action: string) => void } = {}
+  api.onMenu = (l) => {
+    menu.send = l as (action: string) => void
+    return () => {}
+  }
+  return menu
+}
+
+describe('command mode', () => {
+  it('ignores command keys on buttons in the overview and side panes, so D D there deletes nothing', async () => {
+    const user = userEvent.setup()
+    setApi(fakeApi(() => result()).api)
+    render(<App />)
+    const count = () => screen.getAllByRole('article').length
+    const cells = count()
+
+    await user.click(screen.getByRole('button', { name: /^Variables/ }))
+    expect(screen.getByRole('button', { name: /^Variables/ })).toHaveFocus()
+    await user.keyboard('dd')
+    expect(count()).toBe(cells)
+    within(screen.getByRole('region', { name: 'Variables' })).getByRole('button', { name: 'Refresh' }).focus()
+    await user.keyboard('dd')
+    expect(count()).toBe(cells)
+
+    // In the notebook they still act on the selected cell
+    await user.click(screen.getByRole('heading', { name: 'Sales review' }))
+    await user.keyboard('dd')
+    expect(count()).toBe(cells - 1)
+  })
+})
+
+describe('switching notebooks', () => {
+  it('stops a running cell before another notebook opens, and its result never lands there', async () => {
+    const user = userEvent.setup()
+    let release!: () => void
+    const { api } = fakeApi(() => new Promise((resolve) => (release = () => resolve(result({ answer: 'A late answer.' })))))
+    let interrupts = 0
+    api.interrupt = async () => void interrupts++
+    api.openNotebook = async () => ({ notebook: { cells: [newPromptCell('Another notebook')] }, path: '/tmp/other.ipynb' })
+    const menu = withMenu(api)
+    setApi(api)
+    render(<App />)
+
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Slow sum')
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
+    await waitFor(() => expect(Object.values(useNotebook.getState().runs)[0]?.status).toBe('running'))
+    menu.send!('open')
+
+    expect(await screen.findByDisplayValue('Another notebook')).toBeInTheDocument()
+    expect(interrupts).toBe(1)
+    release()
+    await waitFor(() => expect(useNotebook.getState().runs).toEqual({}))
+    expect(screen.queryByText('A late answer.')).not.toBeInTheDocument()
+    expect(useNotebook.getState()).toMatchObject({ dirty: false, log: [] })
+  })
+})
+
+describe('narrow windows', () => {
+  it('opens a side pane over the notebook, and Esc or a click outside closes it', async () => {
+    const user = userEvent.setup()
+    const matchMedia = window.matchMedia
+    window.matchMedia = ((query: string) => ({ ...matchMedia(query), matches: query === '(max-width: 1199px)' })) as typeof window.matchMedia
+    try {
+      setApi(fakeApi(() => result()).api)
+      render(<App />)
+      await user.click(screen.getByRole('button', { name: /^Variables/ }))
+      expect(screen.getByRole('region', { name: 'Variables' })).toBeInTheDocument()
+      await user.keyboard('{Escape}')
+      expect(screen.queryByRole('region', { name: 'Variables' })).not.toBeInTheDocument()
+      // Focus goes back to the button that opened it
+      expect(screen.getByRole('button', { name: /^Variables/ })).toHaveFocus()
+
+      await user.click(screen.getByRole('button', { name: /^Variables/ }))
+      await user.click(screen.getByTestId('pane-scrim'))
+      expect(screen.queryByRole('region', { name: 'Variables' })).not.toBeInTheDocument()
+      expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeInTheDocument()
+    } finally {
+      window.matchMedia = matchMedia
+    }
+  })
+})
+
+describe('undo and redo', () => {
+  // One clock for the whole block: every Undo looks simultaneous with the one before, as on a fast machine, so
+  // state left over from an earlier test would swallow the next menu Undo here, not only in CI
+  beforeEach(() => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000)
+    onTestFinished(() => now.mockRestore())
+  })
+
+  it('undoes and redoes a delete and a move with Cmd+Z and Shift+Cmd+Z in command mode', async () => {
+    const user = userEvent.setup()
+    setApi(fakeApi(() => result()).api)
+    render(<App />)
+    const kinds = () => screen.getAllByRole('article').map((a) => a.getAttribute('aria-label'))
+
+    await user.click(screen.getByRole('heading', { name: 'Sales review' }))
+    await user.keyboard('dd')
+    expect(kinds()).toEqual(['Prompt cell 1'])
+    await user.keyboard('{Meta>}z{/Meta}')
+    expect(kinds()).toEqual(['Note', 'Prompt cell 1'])
+    expect(screen.queryByText('Cell deleted')).not.toBeInTheDocument()
+    await user.keyboard('{Meta>}{Shift>}z{/Shift}{/Meta}')
+    expect(kinds()).toEqual(['Prompt cell 1'])
+    await user.keyboard('{Control>}z{/Control}')
+    expect(kinds()).toEqual(['Note', 'Prompt cell 1'])
+
+    await user.click(within(screen.getByRole('article', { name: 'Note' })).getByRole('button', { name: 'Move down' }))
+    expect(kinds()).toEqual(['Prompt cell 1', 'Note'])
+    await user.keyboard('{Meta>}z{/Meta}')
+    expect(kinds()).toEqual(['Note', 'Prompt cell 1'])
+  })
+
+  it('leaves Cmd+Z to a text field, and the menu asks the field to undo', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    const menu = withMenu(api)
+    setApi(api)
+    const execCommand = vi.fn(() => true)
+    const original = document.execCommand
+    document.execCommand = execCommand
+    onTestFinished(() => void (document.execCommand = original))
+    render(<App />)
+
+    await user.click(screen.getByRole('heading', { name: 'Sales review' }))
+    await user.keyboard('dd')
+    const prompt = screen.getByRole('textbox', { name: 'Prompt' })
+    await user.click(prompt)
+    await user.keyboard('{Meta>}z{/Meta}')
+    expect(screen.queryByRole('heading', { name: 'Sales review' })).not.toBeInTheDocument()
+    menu.send!('undo')
+    expect(execCommand).toHaveBeenCalledWith('undo')
+    expect(screen.queryByRole('heading', { name: 'Sales review' })).not.toBeInTheDocument()
+
+    // Outside a text field the menu undoes the notebook edit
+    prompt.blur()
+    act(() => menu.send!('undo'))
+    expect(screen.getByRole('heading', { name: 'Sales review' })).toBeInTheDocument()
+    act(() => menu.send!('redo'))
+    expect(screen.queryByRole('heading', { name: 'Sales review' })).not.toBeInTheDocument()
+  })
+
+  it('offers Undo in the notice after D D, from the same stack as Cmd+Z', async () => {
+    const user = userEvent.setup()
+    setApi(fakeApi(() => result()).api)
+    render(<App />)
+    await user.click(screen.getByRole('heading', { name: 'Sales review' }))
+    await user.keyboard('dd')
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(screen.getByRole('heading', { name: 'Sales review' })).toBeInTheDocument()
+    // Redo deletes it again: the notice's Undo went through the stack
+    fireEvent.keyDown(document.body, { key: 'z', metaKey: true, shiftKey: true })
+    expect(screen.queryByRole('heading', { name: 'Sales review' })).not.toBeInTheDocument()
+  })
+})
+
+describe('accessibility', () => {
+  it('names each run button after its cell and keeps its count readable', async () => {
+    const user = userEvent.setup()
+    setApi(fakeApi(() => result()).api)
+    actions.load({ cells: [newNoteCell('# Sales review'), newPromptCell('First'), newPromptCell('Second')] }, null)
+    render(<App />)
+    expect(screen.getByRole('button', { name: 'Run cell 2' })).toHaveAccessibleDescription('Not run yet')
+    await user.click(screen.getByRole('button', { name: 'Run cell 2' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run cell 2' })).toHaveAccessibleDescription('Execution count 1'))
+    expect(screen.getByRole('button', { name: 'Run cell 1' })).toHaveAccessibleDescription('Not run yet')
+  })
+
+  it('reaches a note by keyboard and opens it with Enter, keeping its heading a heading', async () => {
+    const user = userEvent.setup()
+    setApi(fakeApi(() => result()).api)
+    render(<App />)
+    const heading = screen.getByRole('heading', { level: 1, name: 'Sales review' })
+    const preview = heading.parentElement!
+    expect(preview).toHaveAttribute('tabindex', '0')
+    expect(preview).toHaveAccessibleDescription('Press Enter to edit this note.')
+    preview.focus()
+    await user.keyboard('{Enter}')
+    expect(screen.getByRole('textbox', { name: 'Note' })).toHaveFocus()
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('heading', { name: 'Sales review' }).parentElement).toHaveFocus()
+  })
+
+  it('says each status in words in the overview, and announces only when a run ends', async () => {
+    const user = userEvent.setup()
+    let release!: () => void
+    setApi(fakeApi(() => new Promise((resolve) => (release = () => resolve(result({ ok: false, outputs: [{ type: 'error', ename: 'KeyError', evalue: 'x', traceback: [] }] }))))).api)
+    render(<App />)
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Total sales by region')
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
+    const overview = screen.getByRole('complementary', { name: 'Overview' })
+    const live = overview.querySelector('[aria-live]')!
+    await within(overview).findByRole('button', { name: /, running$/ })
+    expect(live).toHaveTextContent('')
+
+    release()
+    expect(await within(overview).findByRole('button', { name: 'Total sales by region, failed' })).toBeInTheDocument()
+    expect(within(overview).getByRole('button', { name: 'Cell 1, Total sales by region: failed' })).toBeInTheDocument()
+    expect(live).toHaveTextContent('Finished running. 0 of 1 cells up to date, 1 failed.')
   })
 })

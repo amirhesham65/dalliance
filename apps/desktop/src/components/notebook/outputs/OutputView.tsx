@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { stripAnsi } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
 import type { ColumnProfile, Output } from '@dalliance/shared/notebook'
@@ -27,14 +27,21 @@ interface OutputListProps {
   tableName?: (rows: number, columns: number) => string | null
 }
 
-export function OutputList({ outputs, tablesOpen = true, onTables, tableName }: OutputListProps) {
+/**
+ * A cell's outputs. Memoized, and the merged list is kept while `outputs` is the same array, so a cell's
+ * tables don't redraw while its prompt is typed. Pass stable callbacks for that to hold.
+ */
+export const OutputList = memo(function OutputList({ outputs, tablesOpen = true, onTables, tableName }: OutputListProps) {
   const [openView, setOpenView] = useState<TableViewMode | null>(null)
-  const merged = mergeStreams(outputs)
+  const { merged, hasResult, streams, rest } = useMemo(() => {
+    const merged = mergeStreams(outputs)
+    // When the cell produced a real result, printed text is secondary: fold it away
+    const hasResult = merged.some((o) => o.type === 'table' || o.type === 'image' || o.type === 'text')
+    const streams = merged.filter((o): o is Stream => o.type === 'stream')
+    const rest = hasResult ? merged.filter((o) => o.type !== 'stream') : merged
+    return { merged, hasResult, streams, rest }
+  }, [outputs])
   if (!merged.length) return null
-  // When the cell produced a real result, printed text is secondary: fold it away
-  const hasResult = merged.some((o) => o.type === 'table' || o.type === 'image' || o.type === 'text')
-  const streams = merged.filter((o): o is Stream => o.type === 'stream')
-  const rest = hasResult ? merged.filter((o) => o.type !== 'stream') : merged
   return (
     <div className="flex flex-col gap-3" data-selectable>
       {rest.map((o, i) =>
@@ -57,7 +64,7 @@ export function OutputList({ outputs, tablesOpen = true, onTables, tableName }: 
       {hasResult && streams.length > 0 && <PrintedOutput streams={streams} />}
     </div>
   )
-}
+})
 
 function PrintedOutput({ streams }: { streams: Stream[] }) {
   const lines = streams.reduce((n, s) => n + s.text.split('\n').length, 0)
@@ -177,9 +184,15 @@ function TableView({ output, initialView = null, name = null, onHide }: { output
   )
 }
 
-function RowsView({ output }: { output: Table }) {
-  const numeric = output.columns.map((_, c) => output.rows.every((r) => r[c] == null || typeof r[c] === 'number'))
-  const showIndex = output.index.some((v, i) => v !== String(i))
+/** Up to 100 rows. Memoized on the table, the most expensive thing a cell draws. */
+const RowsView = memo(function RowsView({ output }: { output: Table }) {
+  const { numeric, showIndex } = useMemo(
+    () => ({
+      numeric: output.columns.map((_, c) => output.rows.every((r) => r[c] == null || typeof r[c] === 'number')),
+      showIndex: output.index.some((v, i) => v !== String(i)),
+    }),
+    [output],
+  )
   return (
     <div>
       <div className="scrollbar-thin max-h-[420px] overflow-auto">
@@ -213,7 +226,7 @@ function RowsView({ output }: { output: Table }) {
       )}
     </div>
   )
-}
+})
 
 const KIND_LABEL: Record<ColumnProfile['kind'], string> = { number: 'number', date: 'date', text: 'text', boolean: 'yes/no' }
 

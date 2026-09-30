@@ -39,7 +39,21 @@ export function buildMenu(send: (action: MenuAction) => void) {
         ...(isMac ? [] : [{ type: 'separator' } as const, item('Settings…', 'settings', 'Ctrl+,'), { role: 'quit' } as const]),
       ],
     },
-    { role: 'editMenu' },
+    {
+      label: 'Edit',
+      submenu: [
+        // Not the built-in roles: the renderer decides. A focused text field gets its own undo, anything else
+        // undoes the last notebook edit. MenuAction doesn't list these two yet, hence the widening cast
+        item('Undo', 'undo' as string as MenuAction, 'CmdOrCtrl+Z'),
+        item('Redo', 'redo' as string as MenuAction, 'Shift+CmdOrCtrl+Z'),
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        ...(isMac ? [{ role: 'pasteAndMatchStyle' } as const, { role: 'delete' } as const] : [{ role: 'delete' } as const, { type: 'separator' } as const]),
+        { role: 'selectAll' },
+      ],
+    },
     {
       label: 'Cell',
       submenu: [

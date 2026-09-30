@@ -44,14 +44,15 @@ function indentSelection(el: HTMLTextAreaElement, outdent: boolean) {
  */
 export function HighlightedEditor({ cellId, value, onChange, onKeyDown, onFocus, onBlur, render, placeholder, label, className, focusTarget = true, indent = false }: HighlightedEditorProps) {
   const ref = useRef<HTMLTextAreaElement>(null)
-  const focusId = useNotebook((s) => s.focusId)
+  // A yes or no for this cell, so a focus request for another cell doesn't redraw this editor
+  const focusAsked = useNotebook((s) => s.focusId === cellId)
 
   useEffect(() => {
-    if (!focusTarget || focusId !== cellId || !ref.current) return
+    if (!focusTarget || !focusAsked || !ref.current) return
     ref.current.focus()
     ref.current.setSelectionRange(ref.current.value.length, ref.current.value.length)
     useNotebook.setState({ focusId: null })
-  }, [focusId, cellId, focusTarget])
+  }, [focusAsked, focusTarget])
 
   // Padding and background go on the outer box. The textarea and its mirror share the inner box exactly,
   // so the caret and selection sit on the text you see.

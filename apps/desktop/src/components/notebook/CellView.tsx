@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowRight, ArrowUp, Check, ChevronRight, Copy, Loader2, Pin, PinOff, Play, RefreshCw, Trash2, X } from 'lucide-react'
-import { type KeyboardEvent, type ReactNode, useState } from 'react'
+import { type KeyboardEvent, type ReactNode, memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { IconButton } from '@/components/app/IconButton'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -17,8 +17,9 @@ import { RefText } from './RefText'
 
 interface CellViewProps {
   cell: Cell
+  /** The cell's place among the prompt cells, from 1. Zero for a note. */
+  number: number
   selected: boolean
-  onDelete: (id: string) => void
 }
 
 /** Shift+Enter, Cmd+Enter and Alt+Enter work inside every cell editor, as in Jupyter. */
@@ -44,11 +45,15 @@ function editorKeys(cellId: string, onEscape?: () => void) {
   }
 }
 
-export function CellView({ cell, selected, onDelete }: CellViewProps) {
-  const run = useNotebook((s) => s.runs[cell.id])
+/**
+ * One cell. Memoized, so it redraws only when its own cell object, number or selection changes. The store
+ * keeps unchanged cells as the same objects, and each cell subscribes to its own run, so typing in one cell
+ * or streaming output into it leaves every other cell alone.
+ */
+export const CellView = memo(function CellView({ cell, number, selected }: CellViewProps) {
   return (
     <article
-      aria-label={cell.kind === 'note' ? 'Note' : 'Prompt cell'}
+      aria-label={cell.kind === 'note' ? 'Note' : `Prompt cell ${number}`}
       data-cell-id={cell.id}
       data-selected={selected || undefined}
       onMouseDown={() => actions.select(cell.id)}
@@ -56,35 +61,39 @@ export function CellView({ cell, selected, onDelete }: CellViewProps) {
       className="group relative flex gap-2 py-3 pr-1"
     >
       <span className="absolute inset-y-3 -left-2.5 w-0.5 rounded-full group-focus-within:bg-ring group-data-selected:bg-ring" />
-      <div className="w-9 shrink-0 pt-[3px]">{cell.kind === 'prompt' && <RunButton cell={cell} run={run} />}</div>
-      <div className="min-w-0 flex-1">
-        {cell.kind === 'prompt' ? (
-          <PromptCellView cell={cell} run={run} selected={selected} onDelete={onDelete} />
-        ) : (
-          <NoteCellView cell={cell} onDelete={onDelete} />
-        )}
-      </div>
+      <div className="w-9 shrink-0 pt-[3px]">{cell.kind === 'prompt' && <RunButton cellId={cell.id} number={number} count={cell.executionCount} />}</div>
+      <div className="min-w-0 flex-1">{cell.kind === 'prompt' ? <PromptCellView cell={cell} selected={selected} /> : <NoteCellView cell={cell} />}</div>
     </article>
   )
-}
+})
 
-function RunButton({ cell, run }: { cell: PromptCell; run: CellRun | undefined }) {
-  const label = run?.status === 'running' ? '[*]' : run?.status === 'queued' ? '[·]' : cell.executionCount != null ? `[${cell.executionCount}]` : '[ ]'
+/** Jupyter's [n] gutter. Its name says which cell it runs; the [n] it shows is its description. */
+function RunButton({ cellId, number, count }: { cellId: string; number: number; count: number | null }) {
+  const status = useNotebook((s) => s.runs[cellId]?.status)
+  const describedBy = useId()
+  const label = status === 'running' ? '[*]' : status === 'queued' ? '[·]' : count != null ? `[${count}]` : '[ ]'
+  const spoken = status === 'running' ? 'Running' : status === 'queued' ? 'Queued' : count != null ? `Execution count ${count}` : 'Not run yet'
   return (
     <button
       type="button"
-      aria-label="Run cell"
+      aria-label={`Run cell ${number}`}
+      aria-describedby={describedBy}
       title="Run cell (Shift+Enter)"
-      onClick={() => actions.run(cell.id)}
-      className={cn('group/run relative block h-6 w-9 text-left font-mono text-[11px]', run ? 'text-warn' : 'text-faint')}
+      onClick={() => actions.run(cellId)}
+      className={cn('group/run relative block h-6 w-9 text-left font-mono text-[11px]', status ? 'text-warn' : 'text-faint')}
     >
-      <span className={cn(!run && 'group-hover/run:invisible')}>{label}</span>
-      {!run && <Play className="absolute top-1/2 left-0 hidden size-3 -translate-y-1/2 fill-go text-go group-hover/run:block" />}
+      <span aria-hidden="true" className={cn(!status && 'group-hover/run:invisible')}>
+        {label}
+      </span>
+      <span id={describedBy} className="sr-only">
+        {spoken}
+      </span>
+      {!status && <Play className="absolute top-1/2 left-0 hidden size-3 -translate-y-1/2 fill-go text-go group-hover/run:block" />}
     </button>
   )
 }
 
-function CellActions({ cell, onDelete, children }: { cell: Cell; onDelete: (id: string) => void; children?: ReactNode }) {
+function CellActions({ cell, children }: { cell: Cell; children?: ReactNode }) {
   return (
     <span className="flex items-center opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 group-data-selected:opacity-100">
       {children}
@@ -94,7 +103,7 @@ function CellActions({ cell, onDelete, children }: { cell: Cell; onDelete: (id: 
       <IconButton label="Move down" size="icon-xs" onClick={() => actions.moveCell(cell.id, 1)}>
         <ArrowDown />
       </IconButton>
-      <IconButton label="Delete cell" size="icon-xs" onClick={() => onDelete(cell.id)}>
+      <IconButton label="Delete cell" size="icon-xs" onClick={() => actions.deleteCell(cell.id)}>
         <Trash2 />
       </IconButton>
     </span>
@@ -111,7 +120,9 @@ function StatusText({ cell, run }: { cell: PromptCell; run: CellRun | undefined 
   return null
 }
 
-function PromptCellView({ cell, run, selected, onDelete }: { cell: PromptCell; run: CellRun | undefined; selected: boolean; onDelete: (id: string) => void }) {
+function PromptCellView({ cell, selected }: { cell: PromptCell; selected: boolean }) {
+  // This cell's run only: another cell's status ticks and streamed output don't reach it
+  const run = useNotebook((s) => s.runs[cell.id])
   const message = useNotebook((s) => s.messages[cell.id])
   const activity = useNotebook((s) => s.activity[cell.id])
   const pinned = useNotebook((s) => s.pinnedIds.includes(cell.id))
@@ -124,6 +135,15 @@ function PromptCellView({ cell, run, selected, onDelete }: { cell: PromptCell; r
   const hasBody = running ? run.liveCode != null : Boolean(cell.code || cell.outputs.length > 0)
   // A question answered in words has no code, so it shows the answer without tabs
   const answerOnly = !running && !hasBody && Boolean(cell.answer)
+  // Stable, so the memoized output list skips redrawing its tables while the prompt is typed
+  const id = cell.id
+  const variables = cell.variables
+  const onTables = useCallback((open: boolean) => actions.toggleTables(id, open), [id])
+  const tableName = useCallback(
+    (rows: number, columns: number) => variables.find((v) => v.shape === `${rows.toLocaleString('en-US')} × ${columns}`)?.name ?? null,
+    [variables],
+  )
+  const keys = useMemo(() => editorKeys(id), [id])
 
   return (
     <>
@@ -133,14 +153,14 @@ function PromptCellView({ cell, run, selected, onDelete }: { cell: PromptCell; r
           label="Prompt"
           value={cell.prompt}
           onChange={(v) => actions.setPrompt(cell.id, v)}
-          onKeyDown={editorKeys(cell.id)}
+          onKeyDown={keys}
           render={(v) => <RefText text={v} />}
           placeholder="Describe what you want to compute. Shift+Enter to run."
           className="text-[15px] leading-[1.6]"
         />
         <div className="flex shrink-0 items-center gap-2 pt-0.5 text-xs">
           <StatusText cell={cell} run={run} />
-          <CellActions cell={cell} onDelete={onDelete}>
+          <CellActions cell={cell}>
             {cell.code && !run && (
               <IconButton label="Rewrite the code from the prompt" size="icon-xs" onClick={() => actions.regenerate(cell.id)}>
                 <RefreshCw />
@@ -202,14 +222,7 @@ function PromptCellView({ cell, run, selected, onDelete }: { cell: PromptCell; r
           </div>
           <TabsContent value="result" className="flex flex-col gap-3">
             {!running && cell.answer && <Answer text={cell.answer} />}
-            <OutputList
-              outputs={outputs}
-              tablesOpen={running || tablesOpen(cell)}
-              onTables={(open) => actions.toggleTables(cell.id, open)}
-              tableName={(rows, columns) =>
-                cell.variables.find((v) => v.shape === `${rows.toLocaleString('en-US')} × ${columns}`)?.name ?? null
-              }
-            />
+            <OutputList outputs={outputs} tablesOpen={running || tablesOpen(cell)} onTables={onTables} tableName={tableName} />
             {!running && cell.variables.length > 0 && <CreatedVariables cell={cell} />}
             {!running && !cell.answer && !outputs.length && cell.executionCount != null && <p className="text-sm text-faint">No output</p>}
             {!running && suggest && cell.state === 'done' && <Suggestions cell={cell} />}
@@ -221,7 +234,7 @@ function PromptCellView({ cell, run, selected, onDelete }: { cell: PromptCell; r
               label="Code"
               value={code}
               onChange={(v) => actions.setCode(cell.id, v)}
-              onKeyDown={editorKeys(cell.id)}
+              onKeyDown={keys}
               render={(v) => <PythonTokens code={v} />}
               placeholder="Code appears here after the first run. You can also write it yourself."
               indent
@@ -258,10 +271,10 @@ function Suggestions({ cell }: { cell: PromptCell }) {
 const hasAssumptions = (text: string | null) => Boolean(text && /\[\[[^\]]+\]\]/.test(text))
 
 /** The answer leads the result. Long answers fold until you ask for more. */
-function Answer({ text }: { text: string }) {
+const Answer = memo(function Answer({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
   // Answers saved before the harness cleaned up leaked tool markup still carry it
-  const clean = splitLeaked(text).text
+  const clean = useMemo(() => splitLeaked(text).text, [text])
   const long = clean.length > 600
   return (
     <div className="flex items-start gap-1">
@@ -298,7 +311,7 @@ function Answer({ text }: { text: string }) {
       <CopyAnswer text={clean} />
     </div>
   )
-}
+})
 
 /** Copies the answer with its formatting for documents and chats, and as Markdown for plain-text editors. */
 function CopyAnswer({ text }: { text: string }) {
@@ -513,11 +526,13 @@ function ActivityToggle({ items }: { items: ActivityItem[] }) {
   )
 }
 
-function NoteCellView({ cell, onDelete }: { cell: NoteCell; onDelete: (id: string) => void }) {
-  const focusId = useNotebook((s) => s.focusId)
+function NoteCellView({ cell }: { cell: NoteCell }) {
+  const focusAsked = useNotebook((s) => s.focusId === cell.id)
   const [editing, setEditing] = useState(!cell.markdown.trim())
-  // Enter in command mode, or a newly inserted note, asks this cell to open its editor
-  const isEditing = editing || focusId === cell.id
+  // Leaving the editor with Esc puts focus on the preview, so the keyboard keeps its place
+  const [refocus, setRefocus] = useState(false)
+  // Enter in command mode or on the preview, or a newly inserted note, asks this cell to open its editor
+  const isEditing = editing || focusAsked
   const stop = () => {
     if (cell.markdown.trim()) setEditing(false)
   }
@@ -541,90 +556,117 @@ function NoteCellView({ cell, onDelete }: { cell: NoteCell; onDelete: (id: strin
               }
               return
             }
-            editorKeys(cell.id, stop)(e)
+            editorKeys(cell.id, () => {
+              setRefocus(true)
+              stop()
+            })(e)
           }}
-          onFocus={() => setEditing(true)}
+          onFocus={() => {
+            setEditing(true)
+            setRefocus(false)
+          }}
           onBlur={stop}
           render={(v) => v}
           placeholder="Write a note in Markdown. # for a heading."
           className="font-mono text-[13.5px] leading-[1.7]"
         />
       ) : (
-        <NoteMarkdown markdown={cell.markdown} onEdit={() => setEditing(true)} />
+        <NoteMarkdown markdown={cell.markdown} autoFocus={refocus} onEdit={() => actions.focus(cell.id)} />
       )}
       <div className="flex shrink-0 items-center pt-0.5">
-        <CellActions cell={cell} onDelete={onDelete} />
+        <CellActions cell={cell} />
       </div>
     </div>
   )
 }
 
-function NoteMarkdown({ markdown, onEdit }: { markdown: string; onEdit: () => void }) {
-  const blocks = parseMarkdown(markdown)
+/**
+ * A note as a document. It takes keyboard focus, and Enter or a double-click opens the editor. It has no
+ * button role, so its headings stay headings for screen readers.
+ */
+function NoteMarkdown({ markdown, autoFocus, onEdit }: { markdown: string; autoFocus: boolean; onEdit: () => void }) {
+  const blocks = useMemo(() => parseMarkdown(markdown), [markdown])
+  const hint = useId()
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // Set when the preview comes back from the editor, and unchanged while it's up
+    if (autoFocus) ref.current?.focus()
+  }, [autoFocus])
   return (
-    <div
-      className="flex min-w-0 flex-1 cursor-text flex-col gap-2"
-      data-selectable
-      onDoubleClick={onEdit}
-      role="button"
-      tabIndex={-1}
-      title="Double-click to edit"
-    >
-      {blocks.map((b, i) => {
-        switch (b.type) {
-          case 'h1':
-            return (
-              <h1 key={i} className="font-serif text-[27px] leading-[1.2] font-medium tracking-[-0.015em] text-balance">
-                <MarkdownText text={b.text} />
-              </h1>
-            )
-          case 'h2':
-            return (
-              <h2 key={i} className="mt-1 font-serif text-[19px] font-medium text-balance">
-                <MarkdownText text={b.text} />
-              </h2>
-            )
-          case 'h3':
-            return (
-              <h3 key={i} className="mt-1 font-serif text-[16px] font-semibold text-balance">
-                <MarkdownText text={b.text} />
-              </h3>
-            )
-          case 'p':
-            return (
-              <p key={i} className="max-w-[62ch] font-serif text-[16px] leading-[1.6] text-muted-foreground">
-                <MarkdownText text={b.text} />
-              </p>
-            )
-          case 'quote':
-            return (
-              <blockquote key={i} className="max-w-[62ch] border-l-2 border-ring pl-4 font-serif text-[16px] leading-[1.6] text-muted-foreground italic">
-                <MarkdownText text={b.text} />
-              </blockquote>
-            )
-          case 'list':
-            return (
-              <ul key={i} className="flex max-w-[62ch] flex-col gap-1.5 font-serif text-[16px] leading-[1.6] text-muted-foreground">
-                {b.items.map((item, j) => (
-                  <li key={j} className="flex gap-2.5">
-                    <span className={cn('shrink-0 text-faint tabular-nums', b.ordered && 'min-w-[1.1em] text-right')}>{b.ordered ? `${b.start + j}.` : '•'}</span>
-                    <span className="min-w-0">
-                      <MarkdownText text={item} />
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )
-          case 'code':
-            return (
-              <pre key={i} className="code scrollbar-thin overflow-x-auto rounded-lg bg-raised p-3 font-mono text-[12.5px] leading-[1.7]">
-                {b.lang === '' || b.lang === 'python' || b.lang === 'py' ? <PythonTokens code={b.text} /> : b.text}
-              </pre>
-            )
-          case 'rule':
-            return <hr key={i} className="my-1 border-border" />
-        }
-      })}
-    </div>
+    <>
+      <span id={hint} className="sr-only">
+        Press Enter to edit this note.
+      </span>
+      <div
+        ref={ref}
+        className="-m-1 flex min-w-0 flex-1 cursor-text flex-col gap-2 rounded-md p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        data-selectable
+        tabIndex={0}
+        aria-describedby={hint}
+        onDoubleClick={onEdit}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
+          e.preventDefault()
+          onEdit()
+        }}
+        title="Double-click or press Enter to edit"
+      >
+        {blocks.map((b, i) => {
+          switch (b.type) {
+            case 'h1':
+              return (
+                <h1 key={i} className="font-serif text-[27px] leading-[1.2] font-medium tracking-[-0.015em] text-balance">
+                  <MarkdownText text={b.text} />
+                </h1>
+              )
+            case 'h2':
+              return (
+                <h2 key={i} className="mt-1 font-serif text-[19px] font-medium text-balance">
+                  <MarkdownText text={b.text} />
+                </h2>
+              )
+            case 'h3':
+              return (
+                <h3 key={i} className="mt-1 font-serif text-[16px] font-semibold text-balance">
+                  <MarkdownText text={b.text} />
+                </h3>
+              )
+            case 'p':
+              return (
+                <p key={i} className="max-w-[62ch] font-serif text-[16px] leading-[1.6] text-muted-foreground">
+                  <MarkdownText text={b.text} />
+                </p>
+              )
+            case 'quote':
+              return (
+                <blockquote key={i} className="max-w-[62ch] border-l-2 border-ring pl-4 font-serif text-[16px] leading-[1.6] text-muted-foreground italic">
+                  <MarkdownText text={b.text} />
+                </blockquote>
+              )
+            case 'list':
+              return (
+                <ul key={i} className="flex max-w-[62ch] flex-col gap-1.5 font-serif text-[16px] leading-[1.6] text-muted-foreground">
+                  {b.items.map((item, j) => (
+                    <li key={j} className="flex gap-2.5">
+                      <span className={cn('shrink-0 text-faint tabular-nums', b.ordered && 'min-w-[1.1em] text-right')}>{b.ordered ? `${b.start + j}.` : '•'}</span>
+                      <span className="min-w-0">
+                        <MarkdownText text={item} />
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )
+            case 'code':
+              return (
+                <pre key={i} className="code scrollbar-thin overflow-x-auto rounded-lg bg-raised p-3 font-mono text-[12.5px] leading-[1.7]">
+                  {b.lang === '' || b.lang === 'python' || b.lang === 'py' ? <PythonTokens code={b.text} /> : b.text}
+                </pre>
+              )
+            case 'rule':
+              return <hr key={i} className="my-1 border-border" />
+          }
+        })}
+      </div>
+    </>
   )
 }

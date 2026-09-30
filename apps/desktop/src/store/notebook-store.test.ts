@@ -173,10 +173,155 @@ describe('editing the notebook', () => {
     actions.moveCell(id, 1)
     expect(useNotebook.getState().notebook.cells[2].id).toBe(id)
 
-    const removed = actions.deleteCell(id)!
+    actions.deleteCell(id)
     expect(useNotebook.getState().notebook.cells).toHaveLength(2)
-    actions.restoreCell(removed.cell, removed.index)
+    expect(actions.undo()).toBe(true)
     expect(useNotebook.getState().notebook.cells[2].id).toBe(id)
+  })
+})
+
+describe('undo and redo', () => {
+  const ids = () => useNotebook.getState().notebook.cells.map((c) => c.id)
+
+  it('takes back inserts, moves and deletes in order, and redoes them', () => {
+    load(newPromptCell('a'), newPromptCell('b'))
+    const [a, b] = ids()
+    const note = actions.insertCell(1, 'note')
+    actions.setNote(note, 'Typed after inserting')
+    actions.moveCell(a, 1)
+    actions.deleteCell(b)
+    expect(ids()).toEqual([note, a])
+
+    actions.undo()
+    expect(ids()).toEqual([note, a, b])
+    actions.undo()
+    expect(ids()).toEqual([a, note, b])
+    actions.undo()
+    expect(ids()).toEqual([a, b])
+    expect(actions.undo()).toBe(false)
+
+    actions.redo()
+    // The inserted cell comes back with what was typed into it
+    expect(useNotebook.getState().notebook.cells[1]).toMatchObject({ id: note, markdown: 'Typed after inserting' })
+    actions.redo()
+    actions.redo()
+    expect(ids()).toEqual([note, a])
+    expect(actions.redo()).toBe(false)
+  })
+
+  it('switches a cell back from a note and forward again', () => {
+    const original = { ...newPromptCell('Sum', 's = 1'), outputs: [{ type: 'text' as const, text: '1' }], state: 'done' as const, executionCount: 1 }
+    load(original)
+    actions.setKind(original.id, 'note')
+    actions.undo()
+    expect(cell(0)).toEqual(original)
+    actions.redo()
+    expect(useNotebook.getState().notebook.cells[0]).toMatchObject({ kind: 'note', markdown: 'Sum' })
+  })
+
+  it('undoes a correction and a restored revision without touching the outputs', () => {
+    const rev = { at: 1, prompt: 'Churn', code: 'c = 0', interpretation: null, answer: null, edited: false }
+    const outputs = [{ type: 'text' as const, text: '0.2' }]
+    load({ ...newPromptCell('Churn rate', 'c = 1'), interpretation: 'Churned means [[cancelled]].', history: [rev], outputs, state: 'done', executionCount: 1 })
+    const id = cell(0).id
+    actions.correctAssumption(id, 'cancelled', 'gone')
+    actions.restoreRevision(id, 1)
+    expect(cell(0)).toMatchObject({ prompt: 'Churn', code: 'c = 0', interpretation: null })
+
+    actions.undo()
+    expect(cell(0)).toMatchObject({ prompt: 'Churn rate', code: 'c = 1', interpretation: 'Churned means [[gone]].' })
+    actions.undo()
+    expect(cell(0)).toMatchObject({ interpretation: 'Churned means [[cancelled]].', corrections: [], state: 'done' })
+    expect(cell(0).outputs).toBe(outputs)
+    actions.redo()
+    expect(cell(0)).toMatchObject({ interpretation: 'Churned means [[gone]].', corrections: [{ from: 'cancelled', to: 'gone' }] })
+  })
+
+  it('never rolls back a run: an edit the run replaced is dropped', async () => {
+    setApi(fakeApi(() => result({ interpretation: 'Churned means [[gone for good]].' })).api)
+    load({ ...newPromptCell('Churn', 'c = 1'), interpretation: 'Churned means [[cancelled]].', state: 'done', executionCount: 1 })
+    const id = cell(0).id
+    actions.correctAssumption(id, 'cancelled', 'gone')
+    actions.run(id)
+    await flush()
+    expect(cell(0).interpretation).toBe('Churned means [[gone for good]].')
+    expect(actions.undo()).toBe(false)
+    expect(cell(0).interpretation).toBe('Churned means [[gone for good]].')
+  })
+
+  it('keeps the last 100 edits and forgets them all when another notebook loads', () => {
+    load(newPromptCell('a'), newPromptCell('b'))
+    const [a] = ids()
+    for (let i = 0; i < 105; i++) actions.moveCell(a, i % 2 ? -1 : 1)
+    let undone = 0
+    while (actions.undo()) undone++
+    expect(undone).toBe(100)
+
+    actions.moveCell(a, 1)
+    load(newPromptCell('c'))
+    expect(actions.undo()).toBe(false)
+  })
+
+  it('points the notice for a deleted cell at the same stack', () => {
+    load(newPromptCell('a'), newPromptCell('b'))
+    const [a, b] = ids()
+    actions.deleteCell(a)
+    const notice = useNotebook.getState().notice!
+    expect(notice.text).toBe('Cell deleted')
+    // Cmd+Z took it back, so the notice goes and its Undo can't take back anything else
+    actions.undo()
+    expect(useNotebook.getState().notice).toBeNull()
+    actions.moveCell(b, -1)
+    notice.undo!()
+    expect(ids()).toEqual([b, a])
+  })
+})
+
+describe('results that arrive late', () => {
+  it('drops the result of a cell deleted while it ran, even after Undo brings it back', async () => {
+    let release!: () => void
+    const { api } = fakeApi(() => new Promise((resolve) => (release = () => resolve(result({ outputs: [{ type: 'text', text: 'late' }] })))))
+    let interrupts = 0
+    api.interrupt = async () => void interrupts++
+    setApi(api)
+    load(newPromptCell('Slow'))
+    const id = cell(0).id
+    actions.run(id)
+    await flush()
+    actions.deleteCell(id)
+    expect(interrupts).toBe(1)
+    actions.undo()
+    release()
+    await flush()
+    expect(cell(0)).toMatchObject({ id, outputs: [], executionCount: null })
+    expect(useNotebook.getState().runs).toEqual({})
+    expect(useNotebook.getState().log).toEqual([])
+  })
+
+  it('ignores a title for a cell that is gone', () => {
+    load(newPromptCell('a'))
+    useNotebook.setState({ dirty: false })
+    actions.applyRunEvent('no-such-cell', { type: 'title', title: 'Ghost', prompt: 'a' })
+    expect(useNotebook.getState().dirty).toBe(false)
+  })
+
+  it('stops the running cell and drops its result when another notebook loads', async () => {
+    let release!: () => void
+    const { api } = fakeApi(() => new Promise((resolve) => (release = () => resolve(result()))))
+    let interrupts = 0
+    api.interrupt = async () => void interrupts++
+    setApi(api)
+    const same = newPromptCell('Slow')
+    load(same, newPromptCell('Queued'))
+    actions.runAll()
+    await flush()
+    // Reopening the same file brings back cells with the same ids
+    load({ ...same })
+    expect(interrupts).toBe(1)
+    release()
+    await flush()
+    expect(cell(0)).toMatchObject({ outputs: [], executionCount: null, state: 'idle' })
+    expect(useNotebook.getState()).toMatchObject({ runs: {}, messages: {}, log: [], dirty: false })
   })
 
   it('makes an empty prompt cell a note at once, and offers Undo only when something would be lost', () => {
