@@ -5,6 +5,9 @@ import path from 'node:path'
 
 const SKIP = new Set(['node_modules', '.git', '__pycache__', '.venv', 'venv', '.ipynb_checkpoints', '.DS_Store'])
 const MAX_LINES = 500
+const MAX_LINE_CHARS = 500
+/** 500 full lines would be 250 KB, so the whole result has a cap too. */
+export const MAX_READ_CHARS = 20_000
 
 /**
  * Folders too general to hand to the agent: listing them would expose unrelated personal files.
@@ -62,7 +65,7 @@ function formatBytes(n: number) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
-/** Numbered lines with a 500-line cap, as in the course's read tool. */
+/** Numbered lines with a 500-line cap, as in the course's read tool, and 20,000 characters in all. */
 export async function readFileBounded(root: string, relative: string, offset = 1, limit = MAX_LINES): Promise<string> {
   const abs = resolveInside(root, relative)
   if (!abs) return `Refused: ${relative} is outside the notebook's folder.`
@@ -71,10 +74,21 @@ export async function readFileBounded(root: string, relative: string, offset = 1
   if (info.isDirectory()) return `${relative} is a folder. Use list_files instead.`
   const buf = await readFile(abs)
   if (buf.subarray(0, 8000).includes(0)) return `${relative} is a binary file (${info.size} bytes). Load it with Python instead.`
-  let lines = buf.toString('utf-8').split('\n')
-  const total = lines.length
-  lines = lines.slice(Math.max(0, offset - 1), Math.max(0, offset - 1) + Math.min(limit, MAX_LINES))
-  const numbered = lines.map((l, i) => `${offset + i}: ${l.length > 500 ? `${l.slice(0, 500)}…` : l}`)
-  const end = offset + lines.length - 1
+  const all = buf.toString('utf-8').split('\n')
+  const total = all.length
+  const lines = all.slice(Math.max(0, offset - 1), Math.max(0, offset - 1) + Math.min(limit, MAX_LINES))
+  const numbered: string[] = []
+  let size = 0
+  for (const [i, l] of lines.entries()) {
+    const line = `${offset + i}: ${l.length > MAX_LINE_CHARS ? `${l.slice(0, MAX_LINE_CHARS)}…` : l}`
+    // Stop on a whole line, so the model can carry on from the next one
+    if (numbered.length && size + line.length + 1 > MAX_READ_CHARS) break
+    numbered.push(line)
+    size += line.length + 1
+  }
+  const end = offset + numbered.length - 1
+  if (numbered.length < lines.length) {
+    return `${numbered.join('\n')}\n... (clipped at ${MAX_READ_CHARS.toLocaleString('en-US')} characters, lines ${offset}-${end} of ${total} shown. Read a range: offset ${end + 1} and a smaller limit)`
+  }
   return end < total ? `${numbered.join('\n')}\n... (lines ${offset}-${end} of ${total})` : numbered.join('\n')
 }
