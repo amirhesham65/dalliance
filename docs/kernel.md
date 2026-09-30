@@ -106,7 +106,7 @@ Status changes go to the renderer as `KernelState` over `kernel-state-changed`.
 
 It also reports which of `pandas`, `numpy` and `matplotlib` are missing. The renderer shows a banner when any are.
 
-`setupManagedEnv()` creates the venv with the system Python if needed, then pip-installs the three base packages, streaming lines to the renderer over `python-log`. Changing `pythonPath` in Settings restarts the kernel.
+`setupManagedEnv()` creates the venv with the system Python if needed, then pip-installs `BASE_PACKAGES` (the three above plus SciPy, statsmodels, seaborn and scikit-learn), streaming lines to the renderer over `python-log`. Changing `pythonPath` in Settings restarts the kernel.
 
 ## The Kernel interface
 

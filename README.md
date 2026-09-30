@@ -75,7 +75,7 @@ Jupyter makes you write the code before you see anything. Dalliance keeps the no
 
 Grab [**Dalliance.dmg**](https://github.com/amirhesham65/dalliance/releases/latest/download/Dalliance.dmg). It's a universal build for Apple Silicon and Intel Macs.
 
-The first launch sets up a model key and a private Python environment with pandas, NumPy and matplotlib. If your shell profile already exports `AI_GATEWAY_API_KEY` or `ANTHROPIC_API_KEY`, the app picks it up. You can skip either step and point the app at your own interpreter later.
+The first launch sets up a model key and a private Python environment with pandas, NumPy, matplotlib, SciPy, statsmodels, seaborn and scikit-learn. If your shell profile already exports `AI_GATEWAY_API_KEY` or `ANTHROPIC_API_KEY`, the app picks it up. You can skip either step and point the app at your own interpreter later.
 
 ## Build from source
 

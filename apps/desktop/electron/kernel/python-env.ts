@@ -5,8 +5,18 @@ import { promisify } from 'node:util'
 
 const run = promisify(execFile)
 
-/** Packages the agent's generated code usually relies on. */
-export const BASE_PACKAGES = ['pandas', 'numpy', 'matplotlib']
+/**
+ * Packages a Python needs before the app calls it ready. The kernel and most generated
+ * code depend on them. Pip names and import names are the same for these three.
+ */
+export const REQUIRED_PACKAGES = ['pandas', 'numpy', 'matplotlib']
+
+/**
+ * What the app's own environment installs: the required packages plus the usual research
+ * stack, so ordinary statistics work without an install step. A Python the user brings
+ * only needs the required ones. The agent installs the rest on demand.
+ */
+export const BASE_PACKAGES = [...REQUIRED_PACKAGES, 'scipy', 'statsmodels', 'seaborn', 'scikit-learn']
 
 export interface PythonStatus {
   /** The interpreter the kernel will use, or null if none was found. */
@@ -46,7 +56,7 @@ export async function findSystemPython(): Promise<string | null> {
   return null
 }
 
-export async function missingPackages(python: string, packages = BASE_PACKAGES): Promise<string[]> {
+export async function missingPackages(python: string, packages = REQUIRED_PACKAGES): Promise<string[]> {
   const probe = `import importlib.util, json; print(json.dumps([p for p in ${JSON.stringify(packages)} if importlib.util.find_spec(p) is None]))`
   try {
     const { stdout } = await run(python, ['-c', probe], { timeout: 15000 })
@@ -71,7 +81,7 @@ export async function pythonStatus(opts: { configured: string | null; envDir: st
     source = python ? 'system' : null
   }
   const v = python ? await version(python) : null
-  if (!python || !v) return { python: null, version: null, source: null, managedEnvExists, missingPackages: BASE_PACKAGES }
+  if (!python || !v) return { python: null, version: null, source: null, managedEnvExists, missingPackages: REQUIRED_PACKAGES }
   return { python, version: v, source, managedEnvExists, missingPackages: await missingPackages(python) }
 }
 
@@ -101,10 +111,23 @@ export async function setupManagedEnv(envDir: string, onLog: (line: string) => v
   return python
 }
 
+/**
+ * A package name with an optional extra and version specifier, like `scikit-learn`,
+ * `pandas[excel]` or `numpy==2.1`. The first character must be a letter or digit, so pip
+ * never reads one as an option (`-e.`, `-rrequirements.txt`) or a local path (`.`).
+ */
+const PACKAGE_SPEC = /^[A-Za-z0-9][A-Za-z0-9._\-[\]=<>~!,]*$/
+/** Archive names make pip install a local file instead of looking the package up. */
+const ARCHIVE = /\.(whl|zip|tar|tgz|tar\.gz|tar\.bz2)$/i
+
+export function isPackageSpec(spec: string): boolean {
+  return PACKAGE_SPEC.test(spec) && !ARCHIVE.test(spec)
+}
+
 export async function installPackages(python: string, packages: string[], onLog: (line: string) => void) {
-  const safe = packages.filter((p) => /^[A-Za-z0-9._\-[\]=<>~!,]+$/.test(p))
-  if (safe.length !== packages.length) throw new Error('Package names can only contain letters, numbers and version specifiers.')
-  if (!safe.length) return
-  onLog(`Installing ${safe.join(', ')}`)
-  await stream(python, ['-m', 'pip', 'install', ...safe], onLog)
+  if (!packages.every(isPackageSpec)) throw new Error('Package names must start with a letter or number and can only contain letters, numbers and version specifiers.')
+  if (!packages.length) return
+  onLog(`Installing ${packages.join(', ')}`)
+  // `--` ends pip's options, so nothing after it can be read as a flag.
+  await stream(python, ['-m', 'pip', 'install', '--', ...packages], onLog)
 }
