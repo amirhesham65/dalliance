@@ -89,7 +89,7 @@ The overview sits in its own outer group, so opening a side pane never changes i
 
 Below 1200 px wide, `NARROW_WINDOW` in `App.tsx`, there is no room for a side pane column without squeezing the notebook to its minimum. `PaneOverlay` then draws the side pane over the notebook's left edge, 400 px wide at most, with a light scrim over the rest. Esc closes it and puts focus back where it was. A click on the scrim closes it and leaves focus with the notebook. Esc inside a text field, menu or dialog stays with that control. `useMediaQuery()` in `hooks/use-media-query.ts` follows the width.
 
-A banner above the workspace asks for a key, a Python or missing packages when the settings or Python state say so.
+A banner above the workspace asks for a key, a Python or missing packages when the settings or Python state say so. It has a cross on its right. Dismissing it hides that message for the session: it comes back if the message changes, or once the problem has been fixed and returns.
 
 ## Keyboard
 
@@ -131,6 +131,8 @@ Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the bu
 5. Result and Code tabs. A question answered in words shows only the answer, without tabs.
 
 Under Result: the answer, the outputs, the variables the run created, and suggestions. Suggestions show only on the cell that just finished or the selected one.
+
+Between two cells, `CellInserter` in `NotebookView.tsx` draws a 1px line in `foreground/10`, so it's clear where one ends. It sits in the cells' column, right of the 44 px gutter that holds the run count, and stops 12 px short of each side, so it's a little narrower than the cells. There is none after the last cell. Hovering the gap raises the line to `foreground/20` and shows the Prompt and Note buttons centred on it. They sit on the page background, so the line breaks around them.
 
 `HighlightedEditor` is a transparent `<textarea>` over a mirror that renders the highlighting. The two share one box so the caret lines up. With `indent`, Tab and Shift+Tab indent lines through `execCommand` so Undo still works.
 

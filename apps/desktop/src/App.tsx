@@ -1,5 +1,7 @@
+import { X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ErrorBoundary } from '@/components/app/ErrorBoundary'
+import { IconButton } from '@/components/app/IconButton'
 import { Sidebar } from '@/components/app/Sidebar'
 import { TopBar } from '@/components/app/TopBar'
 import { NotebookView } from '@/components/notebook/NotebookView'
@@ -17,6 +19,7 @@ import { PANE_ORDER, actions, getApi, useNotebook, welcomeNotebook } from '@/sto
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => readStored('dalliance-sidebar') !== 'closed')
+  const [dismissedBanner, setDismissedBanner] = useState<string | null>(null)
   const settings = useNotebook((s) => s.settings)
   const python = useNotebook((s) => s.python)
   const kernel = useNotebook((s) => s.kernel)
@@ -148,6 +151,16 @@ export default function App() {
 
   const needsKey = settings != null && settings.keySource == null
   const needsPython = python != null && (!python.python || python.missingPackages.length > 0)
+  const banner = needsKey
+    ? 'Add an API key to turn prompts into code.'
+    : needsPython
+      ? !python?.python
+        ? 'Python is not set up yet.'
+        : `Python is missing ${python.missingPackages.join(', ')}. Cells that need them will fail.`
+      : kernel.error
+  // A dismissed notice stays gone until its message changes. Once the problem is fixed, forget the dismissal so the
+  // banner shows again if it comes back. Resetting during render, not in an effect, avoids an extra commit
+  if (!banner && dismissedBanner != null) setDismissedBanner(null)
 
   return (
     <TooltipProvider delayDuration={400}>
@@ -160,20 +173,15 @@ export default function App() {
               <WelcomeScreen />
             ) : (
               <>
-                {(needsKey || needsPython || kernel.error) && (
-                  <div className="mx-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-background px-4 py-2 text-[13px] shadow-pane">
-                    <span className="text-muted-foreground">
-                      {needsKey
-                        ? 'Add an API key to turn prompts into code.'
-                        : !python?.python
-                          ? 'Python is not set up yet.'
-                          : needsPython
-                            ? `Python is missing ${python!.missingPackages.join(', ')}. Cells that need them will fail.`
-                            : kernel.error}
-                    </span>
+                {banner && banner !== dismissedBanner && (
+                  <div className="mx-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-background py-2 pr-2 pl-4 text-[13px] shadow-pane">
+                    <span className="text-muted-foreground">{banner}</span>
                     <Button size="xs" variant="secondary" onClick={() => actions.openSettings(needsKey ? 'models' : 'python')}>
                       Open Settings
                     </Button>
+                    <IconButton label="Dismiss notice" size="icon-xs" className="ml-auto" onClick={() => setDismissedBanner(banner)}>
+                      <X />
+                    </IconButton>
                   </div>
                 )}
                 <Workspace />
