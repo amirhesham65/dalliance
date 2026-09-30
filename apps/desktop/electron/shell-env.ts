@@ -27,10 +27,13 @@ export function readShellEnv(names: string[], timeoutMs = 5000): Promise<Record<
 }
 
 export function parseEnv(stdout: string, names: string[]): Record<string, string> {
-  const start = stdout.lastIndexOf(`${MARKER}\n`)
+  // The marker counts only as a whole line. sh and bash set `_` to the last command's argument,
+  // so env itself prints `_=__DALLIANCE_ENV__`, and a substring search would start after the variables.
+  const lines = stdout.split('\n')
+  const start = lines.lastIndexOf(MARKER)
   if (start < 0) return {}
   const found: Record<string, string> = {}
-  for (const line of stdout.slice(start + MARKER.length + 1).split('\n')) {
+  for (const line of lines.slice(start + 1)) {
     const eq = line.indexOf('=')
     if (eq <= 0) continue
     const name = line.slice(0, eq)

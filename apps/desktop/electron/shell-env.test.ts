@@ -15,6 +15,12 @@ describe('readShellEnv', () => {
     expect(parseEnv('no marker at all', ['ANTHROPIC_API_KEY'])).toEqual({})
   })
 
+  it('takes the marker only on a line of its own', () => {
+    // sh and bash set `_` to the last argument, so env prints the marker again after the variables
+    const stdout = '__DALLIANCE_ENV__\nANTHROPIC_API_KEY=sk-ant-123\n_=__DALLIANCE_ENV__\nPATH=/usr/bin\n'
+    expect(parseEnv(stdout, ['ANTHROPIC_API_KEY'])).toEqual({ ANTHROPIC_API_KEY: 'sk-ant-123' })
+  })
+
   it.skipIf(process.platform === 'win32')('reads a variable through a real login shell', async () => {
     process.env.SHELL = '/bin/sh'
     process.env.DALLIANCE_TEST_KEY = 'vck_abc'

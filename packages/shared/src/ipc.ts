@@ -81,7 +81,19 @@ export interface SettingsView {
   /** Where the key for the chosen provider comes from: Settings, the app's environment, the user's shell profile, or nowhere. */
   keySource: 'settings' | 'environment' | 'shell' | null
   hasKey: Record<Provider, boolean>
+  /**
+   * Providers whose saved key is there but can't be decrypted, usually because an update changed the app's
+   * keychain identity. The user has to paste it again. Optional so older views and test fixtures still type.
+   */
+  unreadableKeys?: Provider[]
+  /**
+   * How each provider's key is kept: the saved key's form, or for no saved key, how a new one would be saved.
+   * `plain` means settings.json holds it unencrypted because the system has no keychain.
+   */
+  keyStorage?: Record<Provider, KeyStorage>
 }
+
+export type KeyStorage = 'keychain' | 'plain'
 
 export interface SettingsUpdate {
   provider?: Provider
@@ -158,6 +170,15 @@ export interface RestoredSession extends DraftState {
   kernelKept: boolean
 }
 
+/**
+ * The last notebook is there but couldn't be reopened, for example because a newer version of Dalliance saved it.
+ * The renderer shows the start page with `error`. It has no `notebook`, which tells it apart from a RestoredSession.
+ */
+export interface RestoreFailure {
+  path: string | null
+  error: string
+}
+
 export interface OpenedNotebook {
   path: string | null
   notebook: Notebook
@@ -209,7 +230,7 @@ export interface DallianceApi {
   listFiles(): Promise<FileEntry[]>
   saveNotebook(path: string | null, notebook: Notebook): Promise<string | null>
   confirmDiscard(): Promise<boolean>
-  restoreSession(): Promise<RestoredSession | null>
+  restoreSession(): Promise<RestoredSession | RestoreFailure | null>
   saveDraft(state: DraftState): void
   setDocumentState(state: { path: string | null; dirty: boolean }): void
   onMenu(listener: (action: MenuAction) => void): () => void
@@ -243,4 +264,6 @@ export const IPC = {
   saveDraft: 'save-draft',
   documentState: 'document-state',
   menu: 'menu',
+  /** Sent by the preload when the page subscribes to menu actions, so the main process knows it can send one. */
+  menuReady: 'menu-ready',
 } as const

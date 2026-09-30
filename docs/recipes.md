@@ -30,7 +30,7 @@ Checklists for the changes that touch several files. Each one ends with the test
 
 1. Add the method to `DallianceApi` and a channel name to `IPC` in `packages/shared/src/ipc.ts`. Add any new request or result types there too.
 2. Map it in `electron/preload.ts`. Use `ipcRenderer.invoke` for calls that return something and `ipcRenderer.send` for fire and forget. For main-to-renderer events, use `subscribe()` and return the unsubscribe function.
-3. Register the handler in `registerIpc()` in `electron/main.ts`. Put the logic in `NotebookSession` or `SettingsStore`, not in the handler.
+3. Register the handler in `registerIpc()` in `electron/main.ts` with `handle()` or `on()`, never `ipcMain` directly, so the sender check runs. Put the logic in `NotebookSession` or `SettingsStore`, not in the handler.
 4. Add it to `fakeApi()` in `src/test/fake-api.ts`. TypeScript fails until you do, and `?demo` uses the same fake.
 5. Call it from the store or a component through `getApi()`.
 6. Add a row to the table in [ipc.md](ipc.md).

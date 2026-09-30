@@ -17,6 +17,18 @@ const EFFORTS: { value: Effort; label: string }[] = [
   { value: 'max', label: 'Max: slowest' },
 ]
 
+/** The line under the key field when there's nothing newer to say. */
+function keyHelp(settings: SettingsView, unreadable: boolean): string {
+  if (unreadable) return "The saved key couldn't be read, probably after an update. Paste it again."
+  const plain = settings.keyStorage?.[settings.provider] === 'plain'
+  if (settings.keySource === 'settings')
+    return plain ? 'Stored unencrypted in the settings file, because no system keychain is available.' : 'Stored encrypted with your system keychain.'
+  if (settings.keySource) return `${keySourceText(settings)} A key saved here takes priority.`
+  return plain
+    ? 'Required to run prompts. No system keychain is available, so it will be stored unencrypted.'
+    : 'Required to run prompts. Checked with the provider, then stored encrypted with your system keychain.'
+}
+
 /** The model provider, its key, and the model that writes each cell's code. */
 export function ModelSettings({ api, settings }: { api: DallianceApi; settings: SettingsView }) {
   const provider = PROVIDERS[settings.provider]
@@ -58,6 +70,9 @@ export function ModelSettings({ api, settings }: { api: DallianceApi; settings: 
     if (model != null && model.trim() !== settings.model) update({ model })
     setModel(null)
   }
+
+  // A saved key the keychain won't give back, usually after an update changed the app's signature
+  const unreadable = settings.unreadableKeys?.includes(settings.provider) ?? false
 
   const effortApplies = settings.provider === 'anthropic' || /^(anthropic|openai)\//.test(settings.model)
 
@@ -113,16 +128,10 @@ export function ModelSettings({ api, settings }: { api: DallianceApi; settings: 
             </Button>
           </form>
           <div className="mt-1.5 flex items-baseline justify-between gap-3">
-            <Note id="api-key-help" error={keyError != null}>
-              {keyError ??
-                keyNote ??
-                (settings.keySource === 'settings'
-                  ? 'Stored encrypted with your system keychain.'
-                  : settings.keySource
-                    ? `${keySourceText(settings)} A key saved here takes priority.`
-                    : 'Required to run prompts. Checked with the provider, then stored encrypted with your system keychain.')}
+            <Note id="api-key-help" error={keyError != null || (unreadable && keyNote == null)}>
+              {keyError ?? keyNote ?? keyHelp(settings, unreadable)}
             </Note>
-            {settings.keySource === 'settings' && (
+            {(settings.keySource === 'settings' || unreadable) && (
               <button
                 type="button"
                 className="shrink-0 text-xs text-faint underline-offset-2 hover:text-foreground hover:underline"

@@ -1,20 +1,27 @@
 import { existsSync, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
-import { BrowserWindow, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
+import { BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { type DraftState, IPC, type MenuAction, type OpenedNotebook, type Provider, type RecentNotebook, type RunCellRequest, type SettingsUpdate } from '@dalliance/shared/ipc'
 import { fromIpynb, toIpynb } from '@dalliance/shared/ipynb'
 import type { Notebook } from '@dalliance/shared/notebook'
 import { writeFileAtomic } from './atomic-write'
 import { checkKey, listModels } from './harness/model'
 import { DraftStore } from './draft'
+import { type AppPage, isTrustedSender } from './ipc-sender'
 import { buildMenu } from './menu'
+import { OpenQueue, notebookFromArgv } from './open-files'
 import { NotebookSession } from './session'
 import { ENV_KEYS, SettingsStore } from './settings'
 import { readShellEnv } from './shell-env'
 
 const isMac = process.platform === 'darwin'
 const TITLE_BAR_HEIGHT = 48
+
+// One copy of the app at a time. A second launch hands its command line to this one through 'second-instance'
+// and quits without reading shell keys or registering anything.
+const primary = app.requestSingleInstanceLock()
+if (!primary) app.quit()
 
 // In development, read keys from .env in the project folder
 const envFile = path.join(app.getAppPath(), '.env')
@@ -28,7 +35,7 @@ let allowCloseAfterSave = false
 
 const settings = new SettingsStore(app.getPath('userData'))
 // Keys exported in the user's shell profile. Settings wait for this, so the first view already counts them.
-const shellKeys = readShellEnv(Object.values(ENV_KEYS)).then((env) => settings.useShellKeys(env))
+const shellKeys = primary ? readShellEnv(Object.values(ENV_KEYS)).then((env) => settings.useShellKeys(env)) : Promise.resolve()
 const drafts = new DraftStore(app.getPath('userData'))
 // Unsaved notebooks run in their own folder, never in all of Documents
 const defaultWorkspace = path.join(app.getPath('documents'), 'Dalliance Notebooks')
@@ -46,6 +53,13 @@ const session = new NotebookSession({
 const isNotebookPath = (file: unknown): file is string => typeof file === 'string' && path.isAbsolute(file) && /\.ipynb$/i.test(file)
 
 const sendMenu = (action: MenuAction) => win?.webContents.send(IPC.menu, action)
+
+// The page the window loads. IPC is only answered for this page, in the window's top frame.
+const indexFile = path.join(import.meta.dirname, '../dist/index.html')
+const appPage: AppPage = { devServerUrl: process.env.VITE_DEV_SERVER_URL, indexFile }
+
+// Notebooks the OS asked to open. The renderer runs its own Open for each, Discard prompt included.
+const opens = new OpenQueue(() => sendMenu('open'))
 
 // The window canvas behind the panes, in each theme. Matches --canvas in index.css.
 const canvas = () => (nativeTheme.shouldUseDarkColors ? { color: '#111110', symbolColor: '#a1a09a' } : { color: '#efeeeb', symbolColor: '#6f6e69' })
@@ -82,6 +96,9 @@ function createWindow() {
     },
   })
 
+  // Until the new page subscribes to menu actions, a file the OS asks to open waits
+  opens.setReady(false)
+  win.webContents.on('did-start-loading', () => opens.setReady(false))
   win.once('ready-to-show', () => win?.show())
   const onTheme = () => {
     if (!win || win.isDestroyed()) return
@@ -122,10 +139,26 @@ function createWindow() {
   })
   win.on('closed', () => {
     win = null
+    opens.setReady(false)
   })
 
-  if (process.env.VITE_DEV_SERVER_URL) void win.loadURL(process.env.VITE_DEV_SERVER_URL)
-  else void win.loadFile(path.join(import.meta.dirname, '../dist/index.html'))
+  if (appPage.devServerUrl) void win.loadURL(appPage.devServerUrl)
+  else void win.loadFile(indexFile)
+}
+
+/** Bring the window forward, or make one when macOS kept the app running without any. */
+function showWindow() {
+  if (!app.isReady()) return
+  if (!win) return createWindow()
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+}
+
+/** A file from Finder, the Dock or a second launch. It opens as if picked in the Open dialog. */
+function openFromOs(file: string | null) {
+  if (file) opens.request(file)
+  showWindow()
 }
 
 function updateTitle() {
@@ -138,33 +171,67 @@ function updateTitle() {
   }
 }
 
+/** IPC from anything but the app's own page in its own window is refused. See electron/ipc-sender.ts. */
+function trusted(channel: string, event: IpcMainEvent | IpcMainInvokeEvent) {
+  if (isTrustedSender(event, win, appPage)) return true
+  console.warn(`Refused IPC on ${channel} from ${event.senderFrame?.url ?? 'a frame that is gone'}`)
+  return false
+}
+
+function handle<A extends unknown[]>(channel: string, listener: (event: IpcMainInvokeEvent, ...args: A) => unknown) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!trusted(channel, event)) throw new Error('This page is not allowed to call Dalliance.')
+    return listener(event, ...(args as A))
+  })
+}
+
+function on<A extends unknown[]>(channel: string, listener: (event: IpcMainEvent, ...args: A) => void) {
+  ipcMain.on(channel, (event, ...args) => {
+    if (trusted(channel, event)) listener(event, ...(args as A))
+  })
+}
+
 function registerIpc() {
-  ipcMain.handle(IPC.runCell, (event, request: RunCellRequest) => session.runCell(request, event.sender))
-  ipcMain.on(IPC.respond, (_e, requestId: string, answer: string | boolean | null) => session.respond(requestId, answer))
-  ipcMain.handle(IPC.interrupt, () => session.interrupt())
-  ipcMain.handle(IPC.restartKernel, () => session.restart())
-  ipcMain.handle(IPC.kernelState, () => session.kernelState())
-  ipcMain.handle(IPC.listVariables, () => session.variables())
-  ipcMain.handle(IPC.getSettings, async () => {
+  handle(IPC.runCell, (event, request: RunCellRequest) => session.runCell(request, event.sender))
+  on(IPC.respond, (_e, requestId: string, answer: string | boolean | null) => session.respond(requestId, answer))
+  handle(IPC.interrupt, () => session.interrupt())
+  handle(IPC.restartKernel, () => session.restart())
+  handle(IPC.kernelState, () => session.kernelState())
+  handle(IPC.listVariables, () => session.variables())
+  handle(IPC.getSettings, async () => {
     await shellKeys
     return settings.view()
   })
-  ipcMain.handle(IPC.listModels, async () => {
+  handle(IPC.listModels, async () => {
     await shellKeys
     return listModels(settings.modelConfig())
   })
-  ipcMain.handle(IPC.checkKey, (_e, provider: Provider, key: string) => checkKey(provider, key))
-  ipcMain.handle(IPC.updateSettings, async (_e, update: SettingsUpdate) => {
+  handle(IPC.checkKey, (_e, provider: Provider, key: string) => checkKey(provider, key))
+  handle(IPC.updateSettings, async (_e, update: SettingsUpdate) => {
     const pythonChanged = update.pythonPath !== undefined && update.pythonPath !== settings.pythonPath
     const view = settings.update(update)
     if (pythonChanged) await session.restart()
     return view
   })
-  ipcMain.handle(IPC.pythonState, () => session.pythonState())
-  ipcMain.handle(IPC.setupPython, () => session.setupPython())
+  handle(IPC.pythonState, () => session.pythonState())
+  handle(IPC.setupPython, () => session.setupPython())
 
-  ipcMain.handle(IPC.openNotebook, async () => {
+  handle(IPC.openNotebook, async () => {
     if (!win) return null
+    // A file the OS asked to open takes the dialog's place
+    const requested = opens.take()
+    if (requested) {
+      try {
+        return await openFile(requested)
+      } catch (err) {
+        void dialog.showMessageBox(win, {
+          type: 'warning',
+          message: `Couldn't open ${path.basename(requested)}`,
+          detail: err instanceof Error ? err.message : String(err),
+        })
+        return null
+      }
+    }
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
       title: 'Open notebook',
       filters: [{ name: 'Notebooks', extensions: ['ipynb'] }],
@@ -174,7 +241,7 @@ function registerIpc() {
     return openFile(filePaths[0])
   })
 
-  ipcMain.handle(IPC.openRecent, async (_e, file: string) => {
+  handle(IPC.openRecent, async (_e, file: string) => {
     // Only a notebook the app itself put on the list, never an arbitrary path from the window
     if (!settings.recent.some((r) => r.path === file)) return null
     if (!existsSync(file)) {
@@ -184,16 +251,16 @@ function registerIpc() {
     return openFile(file)
   })
 
-  ipcMain.handle(IPC.recentNotebooks, (): RecentNotebook[] =>
+  handle(IPC.recentNotebooks, (): RecentNotebook[] =>
     settings.recent
       .filter((r) => existsSync(r.path))
       .map((r) => ({ path: r.path, name: path.basename(r.path, '.ipynb'), folder: path.basename(path.dirname(r.path)), openedAt: r.openedAt })),
   )
-  ipcMain.handle(IPC.readBrief, () => session.readBrief())
-  ipcMain.handle(IPC.writeBrief, (_e, text: string) => session.writeBrief(text))
-  ipcMain.handle(IPC.listFiles, () => session.files())
+  handle(IPC.readBrief, () => session.readBrief())
+  handle(IPC.writeBrief, (_e, text: string) => session.writeBrief(text))
+  handle(IPC.listFiles, () => session.files())
 
-  ipcMain.handle(IPC.saveNotebook, async (_e, current: string | null, notebook: Notebook) => {
+  handle(IPC.saveNotebook, async (_e, current: string | null, notebook: Notebook) => {
     if (!win) return null
     try {
       let file = isNotebookPath(current) ? current : null
@@ -225,7 +292,7 @@ function registerIpc() {
     }
   })
 
-  ipcMain.handle(IPC.confirmDiscard, async () => {
+  handle(IPC.confirmDiscard, async () => {
     if (!win || !documentState.dirty) return true
     const { response } = await dialog.showMessageBox(win, {
       type: 'warning',
@@ -234,45 +301,62 @@ function registerIpc() {
       cancelId: 1,
       message: 'Discard unsaved changes to this notebook?',
     })
+    // Keeping the changes also drops a file the OS asked to open, so a later Open shows the dialog
+    if (response !== 0) opens.cancel()
     return response === 0
   })
 
-  ipcMain.handle(IPC.restoreSession, async () => {
+  handle(IPC.restoreSession, async () => {
     const restored = drafts.restore()
-    if (!restored) return null
+    // Nothing to reopen, or a notebook that won't open: the renderer shows the start page, with the reason if any
+    if (!restored || !('notebook' in restored)) return restored
     // After a reload nothing is left to receive a running cell's result, so stop it rather than let it run unseen
     if (restored.kernelKept) session.interrupt()
     else if (restored.path) await session.openWorkspace(path.dirname(restored.path))
     return restored
   })
-  ipcMain.on(IPC.saveDraft, (_e, state: DraftState) => drafts.update(state))
+  on(IPC.saveDraft, (_e, state: DraftState) => drafts.update(state))
+  // The page subscribed to menu actions, so a queued file can go through its Open
+  on(IPC.menuReady, () => opens.setReady(true))
 
-  ipcMain.on(IPC.documentState, (_e, state: { path: string | null; dirty: boolean }) => {
+  on(IPC.documentState, (_e, state: { path: string | null; dirty: boolean }) => {
     documentState = state
     updateTitle()
   })
 }
 
-void app.whenReady().then(() => {
-  registerIpc()
-  buildMenu(sendMenu)
-  createWindow()
-  session.warmUp()
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+if (primary) {
+  // macOS sends files from Finder and the Dock here, at launch before 'ready' too, so this is registered early
+  app.on('open-file', (event, file) => {
+    event.preventDefault()
+    if (isNotebookPath(file)) openFromOs(file)
   })
-})
+  // A second launch, with or without a file. Windows and Linux pass a double-clicked file on the command line.
+  app.on('second-instance', (_event, argv, workingDirectory) => openFromOs(notebookFromArgv(argv, workingDirectory)))
+  const launchFile = notebookFromArgv(process.argv, process.cwd())
+  if (launchFile) opens.request(launchFile)
 
-app.on('window-all-closed', () => {
-  if (!isMac) app.quit()
-})
+  void app.whenReady().then(() => {
+    registerIpc()
+    buildMenu(sendMenu)
+    createWindow()
+    session.warmUp()
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+  })
 
-app.on('before-quit', () => {
-  drafts.flush()
-})
+  app.on('window-all-closed', () => {
+    if (!isMac) app.quit()
+  })
 
-// Not in before-quit: the close dialog can still cancel the quit, and the notebook would stay open with a dead kernel
-app.on('will-quit', () => {
-  drafts.flush()
-  void session.shutdown()
-})
+  app.on('before-quit', () => {
+    drafts.flush()
+  })
+
+  // Not in before-quit: the close dialog can still cancel the quit, and the notebook would stay open with a dead kernel
+  app.on('will-quit', () => {
+    drafts.flush()
+    void session.shutdown()
+  })
+}
