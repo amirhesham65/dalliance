@@ -67,7 +67,7 @@ export function buildMenu(send: (action: MenuAction) => void) {
     },
     {
       label: 'Kernel',
-      submenu: [item('Interrupt', 'interrupt', 'CmdOrCtrl+.'), item('Restart', 'restart')],
+      submenu: [item('Interrupt', 'interrupt', 'CmdOrCtrl+.'), item('Restart', 'restart'), { type: 'separator' }, item('Verify Notebook…', 'verify')],
     },
     {
       label: 'View',

@@ -62,10 +62,11 @@ stateDiagram-v2
   edited --> error: run fails
   stale --> done: run succeeds
   stale --> error: run fails
+  stale --> done: Verify gets the same outputs back
   done --> edited: an assumption is corrected
 ```
 
-Opening a file puts every cell that has outputs or an execution count into `stale`, since the kernel that made them is gone.
+Opening a file puts every cell that has outputs or an execution count into `stale`, since the kernel that made them is gone. A Verify rerun only ever moves a cell from `stale` to `done`, when it gives back the outputs the cell shows. See [Verifying a notebook](#verifying-a-notebook).
 
 ## Generate or just run
 
@@ -179,9 +180,49 @@ Every generation leaves a record on the cell, `PromptCell.provenance`, and the c
 | `%time` and `%timeit` timings | `…` |
 | Terminal colour codes, `\r\n` | Removed, `\n` |
 
-Numbers, table values and images stay exact. `normalizeOutputs()` returns the outputs normalized, and `canonicalOutputs()` returns them as one JSON string with every object's keys sorted, which is what `outputsHash` hashes. Anything that compares a rerun with saved outputs must use these same functions, so a change to the rules changes what counts as the same result everywhere at once.
+Numbers, table values and images stay exact. `normalizeOutputs()` returns the outputs normalized, and `canonicalOutputs()` returns them as one JSON string with every object's keys sorted, which is what `outputsHash` hashes. Anything that compares a rerun with saved outputs must use these same functions, as [Verify](#verifying-a-notebook) does, so a change to the rules changes what counts as the same result everywhere at once.
 
 The record is a new optional field that older apps don't read, so `FORMAT_VERSION` stays 1. An older app carries it through as an unknown key, even after it regenerates the code, and then `codeHash` and the final attempt no longer match the cell, which the view points out.
+
+## Verifying a notebook
+
+Verify checks that the notebook gives the same results from a clean start, the way a colleague opening the file would get them. It restarts the tab's kernel, the one it already has, so it needs no extra memory, then reruns every prompt cell's saved code top to bottom without the agent, and compares each result with what the cell had. The run side is in [renderer.md](renderer.md#verify). The comparison and the code checks are pure functions in `packages/shared/src/verify.ts`.
+
+It asks first: "Verify restarts Python and re-runs every cell. Variables you created outside cells will be cleared."
+
+**What reruns.** Every prompt cell with code, even one whose prompt changed since the code was written, since the saved code is what the file holds. Note cells are skipped. A prompt cell with no code, such as a question answered in words, is listed as having no code to run. No model is called, not even for a cell's name.
+
+**How a result compares.** `compareOutputs()` puts both lists through `canonicalOutputs()`, so the normalizer's rules above decide what counts as the same. Text, tables and errors must then match exactly. Figures are compared byte for byte: the same bytes are the same, and anything else, with the same number of figures, is "figure differs". That isn't a failure: a plotting library can draw the same chart with different bytes, so the report shows the saved and new figures side by side for a person to judge. A different number of figures counts as changed.
+
+| Result | Means |
+| --- | --- |
+| Same | Everything matches |
+| Figure differs | Text and tables match, a figure isn't byte for byte the same |
+| Changed | Text, a table or the number of figures differs. The report shows saved and new side by side |
+| Failed | The rerun raised an error, or couldn't run |
+| Stopped | Stop cut the rerun short |
+| Not run | Verify ended before this cell, it was deleted meanwhile, or Python didn't restart |
+
+**A name only the agent made.** The agent's `explore` runs in the same namespace as the cells (see [kernel.md](kernel.md#executing-code)), so a cell can work only because an explore call defined something. A restart clears it, and the cell then fails with a `NameError`. `missingNameCause()` says why, from the code's text and what the rerun assigned:
+
+- a cell above that failed defines the name: the report points to it;
+- only a cell below defines it: the cells are in the wrong order;
+- code the agent ran outside the cells defines it: its explore calls and earlier attempts, from this session's activity and the cell's record. The report says the agent made it while working on that cell, so the cell only worked in the session it was written in;
+- nothing known defines it: it came from outside the cells, most likely exploration in an earlier session.
+
+When a cell above that ran does define the name, or might through `from x import *`, there's nothing to add. `definedNames()` reads assignments, `for` and `with` targets, `def`, `class`, imports and `:=`, and leaves out names inside a function or class body.
+
+**Random calls with no fixed seed.** `seedWarnings()` reads each cell's code, with the cells above it for seeds and imports, and the report warns, whatever the result:
+
+- NumPy's global functions, `np.random.choice()` and the like, with no `np.random.seed()` in or above the cell, and `default_rng()` or `RandomState()` made without a seed;
+- the `random` module's functions, once it's imported, with no `random.seed()`, and `random.Random()` without a seed;
+- scikit-learn estimators, splitters and helpers that take `random_state`, called without it or with `None`, in a notebook that uses `sklearn`. `KFold` and `StratifiedKFold` count only with `shuffle=True`, and `train_test_split` not with `shuffle=False`.
+
+It stays quiet when in doubt: comments and strings don't count, a seed set anywhere above or in the cell counts, a generator made with a seed is fine wherever it's used, and a call passing `**kwargs` is left alone. It reads text, so `from random import choice` and seeds set some other way aren't seen. The wording says a call can give a different result, never that it did.
+
+**What Verify does to the notebook.** Nothing a researcher saved changes on its own. Outputs, the record of how each cell was made, history, answers and code stay as they were. The restart does what any restart does: cells that ran lose their execution count and go `stale`. A cell whose rerun came back the same goes back to `done` with its new count, since what it shows is what the kernel now holds; a cell with outputs kept from Jupyter (see [Passthrough](#passthrough)) keeps no count, so those outputs still save. A cell that changed stays `stale` and keeps its saved outputs. The report's Keep the new outputs, on a changed cell or one whose figure differs, is the only way the rerun's outputs replace the saved ones. It's one cell at a time, and Undo puts the saved outputs back. The report itself isn't saved.
+
+**Before Verify.** `beforeVerify()` in the store runs once the user confirms and before Python restarts. It is where a check of the machine against the notebook goes, such as the Python, its libraries and the data files the cells read. It must not hold Verify up for long, and Verify goes ahead even if it throws.
 
 ## Interpretation and corrections
 

@@ -3,13 +3,15 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "The notebook model, .ipynb conversion, output normalizing, IPC contract and leaked tool-call cleanup, used by the renderer and the Electron main process.",
+  "description": "The notebook model, .ipynb conversion, output normalizing, Verify's comparison and code checks, IPC contract and leaked tool-call cleanup, used by the renderer and the Electron main process.",
   "exports": {
     "./notebook": "./src/notebook.ts",
     "./ipynb": "./src/ipynb.ts",
     "./ipc": "./src/ipc.ts",
     "./leaked": "./src/leaked.ts",
-    "./normalize": "./src/normalize.ts"
+    "./normalize": "./src/normalize.ts",
+    "./python": "./src/python.ts",
+    "./verify": "./src/verify.ts"
   },
   "scripts": {
     "test": "vitest run",

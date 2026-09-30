@@ -20,6 +20,7 @@ import type {
 } from '@dalliance/shared/ipc'
 import {
   type Cell,
+  type CreatedVariable,
   type Notebook,
   type Output,
   type PromptCell,
@@ -30,6 +31,7 @@ import {
   tablesOpen,
   newPromptCell,
 } from '@dalliance/shared/notebook'
+import { type MissingNameCause, type SeedWarning, compareOutputs, missingName, missingNameCause, seedWarnings } from '@dalliance/shared/verify'
 
 /** What a cell shows while it is queued or running. Not saved with the notebook. */
 export interface CellRun {
@@ -47,7 +49,7 @@ export interface CellRun {
 export interface LogEntry {
   id: number
   at: number
-  kind: 'wrote' | 'ran' | 'failed' | 'stopped' | 'restarted' | 'restored'
+  kind: 'wrote' | 'ran' | 'failed' | 'stopped' | 'restarted' | 'restored' | 'verified'
   text: string
   cellId?: string
   /** What the run's model calls cost, with Show costs on. */
@@ -80,6 +82,50 @@ export interface Notice {
   tone: 'info' | 'error'
   undo?: () => void
 }
+
+/**
+ * Where one prompt cell stands in a Verify run. `waiting` until its rerun ends, then `same`, `figure` (text and
+ * tables match, a figure doesn't), `changed` or `failed`. `stopped` when Stop cut its run short, `not-run` when
+ * Verify ended before it, and `no-code` for a cell with no code to run.
+ */
+export type VerifyStatus = 'waiting' | 'same' | 'figure' | 'changed' | 'failed' | 'stopped' | 'not-run' | 'no-code'
+
+/** One prompt cell in the Verify report. Not saved with the notebook. */
+export interface VerifyCell {
+  id: string
+  /** The cell's number, counting prompt cells as the overview does. */
+  number: number
+  status: VerifyStatus
+  /** The code as it was when Verify started, which is what reruns. */
+  code: string
+  /** The outputs the notebook had when Verify started. Verify never changes them. */
+  saved: Output[]
+  /** The rerun's outputs, once it has ended. */
+  fresh: Output[] | null
+  executionCount: number | null
+  durationMs: number
+  variables: CreatedVariable[]
+  /** Why the rerun failed when it wasn't a Python error, like a kernel that didn't start. */
+  error: string | null
+  /** The name a NameError was about, and why nothing defined it. */
+  missing: { name: string; cause: MissingNameCause } | null
+  /** Random calls in the code that no seed fixes. Read from the code, so they show before the rerun ends. */
+  seeds: SeedWarning[]
+}
+
+/**
+ * A Verify run: restart Python, rerun every prompt cell's saved code top to bottom, and compare. `stopping`
+ * means Stop was pressed and the running cell hasn't answered yet. Not saved with the notebook.
+ */
+export interface VerifyReport {
+  phase: 'restarting' | 'running' | 'stopping' | 'done' | 'stopped' | 'failed'
+  /** Why Python couldn't restart, when the phase is `failed`. */
+  error: string | null
+  cells: VerifyCell[]
+}
+
+/** The confirmation Verify asks for before it restarts Python. */
+export const VERIFY_CONFIRMATION = 'Verify restarts Python and re-runs every cell. Variables you created outside cells will be cleared.'
 
 /** The side panes, one open at a time. Cmd+1 to Cmd+6 open them in this order. */
 export type PaneKind = PaneName
@@ -132,6 +178,10 @@ export interface NotebookState {
   models: ModelList | null
   /** The message showing at the bottom of the window, if any. */
   notice: Notice | null
+  /** The last Verify run's report, until it's closed or another notebook loads. */
+  verify: VerifyReport | null
+  /** Whether Verify's confirmation is showing. */
+  verifyAsking: boolean
 }
 
 let api: DallianceApi | undefined = typeof window === 'undefined' ? undefined : window.dalliance
@@ -192,6 +242,8 @@ export const useNotebook = create<NotebookState>(() => ({
   brief: null,
   models: null,
   notice: null,
+  verify: null,
+  verifyAsking: false,
 }))
 
 const MAX_LOG = 60
@@ -348,10 +400,12 @@ function forgetNoticeEdit() {
 }
 
 /** Record changed fields of a prompt cell and apply them. */
-function changeFields(cell: PromptCell, to: Partial<PromptCell>) {
+function changeFields(cell: PromptCell, to: Partial<PromptCell>): Edit {
   const from = Object.fromEntries(Object.keys(to).map((k) => [k, cell[k as keyof PromptCell]])) as Partial<PromptCell>
   putCell({ ...cell, ...to })
-  record({ type: 'fields', id: cell.id, from, to })
+  const edit: Edit = { type: 'fields', id: cell.id, from, to }
+  record(edit)
+  return edit
 }
 
 function step(direction: 'undo' | 'redo'): boolean {
@@ -456,6 +510,9 @@ export const actions = {
     }
     clearEdits()
     spendEpoch++
+    // A Verify run belongs to the last notebook
+    verifyRuns.clear()
+    verifyEpoch++
     set({
       screen: 'notebook',
       canReturn: false,
@@ -474,6 +531,8 @@ export const actions = {
       pane: get().pane === 'pinned' ? null : get().pane,
       // An Undo from the last notebook must not reach into this one
       notice: null,
+      verify: null,
+      verifyAsking: false,
     })
     void actions.loadBrief()
   },
@@ -733,25 +792,102 @@ export const actions = {
 
   async interrupt() {
     queue.length = 0
+    stopVerify()
     set((s) => ({ runs: Object.fromEntries(Object.entries(s.runs).filter(([, r]) => r.status === 'running')) }))
     await api?.interrupt()
   },
 
   async restart() {
     await actions.interrupt()
+    await restartPython()
+  },
+
+  /** Ask before Verify restarts Python. */
+  askVerify() {
+    if (!isVerifying()) set({ verifyAsking: true })
+  },
+
+  cancelVerify() {
+    set({ verifyAsking: false })
+  },
+
+  /**
+   * Check that the notebook runs from a clean start. Restart the tab's kernel, then rerun every prompt cell's
+   * saved code top to bottom through the run queue, without the agent, and compare each result with the saved
+   * one. The report is `verify`. Saved outputs and records stay as they were: a cell whose result came back the
+   * same is marked up to date again, and `keepVerified()` is the only way new outputs replace saved ones.
+   * Stop works as for any run, and leaves the report as far as it got.
+   */
+  async verify() {
+    set({ verifyAsking: false })
+    if (isVerifying()) return
+    await actions.interrupt()
     try {
-      await api?.restartKernel()
-    } catch (err) {
-      actions.notifyFailure("Couldn't restart Python", err)
+      await beforeVerify()
+    } catch {
+      // A check before Verify never stops it
+    }
+    const epoch = ++verifyEpoch
+    const prompts = get().notebook.cells.filter((c): c is PromptCell => c.kind === 'prompt')
+    const cells = prompts.map(
+      (c, i): VerifyCell => ({
+        id: c.id,
+        number: i + 1,
+        status: c.code.trim() ? 'waiting' : 'no-code',
+        code: c.code,
+        saved: c.outputs,
+        fresh: null,
+        executionCount: null,
+        durationMs: 0,
+        variables: [],
+        error: null,
+        missing: null,
+        seeds: c.code.trim() ? seedWarnings(c.code, prompts.slice(0, i).map((p) => p.code)) : [],
+      }),
+    )
+    set({ verify: { phase: 'restarting', error: null, cells } })
+    const error = await restartPython()
+    // Stopped while Python restarted, or another notebook loaded
+    if (epoch !== verifyEpoch || get().verify?.phase !== 'restarting') return
+    if (error) {
+      setVerify((r) => ({ ...r, phase: 'failed', error, cells: r.cells.map((c) => (c.status === 'waiting' ? { ...c, status: 'not-run' } : c)) }))
       return
     }
-    addLog({ kind: 'restarted', text: 'Restarted Python' })
-    // Outputs stay, but the variables they came from are gone
-    updateCells((cells) =>
-      cells.map((c) => (c.kind === 'prompt' && hasRun(c) ? { ...c, executionCount: null, state: 'stale' as const } : c)),
-    )
-    set({ variables: [] })
-    actions.environmentChanged()
+    const waiting = cells.filter((c) => c.status === 'waiting')
+    for (const c of waiting) {
+      verifyRuns.set(c.id, c.code)
+      if (!queue.includes(c.id)) queue.push(c.id)
+    }
+    set((s) => ({
+      verify: s.verify && { ...s.verify, phase: 'running' },
+      runs: { ...s.runs, ...Object.fromEntries(waiting.filter((c) => !s.runs[c.id]).map((c) => [c.id, emptyRun('queued')])) },
+    }))
+    settleVerify()
+    void pump()
+  },
+
+  /** Put the report away. Not while Verify runs: Stop it first. */
+  closeVerify() {
+    if (!isVerifying()) set({ verify: null })
+  },
+
+  /**
+   * Replace a cell's saved outputs with what Verify's rerun gave, for a cell that changed or whose figure
+   * differs. Only while the cell still has the code that ran. Undo puts the saved outputs back.
+   */
+  keepVerified(id: string) {
+    const entry = get().verify?.cells.find((c) => c.id === id)
+    const cell = findCell(id)
+    if (!entry?.fresh || (entry.status !== 'changed' && entry.status !== 'figure')) return
+    if (!cell || cell.kind !== 'prompt' || cell.code !== entry.code) return
+    const edit = changeFields(cell, {
+      outputs: entry.fresh,
+      executionCount: entry.executionCount,
+      durationMs: entry.durationMs,
+      variables: entry.variables,
+      state: 'done',
+    })
+    notifyUndoable(`Kept the new outputs of cell ${entry.number}`, edit)
   },
 
   /** Shift+Enter: run this cell and move to the next one, adding a prompt cell at the end. */
@@ -884,6 +1020,11 @@ const abandoned = new Set<string>()
 function removeFromQueue(id: string) {
   const i = queue.indexOf(id)
   if (i >= 0) queue.splice(i, 1)
+  // A cell deleted or made a note while Verify waits to rerun it
+  if (get().runs[id]?.status !== 'running' && verifyRuns.delete(id)) {
+    setVerifyCell(id, { status: 'not-run' })
+    settleVerify()
+  }
   set((s) => {
     if (s.runs[id]?.status !== 'queued') return {}
     const runs = { ...s.runs }
@@ -906,18 +1047,21 @@ async function pump() {
         removeFromQueue(id)
         continue
       }
-      const generate = needsGeneration(cell)
+      // Verify reruns the code it started with, and never calls a model
+      const verifyCode = verifyRuns.get(id)
+      const verifying = verifyCode != null
+      const generate = !verifying && needsGeneration(cell)
       set((s) => ({
-        runs: { ...s.runs, [id]: { ...emptyRun('running'), statusText: generate ? 'Writing code' : 'Running' } },
+        runs: { ...s.runs, [id]: { ...emptyRun('running'), statusText: generate ? 'Writing code' : verifying ? 'Verifying' : 'Running' } },
         messages: omit(s.messages, id),
       }))
       const request: RunCellRequest = {
         cellId: id,
         prompt: cell.prompt,
-        code: cell.code,
+        code: verifyCode ?? cell.code,
         generate,
         // Any run names a cell that has no title for its current prompt, including reruns of saved code
-        nameIt: cell.prompt.trim().length >= MIN_TITLE_PROMPT && cell.titleFrom?.trim() !== cell.prompt.trim(),
+        nameIt: !verifying && cell.prompt.trim().length >= MIN_TITLE_PROMPT && cell.titleFrom?.trim() !== cell.prompt.trim(),
         corrections: cell.corrections,
         previousCells: cells.slice(0, index).map((c) =>
           c.kind === 'note' ? { kind: 'note' as const, text: c.markdown } : { kind: 'prompt' as const, text: c.prompt, code: c.code },
@@ -927,7 +1071,8 @@ async function pump() {
         ? await api.runCell(request).catch((err: unknown) => failed(request, err))
         : failed(request, 'Running cells needs the desktop app.')
       // `cell` is the version sent. Edits made while the agent works are checked against it in finish()
-      finish(id, generate, result, cell)
+      if (verifying) finishVerify(id, result)
+      else finish(id, generate, result, cell)
     }
   } finally {
     pumping = false
@@ -1031,6 +1176,163 @@ function finish(id: string, generate: boolean, result: CellRunResult, sent: Prom
       messages: result.error && !(stopped && !nothingRan) ? { ...s.messages, [id]: result.error } : s.messages,
     }
   })
+}
+
+/** Cells Verify has queued, with the code each reruns. A cell leaves when its rerun ends or can't happen. */
+const verifyRuns = new Map<string, string>()
+/** Bumped by each Verify and by load(), so a Verify that waits on a restart knows when it's been overtaken. */
+let verifyEpoch = 0
+
+const isVerifying = () => {
+  const phase = get().verify?.phase
+  return phase === 'restarting' || phase === 'running' || phase === 'stopping'
+}
+
+function setVerify(fn: (report: VerifyReport) => VerifyReport) {
+  set((s) => (s.verify ? { verify: fn(s.verify) } : {}))
+}
+
+function setVerifyCell(id: string, patch: Partial<VerifyCell>) {
+  setVerify((r) => ({ ...r, cells: r.cells.map((c) => (c.id === id ? { ...c, ...patch } : c)) }))
+}
+
+/**
+ * Runs once the user confirms Verify, before Python restarts. This is the place for checks that compare the
+ * notebook with the machine it runs on now, such as the Python, its libraries and the data files the cells read.
+ * There are none yet. A check must not hold Verify up for long: it can show a notice or a banner, and Verify
+ * goes ahead even if it throws.
+ */
+async function beforeVerify(): Promise<void> {}
+
+/** Restart Python and mark the cells that ran out of date. Resolves with why it failed, or null. */
+async function restartPython(): Promise<string | null> {
+  try {
+    await api?.restartKernel()
+  } catch (err) {
+    actions.notifyFailure("Couldn't restart Python", err)
+    return errorText(err)
+  }
+  addLog({ kind: 'restarted', text: 'Restarted Python' })
+  // Outputs stay, but the variables they came from are gone
+  updateCells((cells) => cells.map((c) => (c.kind === 'prompt' && hasRun(c) ? { ...c, executionCount: null, state: 'stale' as const } : c)))
+  set({ variables: [] })
+  actions.environmentChanged()
+  return null
+}
+
+/** Stop pressed during Verify: cells still waiting won't run. The running one reports when its run stops. */
+function stopVerify() {
+  const report = get().verify
+  if (!report || !isVerifying()) return
+  const running = new Set([...verifyRuns.keys()].filter((id) => get().runs[id]?.status === 'running'))
+  for (const id of [...verifyRuns.keys()]) if (!running.has(id)) verifyRuns.delete(id)
+  set({
+    verify: {
+      ...report,
+      phase: running.size ? 'stopping' : 'stopped',
+      cells: report.cells.map((c) => (c.status === 'waiting' && !running.has(c.id) ? { ...c, status: 'not-run' } : c)),
+    },
+  })
+  if (!running.size) logVerify()
+}
+
+/** Once no rerun is left, the report is done, or stopped if Stop was pressed. */
+function settleVerify() {
+  const phase = get().verify?.phase
+  if (verifyRuns.size || (phase !== 'running' && phase !== 'stopping')) return
+  setVerify((r) => ({ ...r, phase: phase === 'running' ? 'done' : 'stopped' }))
+  logVerify()
+}
+
+function logVerify() {
+  const report = get().verify
+  if (report) addLog({ kind: 'verified', text: verifySummary(report) })
+}
+
+/** The report in a sentence: "Verified 5 cells: 3 the same, 1 changed, 1 failed." */
+export function verifySummary(report: VerifyReport): string {
+  const count = (status: VerifyStatus) => report.cells.filter((c) => c.status === status).length
+  const ran = report.cells.filter((c) => c.status !== 'no-code' && c.status !== 'not-run' && c.status !== 'waiting').length
+  const parts = [
+    count('same') && `${count('same')} the same`,
+    count('figure') && `${count('figure')} with a figure that differs`,
+    count('changed') && `${count('changed')} changed`,
+    count('failed') && `${count('failed')} failed`,
+    count('stopped') && `${count('stopped')} stopped`,
+  ].filter(Boolean)
+  const detail = parts.length ? `: ${parts.join(', ')}` : ''
+  if (report.phase === 'stopped' || report.phase === 'stopping') {
+    const planned = report.cells.filter((c) => c.status !== 'no-code').length
+    return `Stopped verifying after ${ran} of ${planned} ${planned === 1 ? 'cell' : 'cells'}${detail}.`
+  }
+  return `Verified ${ran} ${ran === 1 ? 'cell' : 'cells'}${detail}.`
+}
+
+/**
+ * A Verify rerun ended. It goes into the report and never into the cell's outputs. A cell whose outputs came
+ * back the same is marked up to date again, since what it shows is what the kernel now holds.
+ */
+function finishVerify(id: string, result: CellRunResult) {
+  verifyRuns.delete(id)
+  set((s) => ({ runs: omit(s.runs, id) }))
+  const report = get().verify
+  const entry = report?.cells.find((c) => c.id === id)
+  // Deleted while it ran, or its notebook was closed
+  if (abandoned.delete(id) || !report || !entry) {
+    if (entry) setVerifyCell(id, { status: 'not-run' })
+    settleVerify()
+    return
+  }
+  const interrupted = result.error === 'Stopped.' || (report.phase === 'stopping' && !result.ok)
+  const status: VerifyStatus = interrupted ? 'stopped' : !result.ok ? 'failed' : compareOutputs(entry.saved, result.outputs)
+  const name = status === 'failed' ? missingName(result.outputs) : null
+  const patch: Partial<VerifyCell> = {
+    status,
+    fresh: result.outputs,
+    executionCount: result.executionCount,
+    durationMs: result.durationMs,
+    variables: result.variables,
+    error: result.error,
+  }
+  if (name) {
+    const index = report.cells.indexOf(entry)
+    const cells = report.cells.map((c, i) => ({
+      number: c.number,
+      code: c.code,
+      failed: i === index || c.status === 'failed',
+      assigned: c.variables.map((v) => v.name),
+      agentCode: agentCode(c.id),
+    }))
+    const cause = missingNameCause(name, index, cells)
+    patch.missing = cause && { name, cause }
+  }
+  setVerifyCell(id, patch)
+  if (status === 'same') {
+    set((s) => ({
+      notebook: {
+        ...s.notebook,
+        cells: s.notebook.cells.map((c) =>
+          c.id === id && c.kind === 'prompt' && c.outputs === entry.saved && c.code === entry.code
+            ? // Kept outputs from Jupyter are written back only while the count they were saved with stands
+              { ...c, state: 'done' as const, executionCount: c.jupyter?.outputs ? c.executionCount : result.executionCount }
+            : c,
+        ),
+      },
+    }))
+  }
+  settleVerify()
+}
+
+/**
+ * Code the agent ran while making a cell that isn't the cell's own: explore calls and earlier attempts, from
+ * this session's activity and from the record of how the cell was made.
+ */
+function agentCode(id: string): string[] {
+  const cell = findCell(id)
+  const own = cell?.kind === 'prompt' ? cell.code : ''
+  const steps = (get().activity[id] ?? []).flatMap((a) => (a.code ? [a.code] : []))
+  const attempts = cell?.kind === 'prompt' ? (cell.provenance?.attempts ?? []).map((a) => a.code) : []
+  return [...steps, ...attempts].filter((code) => code !== own)
 }
 
 /** Add the cell's current version to its history, unless it is the one already on top. */

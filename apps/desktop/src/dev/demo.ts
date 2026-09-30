@@ -136,10 +136,17 @@ function sampleNotebook(): Notebook {
 export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook') {
   // Questions the agent is waiting on, answered from the card in the cell
   const pending = new Map<string, (answer: string | boolean | null) => void>()
+  const sample = sampleNotebook()
+  const rerunOutputs = new Map<string, Output[]>(sample.cells.flatMap((c) => (c.kind === 'prompt' && c.code ? [[c.code, c.outputs] as [string, Output[]]] : [])))
+  const older = sample.cells.find((c) => c.kind === 'prompt' && c.code.startsWith('older'))
+  if (older?.kind === 'prompt') rerunOutputs.set(older.code, [{ type: 'text', text: 'arm\nNew regimen      28.4\nStandard care    21.0' }])
+  let rerunCount = 0
   const { api } = fakeApi(async (request, emit: (e: RunEvent) => void) => {
     if (!request.generate) {
       await wait(500)
-      return result({ code: request.code, outputs: [survivalTable], generated: false })
+      // Saved code reruns to what the sample saved, except the over-65 cell, which Verify then reports as changed
+      const outputs = rerunOutputs.get(request.code) ?? [survivalTable]
+      return result({ code: request.code, outputs, generated: false, executionCount: ++rerunCount })
     }
     if (request.nameIt) setTimeout(() => emit({ type: 'title', title: 'Early stops by reason', prompt: request.prompt }), 900)
     // The sample's last cell is ambiguous on purpose: patients who switched arms change the counts, so the agent asks
@@ -286,7 +293,7 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
     ],
   })
   setApi(api)
-  actions.load(sampleNotebook(), '/Users/demo/REGIMEN-2/readout.ipynb')
+  actions.load(sample, '/Users/demo/REGIMEN-2/readout.ipynb')
   useNotebook.setState({ kernel: { status: 'idle', python: '3.12.4', cwd: '/Users/demo/REGIMEN-2', error: null } })
   const cells = useNotebook.getState().notebook.cells
   useNotebook.setState({ selectedId: cells[2].id, lastFinishedId: cells[2].id })

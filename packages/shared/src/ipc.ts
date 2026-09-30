@@ -280,6 +280,7 @@ export type MenuAction =
   | 'run-all'
   | 'interrupt'
   | 'restart'
+  | 'verify'
   | 'settings'
   | 'add-prompt'
   | 'add-note'
