@@ -22,6 +22,10 @@ function refuse(status: number, message: string) {
   return Response.json({ error: { message, type: 'dalliance_account' } }, { status })
 }
 
+/** The gateway's refusal of zero data retention on a Vercel team without a paid plan. */
+const ZDR_PLAN = /ZdrUnauthorizedError|Zero Data Retention \(ZDR\) is only available/
+const UNAVAILABLE = "Hosted models aren't available right now. We're on it. Try again later, or use your own key in Settings."
+
 const NOT_OFFERED = "This model doesn't run with zero data retention, so Dalliance Cloud doesn't offer it. Choose another model in Settings."
 
 type Authorized = { ok: true; userId: string } | { ok: false; status: number; message: string }
@@ -112,7 +116,17 @@ async function forward(request: NextRequest, { params }: { params: Promise<{ pat
     const list = await upstream.json().catch(() => null)
     return Response.json(filterModelList(list, allowed), { status: upstream.status, headers: clientHeaders(upstream) })
   }
-  if (path !== 'language-model' || !upstream.ok || !upstream.body) return new Response(upstream.body, { status: upstream.status, headers: clientHeaders(upstream) })
+  if (path === 'language-model' && !upstream.ok) {
+    const text = await upstream.text().catch(() => '')
+    // The gateway only allows zero data retention on a paid Vercel plan. That's Dalliance's setup to fix, not the
+    // user's key, which the app would otherwise say was rejected
+    if (upstream.status === 403 && ZDR_PLAN.test(text)) {
+      console.error('gateway refused zero data retention: the Vercel team needs a Pro or Enterprise plan')
+      return refuse(503, UNAVAILABLE)
+    }
+    return new Response(text, { status: upstream.status, headers: clientHeaders(upstream) })
+  }
+  if (path !== 'language-model' || !upstream.body) return new Response(upstream.body, { status: upstream.status, headers: clientHeaders(upstream) })
 
   const [toClient, toMeter] = upstream.body.tee()
   after(() => meter(toMeter, who.userId, request.headers.get('ai-language-model-id') ?? 'unknown'))

@@ -40,7 +40,7 @@ What the desktop app relies on. The app's side lives in its Cloud client, `apps/
 | `POST /api/ai/language-model` | Model calls, in AI Gateway's protocol, with the account's Convex JWT as the key. Always run with zero data retention, see [billing.md](billing.md#zero-data-retention) |
 | `GET /api/ai/config` | The model list, same auth, with only the models that qualify for zero data retention. Needs a sign-in, not a plan |
 
-Refusals from `/api/ai` use the gateway's error shape with `type: "dalliance_account"`: 400 a call that isn't valid JSON, 401 signed out, 402 no plan or out of credits, 403 a model that doesn't qualify for zero data retention, 404 not a route, 502 upstream trouble, 503 not configured. The message is written for the user.
+Refusals from `/api/ai` use the gateway's error shape with `type: "dalliance_account"`: 400 a call that isn't valid JSON, 401 signed out, 402 no plan or out of credits, 403 a model that doesn't qualify for zero data retention, 404 not a route, 502 upstream trouble, 503 not configured or hosted models unavailable (such as the gateway refusing zero data retention on an unpaid Vercel plan). The message is written for the user.
 
 **Deep links the cloud site opens**
 

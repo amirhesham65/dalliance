@@ -83,6 +83,8 @@ It holds because of two things the proxy does, in `web/src/lib/zdr.ts`:
 
 A refresh of `/v1/models` that fails keeps the last list. If the list hasn't loaded once since the site started, every model call and the model list get 502, rather than running without the check.
 
+**The gateway only allows it on a paid Vercel plan.** On a Hobby team the gateway refuses every call carrying the flag with 403 `ZdrUnauthorizedError`. The proxy turns that into a 503 that says hosted models aren't available, rather than letting the app read it as a rejected key, and logs `gateway refused zero data retention`. The fix is on Vercel: the team that owns `AI_GATEWAY_API_KEY` needs a Pro or Enterprise plan.
+
 Zero data retention is not a HIPAA business associate agreement.
 
 ## Security
