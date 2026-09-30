@@ -25,7 +25,7 @@ src/
 
 ## The store
 
-`src/store/notebook-store.ts` exports `useNotebook`, a zustand store, and `actions`, plain functions that change it. Components read with selectors, `useNotebook((s) => s.pane)`, and call `actions.*`. Besides the actions, `App.tsx`, `main.tsx` and the Settings sections write bridge results straight into `settings`, `python` and `kernel`.
+`src/store/notebook-store.ts` exports `useNotebook`, a zustand store, and `actions`, plain functions that change it. Components read with selectors, `useNotebook((s) => s.pane)`, and call `actions.*`. Besides the actions, `App.tsx`, `main.tsx` and the Settings sections write bridge results straight into `settings`, `python`, `kernel`, `account` and `billing`.
 
 Saved with the notebook: `notebook`. Everything else is session state:
 
@@ -193,9 +193,10 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 
 | Section | Component | Holds |
 | --- | --- | --- |
-| Models | `ModelSettings` | Provider, key, model id, effort |
+| Models | `ModelSettings` | Provider, key, model id, effort. With Dalliance Cloud chosen, `CloudStatus` stands in for the key: sign in, choose a plan, or the credits left |
 | Agent | `AgentSettings` | Approvals (package installs, shell and network code), cell names, suggested next prompts |
 | Python | `PythonSettings` | The managed environment and a Python path |
+| Account | `AccountSettings` | The Dalliance account, the plan and its credits. Only in builds with Dalliance Cloud, when `settings.cloud` is true. See [cloud.md](cloud.md) |
 
 It sits over the area under the top bar with the screen below still mounted and `inert`, so the setup's step, the notebook's scroll and the resizable columns come back as they were. Command mode and the Cmd+number keys stay off while it's up. Esc goes back, unless a select or menu is open, or a text field has focus, which it leaves instead.
 
@@ -203,7 +204,7 @@ Changes save as they're made. Selects save on change. The model id and the Pytho
 
 ## First run and the start page
 
-`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. The key step links to each provider's keys page, switches provider to match a pasted key, and checks the key before saving it, see [storage.md](storage.md#settings-and-keys). Skipping any step still sets `onboarded`. The start page offers new, open, open folder, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New goes through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, and Open folder asks for a folder first, then does the same in it, so nothing the start page opens is unsaved. File > Open Folder and the notebook tab's menu do the same, and both name the folder in use with `folderName()`.
+`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. In builds with Dalliance Cloud the key step offers it first, and shows `CloudStatus` in place of the key field while it's chosen; the step counts as done once there's a plan. The key step links to each provider's keys page, switches provider to match a pasted key, and checks the key before saving it, see [storage.md](storage.md#settings-and-keys). Skipping any step still sets `onboarded`. The start page offers new, open, open folder, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New goes through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, and Open folder asks for a folder first, then does the same in it, so nothing the start page opens is unsaved. File > Open Folder and the notebook tab's menu do the same, and both name the folder in use with `folderName()`.
 
 ## Theming
 

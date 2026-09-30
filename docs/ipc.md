@@ -43,6 +43,13 @@ Every handler goes through `handle()` or `on()` in `main.ts`, never `ipcMain` di
 | `listFiles()` | invoke | `session.files` | Workspace files, empty for broad folders |
 | `restoreSession()` | invoke | `drafts.restore` | The notebook to show at load, or a `RestoreFailure` with the reason it couldn't reopen, or null. See [storage.md](storage.md#session-and-drafts) |
 | `saveDraft(state)` | send | `drafts.update` | Mirrors the document to the main process |
+| `getAccount()` | invoke | `account.current` | The Dalliance account as an `AccountView`. Signed out in builds without Dalliance Cloud. See [cloud.md](cloud.md) |
+| `signIn()` | invoke | `account.signIn` | Opens the sign-in page in the browser and sets `waiting` |
+| `redeemSignInCode(code)` | invoke | `account.redeem` | The code the sign-in page shows when the browser couldn't open the app |
+| `signOut()` | invoke | `account.signOut` | Signs out here. The server session expires on its own |
+| `getBilling()` | invoke | `billing.current` | The plan as a `BillingView`. `available` is false in builds without Dalliance Cloud |
+| `startCheckout(plan)` | invoke | `billing.checkout` | Opens checkout for the plan in the browser. Only takes `pro` |
+| `openBillingPortal()` | invoke | `billing.portal` | Opens the billing portal in the browser |
 | `setDocumentState({ path, dirty })` | send | `updateTitle` | Window title and the macOS edited dot |
 
 ## Events from main
@@ -55,6 +62,8 @@ Each `on*` method subscribes and returns an unsubscribe function.
 | `onKernelState` | `kernel-state-changed` | `KernelState` |
 | `onPythonLog` | `python-log` | One line of venv or pip output |
 | `onMenu` | `menu` | A `MenuAction` from the app menu |
+| `onAccount` | `account-changed` | `AccountView`, after sign-in, sign-out or a session check |
+| `onBilling` | `billing-changed` | `BillingView`, whenever the plan or its credits change |
 
 `RunEvent` is a union:
 
@@ -86,6 +95,8 @@ Each one goes through the renderer's ordinary Open, so unsaved changes get the D
 4. Choosing Cancel in the Discard prompt drops the file, so the next Open shows the dialog.
 
 At launch this runs after `restoreSession()`, so the last notebook comes back first and the file then replaces it.
+
+In builds with Dalliance Cloud, links on the `io.dalliance.app` scheme arrive the same ways: `open-url` on macOS, and the command line elsewhere. They never go through `OpenQueue`. `openLink()` hands them to the account and brings the window forward. See [cloud.md](cloud.md#signing-in).
 
 ## Saving and closing
 

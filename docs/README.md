@@ -15,6 +15,7 @@ Dalliance is an Electron app. You write a notebook cell in plain language, an ag
 | Calls between the renderer and the main process | [ipc.md](ipc.md) |
 | React, the store, panes, shortcuts, theming | [renderer.md](renderer.md) |
 | Settings, keys, drafts, logs and other files on disk | [storage.md](storage.md) |
+| Signing in and hosted models, in builds with Dalliance Cloud | [cloud.md](cloud.md) |
 | Running tests or writing new ones | [testing.md](testing.md) |
 | Setup, commands, conventions | [development.md](development.md) |
 | Building the .dmg and publishing a release | [releasing.md](releasing.md) |
@@ -26,6 +27,7 @@ Dalliance is an Electron app. You write a notebook cell in plain language, an ag
 ```
 apps/desktop/         the Electron app, @dalliance/desktop
   electron/           main process: window, menus, settings, the agent, the kernel
+    cloud/            the optional Dalliance Cloud client, off unless a build sets DALLIANCE_CLOUD_URL
   src/                renderer: React 19, zustand, shadcn, Tailwind v4
 apps/web/             dalliance.io, Next.js 16, @dalliance/web
 packages/shared/      types and pure functions both sides import, @dalliance/shared

@@ -1,7 +1,9 @@
 import { create } from 'zustand'
 import { cellTitle } from '@/lib/notebook/text'
 import type {
+  AccountView,
   ActivityItem,
+  BillingView,
   Brief,
   CellRunResult,
   KernelState,
@@ -86,6 +88,9 @@ export interface NotebookState {
   /** Which view the Variables & Environment pane shows. */
   variablesView: VariablesView
   settings: SettingsView | null
+  /** The Dalliance account and its plan, in builds with Dalliance Cloud. Null until the main process answers. */
+  account: AccountView | null
+  billing: BillingView | null
   /** The Settings section on screen, or null when Settings is closed. It covers whatever screen is under it. */
   settingsPage: SettingsSection | null
   python: PythonState | null
@@ -127,7 +132,7 @@ export function welcomeNotebook(): Notebook {
 const initial = welcomeNotebook()
 
 /** The sections of Settings, in the order the side list shows them. */
-export const SETTINGS_SECTIONS = ['models', 'agent', 'python'] as const
+export const SETTINGS_SECTIONS = ['models', 'agent', 'python', 'account'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 // Settings reopens where it was left
@@ -150,6 +155,8 @@ export const useNotebook = create<NotebookState>(() => ({
   environmentStale: false,
   variablesView: 'variables',
   settings: null,
+  account: null,
+  billing: null,
   settingsPage: null,
   python: null,
   focusId: null,

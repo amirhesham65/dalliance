@@ -1,4 +1,4 @@
-import type { CellRunResult, DallianceApi, RunCellRequest, RunEvent, SettingsView } from '@dalliance/shared/ipc'
+import type { AccountView, BillingView, CellRunResult, DallianceApi, RunCellRequest, RunEvent, SettingsView } from '@dalliance/shared/ipc'
 
 type RunHandler = (request: RunCellRequest, emit: (event: RunEvent) => void) => Promise<CellRunResult> | CellRunResult
 
@@ -67,6 +67,15 @@ export function fakeApi(onRun: RunHandler) {
     saveDraft: () => {},
     setDocumentState: () => {},
     onMenu: () => () => {},
+    getAccount: async () => SIGNED_OUT,
+    signIn: async () => SIGNED_OUT,
+    redeemSignInCode: async () => SIGNED_OUT,
+    signOut: async () => SIGNED_OUT,
+    onAccount: () => () => {},
+    getBilling: async () => NO_BILLING,
+    startCheckout: async () => NO_BILLING,
+    openBillingPortal: async () => NO_BILLING,
+    onBilling: () => () => {},
   }
   return { api, requests, responses }
 }
@@ -83,8 +92,13 @@ export function fakeSettings(): SettingsView {
     onboarded: true,
     keySource: 'environment',
     hasKey: { gateway: true, anthropic: false },
+    cloud: false,
   }
 }
+
+/** What a build without Dalliance Cloud answers. */
+const SIGNED_OUT: AccountView = { user: null, checking: false, waiting: false, error: null }
+const NO_BILLING: BillingView = { available: false, plans: [], subscription: null, usage: null, loading: false, checkingOut: false, error: null }
 
 export function result(overrides: Partial<CellRunResult> = {}): CellRunResult {
   return {

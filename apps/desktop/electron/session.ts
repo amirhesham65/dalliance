@@ -5,7 +5,7 @@ import { type Brief, type CellRunResult, type EnvironmentView, type FileEntry, I
 import { createApproval, normalize } from './harness/approval'
 import { EventBus } from './harness/events'
 import { installExtensions } from './harness/extensions'
-import { MissingKeyError, resolveModel } from './harness/model'
+import { ModelSetupError, resolveModel } from './harness/model'
 import { friendlyError, runCell } from './harness/run-cell'
 import { generateTitle, titleModel } from './harness/title'
 import type { Kernel, KernelInfo } from './kernel/kernel'
@@ -240,7 +240,7 @@ export class NotebookSession {
       try {
         ;({ model, providerOptions } = resolveModel(this.options.settings.modelConfig()))
       } catch (err) {
-        return fail(err instanceof MissingKeyError ? err.message : friendlyError(err))
+        return fail(err instanceof ModelSetupError ? err.message : friendlyError(err))
       }
     }
 
