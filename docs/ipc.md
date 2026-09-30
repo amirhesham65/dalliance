@@ -77,7 +77,7 @@ Each `on*` method subscribes and returns an unsubscribe function.
 | `output` | One output from the running attempt | Appended to live outputs |
 | `question` | `ask_user` is waiting | The question card |
 | `approval` | An install is waiting | The Install / Don't install bar |
-| `title` | A short name arrived, with what it cost when Show costs is on | Written straight onto the cell, even after the run. The cost goes to the notebook's total |
+| `title` | A short name arrived, with what it cost | Written straight onto the cell, even after the run. The cost goes to the notebook's total |
 
 ## Menu actions
 

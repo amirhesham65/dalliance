@@ -1,7 +1,8 @@
-import { ArrowDown, ArrowRight, ArrowUp, Check, ChevronRight, Copy, Loader2, Pin, PinOff, Play, RefreshCw, ScrollText, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowRight, ArrowUp, Check, ChevronRight, Copy, Loader2, Pin, PinOff, Play, RefreshCw, Trash2, TriangleAlert, X } from 'lucide-react'
 import { type KeyboardEvent, type ReactNode, memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { IconButton } from '@/components/app/IconButton'
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { answerBlocks, answerHtml, answerMarkdown, formatDuration, parseMarkdown } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
@@ -10,7 +11,6 @@ import { splitLeaked } from '@dalliance/shared/leaked'
 import { type Cell, type NoteCell, type PromptCell, needsGeneration, parseInterpretation, tablesOpen } from '@dalliance/shared/notebook'
 import { type CellRun, actions, useNotebook } from '@/store/notebook-store'
 import { HighlightedEditor } from './HighlightedEditor'
-import { HowItWasMade } from './HowItWasMade'
 import { InlineText } from './InlineText'
 import { MarkdownText } from './MarkdownText'
 import { OutputList } from './outputs/OutputView'
@@ -147,7 +147,6 @@ function PromptCellView({ cell, selected }: { cell: PromptCell; selected: boolea
   )
   const keys = useMemo(() => editorKeys(id), [id])
   // A question answered in words has no tabs, so its record folds out under the answer
-  const [showHow, setShowHow] = useState(false)
 
   return (
     <>
@@ -165,12 +164,6 @@ function PromptCellView({ cell, selected }: { cell: PromptCell; selected: boolea
         <div className="flex shrink-0 items-center gap-2 pt-0.5 text-xs">
           <StatusText cell={cell} run={run} />
           <CellActions cell={cell}>
-            {/* Out of the way until asked for: it's the record, not the result */}
-            {cell.provenance && !run && (
-              <IconButton label="How this was made" size="icon-xs" aria-pressed={showHow} className={cn(showHow && 'text-ink')} onClick={() => setShowHow((o) => !o)}>
-                <ScrollText />
-              </IconButton>
-            )}
             {cell.code && !run && (
               <IconButton label="Rewrite the code from the prompt" size="icon-xs" onClick={() => actions.regenerate(cell.id)}>
                 <RefreshCw />
@@ -254,11 +247,6 @@ function PromptCellView({ cell, selected }: { cell: PromptCell; selected: boolea
         </Tabs>
       )}
 
-      {showHow && cell.provenance && !running && (
-        <div className="mt-4 border-t border-border pt-3">
-          <HowItWasMade cell={cell} record={cell.provenance} />
-        </div>
-      )}
     </>
   )
 }
@@ -504,24 +492,33 @@ function ActivityStep({ item: a }: { item: ActivityItem }) {
   const tone = a.status === 'running' ? 'text-muted-foreground' : 'text-faint'
   return (
     <li className="flex flex-col gap-1">
-      <div className="flex items-baseline gap-2">
-        <span className="w-3 shrink-0">
+      <div className="flex items-start gap-2">
+        <span className="mt-[3px] w-3 shrink-0">
           {a.status === 'running' ? (
             <Loader2 className="size-3 animate-spin text-muted-foreground motion-reduce:animate-none" />
           ) : a.status === 'error' ? (
-            <X className="size-3 text-destructive" />
+            <X aria-label="Failed" className="size-3 text-destructive" />
+          ) : a.warning ? (
+            <TriangleAlert aria-label="Warning" className="size-3 text-warn" />
           ) : (
             <Check className="size-3 text-go" />
           )}
         </span>
-        {a.code ? (
-          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} title={open ? 'Hide the code' : 'Show the code'} className={cn('text-left hover:text-muted-foreground', tone)}>
-            {a.label}
-          </button>
-        ) : (
-          <span className={tone}>{a.label}</span>
-        )}
-        {a.detail && <span className="truncate font-mono text-[11.5px] text-faint">{a.detail}</span>}
+        {/* The detail sits under the label, so neither squeezes the other */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {a.code ? (
+            <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} title={open ? 'Hide the code' : 'Show the code'} className={cn('text-left hover:text-muted-foreground', tone)}>
+              {a.label}
+            </button>
+          ) : (
+            <span className={tone}>{a.label}</span>
+          )}
+          {a.detail && (
+            <span title={a.detail} className="truncate font-mono text-[11.5px] text-faint">
+              {a.detail}
+            </span>
+          )}
+        </div>
       </div>
       {open && a.code && (
         <pre className="code scrollbar-thin ml-5 max-h-48 overflow-auto rounded-md bg-raised px-2.5 py-2 font-mono text-[11.5px] leading-[1.6]">
@@ -536,17 +533,18 @@ function ActivityStep({ item: a }: { item: ActivityItem }) {
 function ActivityToggle({ items }: { items: ActivityItem[] }) {
   const [open, setOpen] = useState(false)
   return (
-    <span className="relative">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="flex items-center gap-1 hover:text-muted-foreground" aria-expanded={open}>
-        <ChevronRight className={cn('size-3 transition-transform', open && 'rotate-90')} />
-        {items.length} {items.length === 1 ? 'step' : 'steps'}
-      </button>
-      {open && (
-        <div className="absolute top-5 right-0 z-20 w-80 rounded-lg border bg-popover p-3 font-sans shadow-xl">
-          <ActivityList items={items} />
-        </div>
-      )}
-    </span>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button type="button" className="flex items-center gap-1 hover:text-muted-foreground">
+          <ChevronRight className={cn('size-3 transition-transform', open && 'rotate-90')} />
+          {items.length} {items.length === 1 ? 'step' : 'steps'}
+        </button>
+      </PopoverTrigger>
+      {/* A popover keeps itself inside the window, wherever the toggle sits: beside the tabs or under an answer */}
+      <PopoverContent collisionPadding={12} className="scrollbar-thin max-h-[min(60vh,480px)] w-[400px] overflow-y-auto p-3 font-sans">
+        <ActivityList items={items} />
+      </PopoverContent>
+    </Popover>
   )
 }
 

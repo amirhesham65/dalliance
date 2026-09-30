@@ -17,11 +17,13 @@ import { useMediaQuery } from '@/hooks/use-media-query'
 import { useDefaultLayout } from 'react-resizable-panels'
 import type { MenuAction } from '@dalliance/shared/ipc'
 import { PANE_ORDER, actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
+import { modelReady } from '@/lib/keys'
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => readStored('dalliance-sidebar') !== 'closed')
   const [dismissedBanner, setDismissedBanner] = useState<string | null>(null)
   const settings = useNotebook((s) => s.settings)
+  const account = useNotebook((s) => s.account)
   const python = useNotebook((s) => s.python)
   const kernel = useNotebook((s) => s.kernel)
   const path = useNotebook((s) => s.path)
@@ -162,10 +164,13 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [sidebarOpen])
 
-  const needsKey = settings != null && settings.keySource == null
+  // Dalliance Cloud takes no key, so it needs a signed-in account instead
+  const needsKey = settings != null && !modelReady(settings, account)
   const needsPython = python != null && (!python.python || python.missingPackages.length > 0)
   const banner = needsKey
-    ? 'Add an API key to turn prompts into code.'
+    ? settings.provider === 'cloud'
+      ? 'Sign in to Dalliance to run prompts.'
+      : 'Add an API key to turn prompts into code.'
     : needsPython
       ? !python?.python
         ? 'Python is not set up yet.'

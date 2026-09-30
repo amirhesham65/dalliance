@@ -593,6 +593,11 @@ describe('step labels', () => {
     expect(describeResult('run_cell', traceback, { summary: 'Totalling amounts' })).toEqual({ label: undefined, detail: "KeyError: 'amount'", failed: true })
     expect(describeResult('run_cell', 'The cell failed.\n(no output)', { summary: '' })).toEqual({ label: 'Ran the cell', detail: 'The cell failed', failed: true })
     expect(describeResult('explore', 'Unnamed: 0\nx = frame.bad', { summary: 'Looking' })).toEqual({ label: undefined, detail: undefined })
+    expect(describeResult('explore', "Traceback (most recent call last):\nUnicodeDecodeError: 'utf-8' codec can't decode byte", { summary: 'Loading the CSV' })).toEqual({
+      label: undefined,
+      detail: "UnicodeDecodeError: 'utf-8' codec can't decode byte",
+      warning: true,
+    })
     expect(describeCall('explore', { summary: 'Counting patients per stage.', code })).toBe('Counting patients per stage')
   })
 })

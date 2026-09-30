@@ -355,12 +355,13 @@ export class NotebookSession {
   }
 
   /**
-   * What these model calls cost, with Show costs on. Priced by the model the run asked for, not the id the provider
-   * answered with, which can be a dated one the price list doesn't know. Nothing when the setting is off, there
+   * What these model calls cost. Priced whether or not Show costs is on, so turning it on shows the runs made
+   * while it was off; the renderer only shows it with the setting on. Priced by the model the run asked for, not
+   * the id the provider answered with, which can be a dated one the price list doesn't know. Nothing when there
    * were no calls, or pricing failed, which never fails the run.
    */
   private async costOf(calls: ModelCall[], config: ModelConfig): Promise<RunCost | undefined> {
-    if (!this.options.settings.showCosts || !calls.length) return undefined
+    if (!calls.length) return undefined
     return costOf(calls, config).catch(() => undefined)
   }
 

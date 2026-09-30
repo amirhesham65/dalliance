@@ -1,4 +1,4 @@
-import type { DallianceApi, KeyProvider, Provider, SettingsView } from '@dalliance/shared/ipc'
+import type { AccountView, DallianceApi, KeyProvider, Provider, SettingsView } from '@dalliance/shared/ipc'
 
 /**
  * Dalliance Cloud's proxy enforces zero data retention on every call. An own key runs on the user's own agreements,
@@ -41,6 +41,15 @@ export function providerForKey(key: string): KeyProvider | null {
 export const CLOUD = {
   label: 'Dalliance Cloud',
   blurb: `No key needed. Claude, GPT, Gemini and others on your Dalliance plan, paid for in credits. ${CLOUD_RETENTION}`,
+}
+
+/**
+ * Whether prompts can run on the chosen provider: a key for AI Gateway or the Anthropic API, a signed-in account
+ * for Dalliance Cloud, which takes no key. An account not answered yet counts as ready, so nothing flashes up.
+ */
+export function modelReady(settings: SettingsView, account: AccountView | null): boolean {
+  if (settings.provider === 'cloud') return account == null || account.checking || account.user != null
+  return settings.keySource != null
 }
 
 /** The provider's name, for menus and labels. */
