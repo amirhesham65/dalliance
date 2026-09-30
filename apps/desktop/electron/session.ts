@@ -1,11 +1,12 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { WebContents } from 'electron'
-import { type Brief, type CellRunResult, type EnvironmentView, type FileEntry, IPC, type KernelState, type PythonState, type RunCellRequest, type RunEvent } from '@dalliance/shared/ipc'
+import { type Brief, type CellRunResult, type EnvironmentView, type FileEntry, IPC, type KernelState, type PythonState, type RunCellRequest, type RunCost, type RunEvent } from '@dalliance/shared/ipc'
 import { createApproval, normalize } from './harness/approval'
 import { EventBus } from './harness/events'
 import { installExtensions } from './harness/extensions'
-import { ModelSetupError, resolveModel } from './harness/model'
+import { type ModelCall, costOf } from './harness/cost'
+import { type ModelConfig, ModelSetupError, resolveModel } from './harness/model'
 import { friendlyError, runCell } from './harness/run-cell'
 import { generateTitle, titleModel } from './harness/title'
 import type { Kernel, KernelInfo } from './kernel/kernel'
@@ -235,11 +236,13 @@ export class NotebookSession {
       error,
     })
 
+    // The run's model, read once, so its cost is priced for the model that ran
+    const config = this.options.settings.modelConfig()
     let model
     let providerOptions
     if (request.generate) {
       try {
-        ;({ model, providerOptions } = resolveModel(this.options.settings.modelConfig()))
+        ;({ model, providerOptions } = resolveModel(config))
       } catch (err) {
         return fail(err instanceof ModelSetupError ? err.message : friendlyError(err))
       }
@@ -255,10 +258,13 @@ export class NotebookSession {
 
     // Name the cell with the small model while the cell runs. It never holds up the run.
     if (request.nameIt && this.options.settings.autoTitles) {
-      const small = titleModel(this.options.settings.modelConfig())
+      const small = titleModel(config)
       if (small) {
-        void generateTitle(request.prompt, small).then((title) => {
-          if (title) emit({ type: 'title', title, prompt: request.prompt })
+        let call: ModelCall | null = null
+        void generateTitle(request.prompt, small, undefined, (c) => (call = c)).then(async (title) => {
+          if (!title) return
+          const cost = call ? await this.costOf([call], config) : undefined
+          emit({ type: 'title', title, prompt: request.prompt, ...(cost ? { cost } : {}) })
         })
       }
     }
@@ -274,7 +280,7 @@ export class NotebookSession {
 
     try {
       const pythonVersion = kernel.info().python
-      return await runCell(request, {
+      const result = await runCell(request, {
         model: model!,
         providerOptions,
         kernel,
@@ -282,7 +288,7 @@ export class NotebookSession {
         bus: this.bus,
         pythonVersion,
         projectInstructions: (await this.readBrief()).text,
-        modelId: this.options.settings.modelConfig().model,
+        modelId: config.model,
         suggestNext: this.options.settings.suggestNext,
         emit,
         askUser: async (question, options) => {
@@ -303,12 +309,28 @@ export class NotebookSession {
         },
         signal: controller.signal,
       })
+      const cost = await this.costOf(
+        // A step a fallback model answered is priced as that model
+        result.steps.map((s) => ({ model: (s.fallback && s.modelId) || config.model, usage: s.usage, generationId: s.generationId })),
+        config,
+      )
+      return cost ? { ...result, cost } : result
     } catch (err) {
       return fail(controller.signal.aborted ? 'Stopped.' : friendlyError(err))
     } finally {
       if (this.controller === controller) this.controller = null
       this.resolvePending(null)
     }
+  }
+
+  /**
+   * What these model calls cost, with Show costs on. Priced by the model the run asked for, not the id the provider
+   * answered with, which can be a dated one the price list doesn't know. Nothing when the setting is off, there
+   * were no calls, or pricing failed, which never fails the run.
+   */
+  private async costOf(calls: ModelCall[], config: ModelConfig): Promise<RunCost | undefined> {
+    if (!this.options.settings.showCosts || !calls.length) return undefined
+    return costOf(calls, config).catch(() => undefined)
   }
 
   respond(requestId: string, answer: string | boolean | null) {

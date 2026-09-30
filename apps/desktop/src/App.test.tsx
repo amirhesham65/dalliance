@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import type { CellRunResult, DallianceApi, SettingsView } from '@dalliance/shared/ipc'
 import { type PromptCell, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
 import { fakeApi, fakeSettings, result } from '@/test/fake-api'
@@ -1020,5 +1021,59 @@ describe('accessibility', () => {
     expect(await within(overview).findByRole('button', { name: 'Total sales by region, failed' })).toBeInTheDocument()
     expect(within(overview).getByRole('button', { name: 'Cell 1, Total sales by region: failed' })).toBeInTheDocument()
     expect(live).toHaveTextContent('Finished running. 0 of 1 cells up to date, 1 failed.')
+  })
+})
+
+describe('Show costs', () => {
+  /** Runs one cell with these settings, returning this cost, then opens the Activity pane. */
+  async function runWithCost(settings: Partial<SettingsView>, cost: CellRunResult['cost'], countCredits?: DallianceApi['countCredits']) {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result({ answer: 'Done.', cost }))
+    api.getSettings = async () => ({ ...fakeSettings(), ...settings })
+    if (countCredits) api.countCredits = countCredits
+    setApi(api)
+    render(<App />)
+    await waitFor(() => expect(useNotebook.getState().settings).not.toBeNull())
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Revenue by month')
+    await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
+    expect(await screen.findByText('Done.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Activity/ }))
+    return screen.getByRole('list', { name: 'Run log' })
+  }
+
+  it('shows each run and the notebook total as an estimate on an own key', async () => {
+    const log = await runWithCost({ showCosts: true }, { unit: 'usd', usd: 0.0421, unpricedTokens: 0 })
+    expect(log).toHaveTextContent('Wrote “Revenue by month”About $0.042, estimated')
+    expect(screen.getByLabelText("This notebook's cost")).toHaveTextContent('This notebook: about $0.042, estimated')
+  })
+
+  it('shows tokens for a model with no known price', async () => {
+    const log = await runWithCost({ showCosts: true }, { unit: 'usd', usd: 0, unpricedTokens: 12_345 })
+    expect(log).toHaveTextContent('12,345 tokens, no price known')
+    expect(log).not.toHaveTextContent('$')
+  })
+
+  it('counts credits on Dalliance Cloud, never dollars', async () => {
+    let arrive!: (credits: number) => void
+    const asked: string[][] = []
+    const countCredits = (ids: string[]) => {
+      asked.push(ids)
+      return new Promise<number | null>((resolve) => (arrive = resolve))
+    }
+    const log = await runWithCost({ showCosts: true, provider: 'cloud' }, { unit: 'credits', generationIds: ['gen_1', 'gen_2'], tokens: 900 }, countCredits)
+    expect(asked).toEqual([['gen_1', 'gen_2']])
+    expect(log).toHaveTextContent('Counting credits')
+    expect(screen.getByLabelText("This notebook's cost")).toHaveTextContent('This notebook: counting credits')
+    await act(async () => arrive(4.24))
+    expect(within(log).getByText('4.2 credits')).toBeInTheDocument()
+    expect(screen.getByLabelText("This notebook's cost")).toHaveTextContent('This notebook: 4.2 credits')
+    expect(log).not.toHaveTextContent('$')
+  })
+
+  it('shows nothing about cost with the setting off', async () => {
+    const log = await runWithCost({ showCosts: false }, { unit: 'usd', usd: 0.0421, unpricedTokens: 0 })
+    expect(log).toHaveTextContent('Wrote “Revenue by month”')
+    expect(log).not.toHaveTextContent(/\$|estimated|tokens|credits/)
+    expect(screen.queryByLabelText("This notebook's cost")).not.toBeInTheDocument()
   })
 })

@@ -14,6 +14,8 @@ interface Stored {
   approvalMode: 'interactive' | 'background'
   autoTitles: boolean
   suggestNext: boolean
+  /** Whether the Activity pane shows what runs cost. Off until the user turns it on. */
+  showCosts: boolean
   onboarded: boolean
   /** The folder in use: where new notebooks go, and where the kernel and the agent work. Null for the default one. */
   workspaceDir: string | null
@@ -41,6 +43,7 @@ const DEFAULTS: Stored = {
   approvalMode: 'interactive',
   autoTitles: true,
   suggestNext: true,
+  showCosts: false,
   onboarded: false,
   workspaceDir: null,
   keys: {},
@@ -184,6 +187,10 @@ export class SettingsStore {
     return this.data.suggestNext
   }
 
+  get showCosts() {
+    return this.data.showCosts
+  }
+
   /** The folder last worked in, if it is still there. */
   get workspaceDir() {
     const dir = this.data.workspaceDir
@@ -219,6 +226,7 @@ export class SettingsStore {
       approvalMode: this.data.approvalMode,
       autoTitles: this.data.autoTitles,
       suggestNext: this.data.suggestNext,
+      showCosts: this.data.showCosts,
       onboarded: this.data.onboarded,
       keySource: this.apiKey(this.provider).source,
       hasKey: { gateway: this.apiKey('gateway').key != null, anthropic: this.apiKey('anthropic').key != null },
@@ -242,6 +250,7 @@ export class SettingsStore {
     if (update.approvalMode) this.data.approvalMode = update.approvalMode
     if (update.autoTitles !== undefined) this.data.autoTitles = update.autoTitles
     if (update.suggestNext !== undefined) this.data.suggestNext = update.suggestNext
+    if (update.showCosts !== undefined) this.data.showCosts = update.showCosts
     if (update.onboarded !== undefined) this.data.onboarded = update.onboarded
     if (update.apiKey) {
       const { provider, key } = update.apiKey

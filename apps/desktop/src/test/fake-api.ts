@@ -76,6 +76,7 @@ export function fakeApi(onRun: RunHandler) {
     startCheckout: async () => NO_BILLING,
     openBillingPortal: async () => NO_BILLING,
     onBilling: () => () => {},
+    countCredits: async () => null,
   }
   return { api, requests, responses }
 }
@@ -89,6 +90,7 @@ export function fakeSettings(): SettingsView {
     approvalMode: 'interactive',
     autoTitles: true,
     suggestNext: true,
+    showCosts: false,
     onboarded: true,
     keySource: 'environment',
     hasKey: { gateway: true, anthropic: false },

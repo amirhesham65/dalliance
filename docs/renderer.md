@@ -38,7 +38,8 @@ Saved with the notebook: `notebook`. Everything else is session state:
 | `runs` | `CellRun` per queued or running cell: status text, activity, live outputs, live code, a pending question or approval |
 | `activity` | Each cell's activity from its last generation |
 | `messages` | Non-Python errors per cell |
-| `log` | The Activity pane's entries, newest first, at most 60 |
+| `log` | The Activity pane's entries, newest first, at most 60. With Show costs on, a run's entry has its `cost` |
+| `spend` | What the notebook's runs and cell names have cost since it loaded, and how many runs' credits are still counting. Clear keeps it, `load()` starts it again |
 | `lastFinishedId` | The cell that shows its suggestions |
 | `pane`, `pinnedIds` | The open side pane and pinned cells |
 | `brief`, `models`, `variables`, `settings`, `python`, `kernel` | Data from the main process |
@@ -171,7 +172,13 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 | History | The selected cell's revisions. Restore brings one back without calling the model |
 | Files | Workspace files, reloaded after every run. Clicking a data file adds a prompt cell to load it |
 | Pinned | Result cards for pinned cells, in pin order |
-| Activity | The session log. Click an entry to jump to its cell |
+| Activity | The session log. Click an entry to jump to its cell. With `settings.showCosts` on, each run says what it cost and the top shows the notebook's total. See [Costs](#costs) |
+
+### Costs
+
+Show costs is off by default, and with it off the Activity pane shows nothing about cost, even for entries that have one. The main process prices a run only while it's on, see [agent-harness.md](agent-harness.md#costs). `finish()` puts the run's `RunCost` on its log entry and adds it to `spend` through `trackCost()`. A cell name's cost comes on the `title` event and goes to `spend` only.
+
+`lib/cost.ts` words them. On an own key it's dollars, "About $0.042, estimated", to three places under a dollar. Tokens with no known price show as "12,345 tokens, no price known", never as an amount. On Dalliance Cloud it's credits, never dollars: the entry says "Counting credits" until `countCredits()` answers, then "4.2 credits", or the tokens if none were counted. A notebook loaded while credits are counting drops them when they arrive, so they never reach the new notebook's total.
 
 ## Notices and errors
 
@@ -195,7 +202,7 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 
 | Section | Component | Holds |
 | --- | --- | --- |
-| Models | `ModelSettings` | Provider, key, model id, effort. With Dalliance Cloud chosen, `CloudStatus` stands in for the key: sign in, choose a plan, or the credits left. The provider's line says what it means for data retention, see [cloud.md](cloud.md#zero-data-retention) |
+| Models | `ModelSettings` | Provider, key, model id, effort, Show costs. With Dalliance Cloud chosen, `CloudStatus` stands in for the key: sign in, choose a plan, or the credits left. The provider's line says what it means for data retention, see [cloud.md](cloud.md#zero-data-retention) |
 | Agent | `AgentSettings` | Approvals (package installs, shell and network code), cell names, suggested next prompts |
 | Python | `PythonSettings` | The managed environment and a Python path |
 | Account | `AccountSettings` | The Dalliance account, the plan and its credits. Only in builds with Dalliance Cloud, when `settings.cloud` is true. See [cloud.md](cloud.md) |

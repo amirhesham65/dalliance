@@ -1,6 +1,7 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createGateway } from '@ai-sdk/gateway'
 import { type LanguageModel, generateText } from 'ai'
+import { type ModelCall, generationIdOf, stepUsage } from './cost'
 import { type ModelConfig, cloudGateway } from './model'
 
 /**
@@ -48,10 +49,18 @@ export function cleanTitle(raw: string): string | null {
   return title.split(/\s+/).slice(0, 6).join(' ')
 }
 
-/** A short title for the outline. Null when there's no key, the model fails or it takes too long. */
-export async function generateTitle(prompt: string, { model, providerOptions }: TitleModel, signal?: AbortSignal): Promise<string | null> {
+/**
+ * A short title for the outline. Null when there's no key, the model fails or it takes too long. `onCall` gets the
+ * call's tokens once it answers, for Show costs.
+ */
+export async function generateTitle(
+  prompt: string,
+  { model, providerOptions }: TitleModel,
+  signal?: AbortSignal,
+  onCall?: (call: ModelCall) => void,
+): Promise<string | null> {
   try {
-    const { text } = await generateText({
+    const { text, usage, providerMetadata } = await generateText({
       model,
       providerOptions,
       instructions: INSTRUCTIONS,
@@ -62,6 +71,7 @@ export async function generateTitle(prompt: string, { model, providerOptions }: 
       timeout: 10_000,
       abortSignal: signal,
     })
+    onCall?.({ model: typeof model === 'string' ? model : model.modelId, usage: stepUsage(usage), generationId: generationIdOf(providerMetadata) })
     return cleanTitle(text)
   } catch {
     return null

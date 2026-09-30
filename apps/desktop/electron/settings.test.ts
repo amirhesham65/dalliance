@@ -72,6 +72,18 @@ describe('SettingsStore', () => {
     }
   })
 
+  it('keeps costs hidden until turned on, including for a file saved before the setting existed', () => {
+    const folder = dir()
+    expect(new SettingsStore(folder).view().showCosts).toBe(false)
+    writeFileSync(path.join(folder, 'settings.json'), JSON.stringify({ provider: 'gateway', suggestNext: false }))
+    const settings = new SettingsStore(folder)
+    expect(settings.showCosts).toBe(false)
+
+    settings.update({ showCosts: true })
+    expect(new SettingsStore(folder).showCosts).toBe(true)
+    expect(new SettingsStore(folder).view()).toMatchObject({ showCosts: true, suggestNext: false })
+  })
+
   it.skipIf(process.platform === 'win32')('keeps settings.json private', () => {
     const folder = dir()
     new SettingsStore(folder).update({ autoTitles: false })

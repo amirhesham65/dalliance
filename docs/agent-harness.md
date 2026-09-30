@@ -9,6 +9,7 @@ The agent lives in `apps/desktop/electron/harness/`. It follows Vercel's [Build 
 | `prompt.ts` | `buildSystemPrompt()` and `buildCellPrompt()` |
 | `model.ts` | Provider setup, effort options, the model list for the picker |
 | `title.ts` | The small model that names cells |
+| `cost.ts` | What a run cost, for the Show costs setting |
 | `approval.ts` | Whether an install, or code that runs commands or uses the network, needs a person |
 | `events.ts` | The event bus extensions hook into |
 | `extensions.ts` | The built-in extensions: the `.env` block, the code policy and the run log |
@@ -173,6 +174,24 @@ The default effort is `medium`. Settings from a version with another default mov
 
 The call has a 10 second timeout, one retry and 1,024 output tokens, since reasoning counts toward output. `cleanTitle()` keeps the first line, strips quotes, prefixes like `Title:`, trailing punctuation and `@`, and caps it at 6 words. Any failure returns `null`, and the cell keeps showing its prompt. The session starts the title request alongside the run and never waits on it. Settings can turn titles off with `autoTitles`.
 
+## Costs
+
+With Show costs on, `showCosts` in Settings and off by default, `NotebookSession` prices each run and each cell name, and hands the renderer a `RunCost`. The math is in `cost.ts`. With the setting off nothing is priced, and a pricing failure never fails the run.
+
+`stepUsage()` reads the AI SDK's usage. Its `inputTokens` already counts cache reads and writes, and `outputTokens` already counts reasoning, so `callCost()` charges the input left after the cache tokens at the input rate, cache reads and writes at their own rates, and the output at the output rate. Reasoning tokens are never added on top. On a real cache write call and a cache read call this matched the cost the gateway reported for each.
+
+| Provider | Priced with | Shows |
+| --- | --- | --- |
+| AI Gateway key | The gateway's model list pricing: `input`, `output`, `cachedInputTokens` and `cacheCreationInputTokens`, per token. Read with `getAvailableModels()` and cached for ten minutes per key | Dollars, labelled an estimate |
+| Anthropic key | `ANTHROPIC_PRICES` in `cost.ts`, a small table of current Claude models with the date it was taken. Update it when prices change or a model comes out | Dollars, labelled an estimate |
+| Dalliance Cloud | Nothing in the app. The service records each call's cost by generation id | Credits, never dollars |
+
+A call is priced by the model the run asked for, or the title model, not the id the provider answered with, which can be a dated one the price list doesn't know. A step a refusal fallback answered, which only happens on the Anthropic API, is priced as the fallback model. A model with no known price, or a call that used the cache on a model with no cache rate, goes into `unpricedTokens` and shows as tokens, never as a guessed amount.
+
+On Dalliance Cloud the cost is `{ unit: 'credits', generationIds, tokens }`. The renderer calls `countCredits(generationIds)`, and `Billing.credits()` follows the service's `usage:credits` query live until every call has its row, or 90 seconds pass. Rows land a few seconds after each call, so the Activity pane shows the run as counting until then. Credits that never arrive show as the run's tokens. See [cloud.md](cloud.md#credits-per-run).
+
+`generateTitle()` reports the title call's tokens through `onCall`, and its cost rides on the `title` event. It counts toward the notebook's total rather than the run's, since it can land after the run ends.
+
 ## Approvals
 
 `approval.ts` models the policy as data:
@@ -208,7 +227,7 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 
 `cacheReadTokens` is the quickest check that [caching](#context-and-caching) works: after the first step of a cell it should be most of `inputTokens`.
 
-`generateCell()` also returns every step's `{ step, modelId, fallback, reasoning }` as `steps` on `CellRunResult`, so the record of how a cell was made has the model and the stated reasoning of each call. A plain run of saved code has none. The request options, summaries included, are the same for every step of a run, so the prompt cache holds.
+`generateCell()` also returns every step's `{ step, modelId, fallback, reasoning, usage, generationId }` as `steps` on `CellRunResult`, so the record of how a cell was made has the model and the stated reasoning of each call. `usage` is the same counts as a `StepUsage`, with 0 where the provider doesn't say, and `generationId` is the gateway's id for the call, null from the Anthropic API. [Costs](#costs) prices them. A plain run of saved code has none. The request options, summaries included, are the same for every step of a run, so the prompt cache holds.
 
 `installExtensions()` in `extensions.ts` registers the built-in ones. `NotebookSession` calls it once, on its own bus:
 

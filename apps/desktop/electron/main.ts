@@ -485,6 +485,10 @@ function registerIpc() {
   handle(IPC.getBilling, () => billing?.current ?? NO_BILLING)
   handle(IPC.startCheckout, (_e, plan: string) => (billing && plan === 'pro' ? billing.checkout(plan) : (billing?.current ?? NO_BILLING)))
   handle(IPC.openBillingPortal, () => billing?.portal() ?? NO_BILLING)
+  handle(IPC.countCredits, (_e, ids: unknown) => {
+    const generationIds = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []
+    return billing ? billing.credits(generationIds) : null
+  })
 }
 
 /** Sends account and plan changes to the page, and keeps the plan following the account. */

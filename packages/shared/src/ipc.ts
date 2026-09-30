@@ -19,8 +19,11 @@ export type RunEvent =
   | { type: 'output'; output: Output }
   | { type: 'question'; requestId: string; question: string; options: string[] }
   | { type: 'approval'; requestId: string; title: string; detail: string }
-  /** A short name for the cell arrived. It can land before or after the run ends. */
-  | { type: 'title'; title: string; prompt: string }
+  /**
+   * A short name for the cell arrived. It can land before or after the run ends. With Show costs on, `cost` is
+   * what naming it cost, which counts toward the notebook's total.
+   */
+  | { type: 'title'; title: string; prompt: string; cost?: RunCost }
 
 export interface RunCellRequest {
   cellId: string
@@ -44,7 +47,36 @@ export interface RunStep {
   fallback: boolean
   /** The model's reasoning summary for this call. Null when it returned none, never left out. */
   reasoning: string | null
+  /** The tokens the call used. */
+  usage: StepUsage
+  /** The gateway's id for the call, which Dalliance Cloud bills by. Null from the Anthropic API. */
+  generationId: string | null
 }
+
+/** Tokens one model call used, as the provider reported them. A count the provider left out is 0. */
+export interface StepUsage {
+  /** Every input token, the cached ones included. */
+  inputTokens: number
+  /** Every output token, the reasoning included. */
+  outputTokens: number
+  /** Input tokens read from the prompt cache. Part of inputTokens. */
+  cacheReadTokens: number
+  /** Input tokens written to the prompt cache. Part of inputTokens. */
+  cacheWriteTokens: number
+  /** Output tokens spent reasoning. Part of outputTokens. */
+  reasoningTokens: number
+}
+
+/**
+ * What a run's model calls cost, when Show costs is on. See docs/agent-harness.md.
+ * - `usd`: on the user's own key, estimated from the tokens and list prices. `unpricedTokens` are the tokens of
+ *   calls to a model with no known price, which are left out of `usd` rather than guessed.
+ * - `credits`: on Dalliance Cloud, which counts them after each call. The renderer asks for them by generation id
+ *   through `countCredits()`. `tokens` is what the calls used, for when the credits never arrive.
+ */
+export type RunCost =
+  | { unit: 'usd'; usd: number; unpricedTokens: number }
+  | { unit: 'credits'; generationIds: string[]; tokens: number }
 
 export interface CellRunResult {
   ok: boolean
@@ -62,6 +94,8 @@ export interface CellRunResult {
   activity: ActivityItem[]
   /** Every model call of a generated run, in order. Empty for a plain run of saved code. */
   steps: RunStep[]
+  /** What the model calls cost. Only with Show costs on, and only for a run that called a model. */
+  cost?: RunCost
   /** Why the run failed, when the problem was not a Python error (no API key, stopped, the agent gave up). */
   error: string | null
 }
@@ -101,6 +135,8 @@ export interface SettingsView {
   autoTitles: boolean
   /** Whether the agent proposes follow-up prompts under a finished cell. */
   suggestNext: boolean
+  /** Whether the Activity pane shows what each run cost, and the notebook's total. Off by default. */
+  showCosts: boolean
   /** True once the first-run setup was finished or skipped. */
   onboarded: boolean
   /** Where the key for the chosen provider comes from: Settings, the app's environment, the user's shell profile, or nowhere. */
@@ -130,6 +166,7 @@ export interface SettingsUpdate {
   approvalMode?: 'interactive' | 'background'
   autoTitles?: boolean
   suggestNext?: boolean
+  showCosts?: boolean
   onboarded?: boolean
   /** Set a key for a provider. An empty string removes it. */
   apiKey?: { provider: KeyProvider; key: string }
@@ -358,6 +395,11 @@ export interface DallianceApi {
   /** Opens the billing portal in the browser: invoices, the card, cancelling. */
   openBillingPortal(): Promise<BillingView>
   onBilling(listener: (billing: BillingView) => void): () => void
+  /**
+   * The credits Dalliance Cloud counted for these calls, waiting until every one has landed or 90 seconds pass.
+   * Null when none were counted, or in builds without Dalliance Cloud.
+   */
+  countCredits(generationIds: string[]): Promise<number | null>
 }
 
 export const IPC = {
@@ -403,4 +445,5 @@ export const IPC = {
   startCheckout: 'start-checkout',
   openBillingPortal: 'open-billing-portal',
   billingChanged: 'billing-changed',
+  countCredits: 'count-credits',
 } as const

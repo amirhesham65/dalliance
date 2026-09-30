@@ -42,7 +42,7 @@ const kernel = new FakeKernel((code) => ({ ok: true, outputs: [{ type: 'text', t
 
 `prompts` records what the model was sent on each call, so a test can check the context. The existing tests cover retries, the finish gate, approvals, blocking through the event bus, aborts, the explore timeout, questions answered in words, leaked markup, and the append-only history. Every new tool or rule in the loop needs a test here.
 
-`prompt.test.ts`, `title.test.ts` and `workspace.test.ts` test those modules directly.
+`prompt.test.ts`, `title.test.ts` and `workspace.test.ts` test those modules directly. `cost.test.ts` checks the price math against costs the gateway reported, that reasoning isn't counted twice, the Anthropic price table's ids, and that a model with no price shows as tokens.
 
 `code-policy.test.ts` checks `scanPython()` and `inspectCode()`: what counts as a secret file, a shell command or the network, and the look-alikes that don't, such as names in comments, `os.environ` or `urllib.parse`. `extensions.test.ts` checks the built-in extensions on a bare event bus: the `.env` guard, the run log (clipping, order, rotation at the size limit, carrying on after a failed write) and the code policy in each approval mode.
 
@@ -52,12 +52,13 @@ These run in Node with Electron mocked, and need nothing installed.
 
 | File | Covers |
 | --- | --- |
-| `electron/session.test.ts` | `NotebookSession`'s kernel lifecycle with a fake `launchKernel`: a notebook opened during the launch warm-up gets a kernel in its own folder, a caller waiting on a stale start gets the current kernel, a start under way is reused, and a kernel that finishes starting after quit is shut down. Also the `.env` guard on `read_file`, and, with `python-env` and `PythonKernel` mocked, that a kernel on the managed environment installs missing base packages once per session without waiting for them, and that the environment view's listing runs in userData and passes on why it failed |
-| `electron/settings.test.ts` | `SettingsStore` reads what an earlier run saved, keeps `settings.json` private (mode 600), and moves a file that doesn't parse or isn't an object aside before starting from the defaults |
+| `electron/session.test.ts` | `NotebookSession`'s kernel lifecycle with a fake `launchKernel`: a notebook opened during the launch warm-up gets a kernel in its own folder, a caller waiting on a stale start gets the current kernel, a start under way is reused, and a kernel that finishes starting after quit is shut down. With the model mocked, that a run is priced with Show costs on and not at all with it off. Also the `.env` guard on `read_file`, and, with `python-env` and `PythonKernel` mocked, that a kernel on the managed environment installs missing base packages once per session without waiting for them, and that the environment view's listing runs in userData and passes on why it failed |
+| `electron/settings.test.ts` | `SettingsStore` reads what an earlier run saved, keeps Show costs off until it's turned on, keeps `settings.json` private (mode 600), and moves a file that doesn't parse or isn't an object aside before starting from the defaults |
 | `electron/draft.test.ts` | `DraftStore`: a notebook comes back as it was after a reload, unsaved changes come back after a relaunch, a saved notebook reopens from its file, a file from a newer version or one that's no longer a notebook is reported, and Don't Save forgets the draft |
 | `electron/ipc-sender.test.ts` | `isAppUrl` and `isTrustedSender`: IPC is answered only from the top frame of the app window showing the app's own page |
 | `electron/open-files.test.ts` | `notebookFromArgv` and `OpenQueue`: the last `.ipynb` on a command line that exists is found, a file the OS asks to open waits until the window can take it, a later one replaces it, and a reload asks the page again |
 | `electron/atomic-write.test.ts` | `writeFileAtomic` and `writeFileAtomicSync`, each: new and replaced files, file modes, writing through a symlink, a missing folder, and no temporary file left behind when the rename fails |
+| `electron/cloud/billing.test.ts` | `Billing.credits()` with a fake Convex client: it keeps counting until every call is in, gives what came after the wait, and asks nothing signed out |
 | `electron/menu.test.ts` | The View menu names each pane the way the overview does, with its Cmd+number key left to the renderer |
 
 ### The kernel

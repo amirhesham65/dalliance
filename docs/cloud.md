@@ -18,7 +18,7 @@ The client runs only in builds made with `DALLIANCE_CLOUD_URL` set to the servic
 | --- | --- | --- |
 | Config | `electron/cloud/config.ts` | The switch, `/api/config`, and reading sign-in links |
 | Account | `electron/cloud/account.ts` | Better Auth's Electron client, in the main process only. Sign-in, the session and the Convex token |
-| Billing | `electron/cloud/billing.ts` | A Convex client that follows the plan live |
+| Billing | `electron/cloud/billing.ts` | A Convex client that follows the plan live, and counts a run's credits for Show costs |
 | Models | `cloudGateway()` in `electron/harness/model.ts` | The gateway provider pointed at the service's model proxy |
 | Renderer | `src/components/cloud/CloudStatus.tsx`, `src/components/settings/AccountSettings.tsx`, `src/lib/cloud.ts` | The account line under the provider, and the Account section of Settings |
 
@@ -66,9 +66,13 @@ Every model call through Dalliance Cloud runs with zero data retention. The prox
 
 A settings file that chose `cloud`, opened by a build without it, reads as `gateway` with that provider's default model, and the choice comes back in a build that has it.
 
+## Credits per run
+
+With Show costs on, the Activity pane shows the credits each run used on Dalliance Cloud, and never dollars, since the plan pays in credits. Each step of a run keeps the gateway's generation id, which the proxy passes through, and the run's cost names those ids. `countCredits()` asks `Billing.credits()`, which subscribes to the service's `usage:credits` query with them. The service answers for the signed-in user's own calls only. Each call's row lands a few seconds after the call, so the subscription stays open until every id is there, or 90 seconds pass, and then closes. See [agent-harness.md](agent-harness.md#costs).
+
 ## What the service promises
 
-The app relies on the service's pages, endpoints, deep links and Convex functions staying compatible, since released copies can't be updated. The service's repo lists them as its app contract. The shapes of `PlanOption`, `SubscriptionView` and `BillingView` in `packages/shared/src/ipc.ts` mirror what `billing:plans` and `billing:status` return.
+The app relies on the service's pages, endpoints, deep links and Convex functions staying compatible, since released copies can't be updated. The service's repo lists them as its app contract. The shapes of `PlanOption`, `SubscriptionView` and `BillingView` in `packages/shared/src/ipc.ts` mirror what `billing:plans` and `billing:status` return, and `Billing.credits()` reads `usage:credits` as a list of `{ generationId, credits }`.
 
 ## Security
 

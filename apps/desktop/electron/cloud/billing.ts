@@ -5,6 +5,8 @@ import type { BillingView, PlanOption, SubscriptionView } from '@dalliance/share
 // The functions in backend/convex/billing.ts in the dalliance-cloud repo. Called untyped, so the shapes in
 // packages/shared/src/ipc.ts have to match what they return
 const api = anyApi.billing
+// And `usage:credits`, from the same repo, for the credits a run used
+const usage = anyApi.usage
 
 function describe(error: unknown) {
   // A ConvexError carries its message in data
@@ -13,6 +15,8 @@ function describe(error: unknown) {
 }
 
 const RETRY_MS = 30_000
+/** How long to wait for a run's calls to reach the ledger. The service retries a call's cost for 30 seconds. */
+const CREDITS_WAIT_MS = 90_000
 
 /**
  * The user's plan, live from Dalliance Cloud's Convex deployment. The main process holds the connection and the
@@ -117,6 +121,42 @@ export class Billing {
       this.set({ error: describe(err) })
     }
     return this.view
+  }
+
+  /**
+   * The credits these calls used, for Show costs. The ledger records each call a few seconds after it ends, so this
+   * follows `usage:credits` live until every call is there, or CREDITS_WAIT_MS pass, and adds up what came. Null
+   * when none did, or signed out. The query only answers for the signed-in user's own calls.
+   */
+  credits(generationIds: string[], waitMs = CREDITS_WAIT_MS): Promise<number | null> {
+    const client = this.client
+    const ids = [...new Set(generationIds)]
+    if (!client || !this.signedIn || !ids.length) return Promise.resolve(null)
+    return new Promise((resolve) => {
+      let rows: { generationId: string; credits: number }[] = []
+      let settled = false
+      let stop: (() => void) | null = null
+      const settle = () => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        stop?.()
+        resolve(rows.length ? rows.reduce((sum, r) => sum + r.credits, 0) : null)
+      }
+      const timer = setTimeout(settle, waitMs)
+      const unsubscribe = client.onUpdate(
+        usage.credits,
+        { generationIds: ids },
+        (found: typeof rows | null) => {
+          rows = found ?? []
+          if (found == null || rows.length >= ids.length) settle()
+        },
+        () => settle(),
+      )
+      // The first answer can come before onUpdate returns
+      if (settled) unsubscribe()
+      else stop = () => unsubscribe()
+    })
   }
 
   close() {
