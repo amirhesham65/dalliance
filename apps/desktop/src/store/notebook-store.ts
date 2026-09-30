@@ -869,6 +869,7 @@ function failed(request: RunCellRequest, err: unknown): CellRunResult {
     suggestions: [],
     variables: [],
     activity: [],
+    steps: [],
     error: err instanceof Error ? err.message : String(err),
   }
 }

@@ -113,6 +113,7 @@ export function result(overrides: Partial<CellRunResult> = {}): CellRunResult {
     suggestions: [],
     variables: [],
     activity: [],
+    steps: [],
     error: null,
     ...overrides,
   }

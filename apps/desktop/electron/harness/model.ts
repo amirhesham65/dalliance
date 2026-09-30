@@ -110,7 +110,7 @@ function supportedEffort(effort: Effort, allowed: readonly Effort[]): Effort {
 /**
  * Options for the agent's requests. Anthropic models take adaptive thinking with an effort level where the model
  * supports them (see claudeReasoning), OpenAI reasoning models take a reasoning effort, both also through the
- * gateway. Other makers get their defaults.
+ * gateway. Both are asked for reasoning summaries, which the run keeps per step. Other makers get their defaults.
  *
  * Every Anthropic model also gets automatic caching: a top-level cacheControl puts a breakpoint on the last block
  * of every request, so each step of a cell reads the steps before it from the cache. It marks no message, so the
@@ -121,7 +121,8 @@ export function agentProviderOptions(config: Pick<ModelConfig, 'provider' | 'mod
     const reasoning = claudeReasoning(config.model)
     return {
       anthropic: {
-        ...(reasoning.adaptive ? { thinking: { type: 'adaptive' } } : {}),
+        // Summarized, so each step's reasoning can be kept with the run. See docs/agent-harness.md
+        ...(reasoning.adaptive ? { thinking: { type: 'adaptive', display: 'summarized' } } : {}),
         ...(reasoning.efforts.length ? { effort: supportedEffort(config.effort, reasoning.efforts) } : {}),
         cacheControl: { type: 'ephemeral' },
         // One tool call per step: finish must never race the run_cell it reports on
@@ -130,7 +131,7 @@ export function agentProviderOptions(config: Pick<ModelConfig, 'provider' | 'mod
     }
   }
   if (config.model.startsWith('openai/')) {
-    return { openai: { reasoningEffort: config.effort === 'low' || config.effort === 'medium' ? config.effort : 'high' } }
+    return { openai: { reasoningEffort: config.effort === 'low' || config.effort === 'medium' ? config.effort : 'high', reasoningSummary: 'auto' } }
   }
   return undefined
 }
