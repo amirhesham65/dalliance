@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { Sidebar } from '@/components/app/Sidebar'
 import { TopBar } from '@/components/app/TopBar'
 import { NotebookView } from '@/components/notebook/NotebookView'
@@ -11,15 +12,10 @@ import { SidebarProvider, useSidebar } from '@/components/ui/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useDefaultLayout } from 'react-resizable-panels'
 import type { MenuAction } from '@dalliance/shared/ipc'
-import type { Cell } from '@dalliance/shared/notebook'
 import { PANE_ORDER, actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
-
-type Undo = { cell: Cell; index: number }
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => readStored('dalliance-sidebar') !== 'closed')
-  const [undo, setUndo] = useState<Undo | null>(null)
-  const undoTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const settings = useNotebook((s) => s.settings)
   const python = useNotebook((s) => s.python)
   const kernel = useNotebook((s) => s.kernel)
@@ -31,18 +27,19 @@ export default function App() {
 
   const deleteCell = useCallback((id: string) => {
     const removed = actions.deleteCell(id)
-    if (!removed) return
-    setUndo(removed)
-    clearTimeout(undoTimer.current)
-    undoTimer.current = setTimeout(() => setUndo(null), 6000)
+    if (removed) actions.notify('Cell deleted', { undo: () => actions.restoreCell(removed.cell, removed.index) })
   }, [])
 
   const save = useCallback(
     async (as: boolean) => {
       if (!api) return
       const { path, notebook } = useNotebook.getState()
-      const saved = await api.saveNotebook(as ? null : path, notebook)
-      if (saved) actions.markSaved(saved)
+      try {
+        const saved = await api.saveNotebook(as ? null : path, notebook)
+        if (saved) actions.markSaved(saved)
+      } catch (err) {
+        actions.notifyFailure("Couldn't save the notebook", err)
+      }
     },
     [api],
   )
@@ -55,7 +52,7 @@ export default function App() {
         case 'new':
           if (await api.confirmDiscard()) {
             actions.load(welcomeNotebook(), null)
-            await api.restartKernel()
+            await actions.freshKernel()
           }
           break
         case 'open':
@@ -181,22 +178,33 @@ export default function App() {
           {settingsPage && <SettingsScreen />}
         </div>
       </SidebarProvider>
-      {undo && (
-        <div className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-foreground px-3.5 py-2 text-[13px] text-background shadow-xl" role="status">
-          Cell deleted
-          <button
-            type="button"
-            className="font-medium text-background/70 hover:text-background"
-            onClick={() => {
-              actions.restoreCell(undo.cell, undo.index)
-              setUndo(null)
-            }}
-          >
-            Undo
-          </button>
-        </div>
-      )}
+      <NoticeToast />
     </TooltipProvider>
+  )
+}
+
+/** The store's notice: a deleted cell or a cell made a note, with Undo, or a bridge call that failed. */
+function NoticeToast() {
+  const notice = useNotebook((s) => s.notice)
+  if (!notice) return null
+  const { undo } = notice
+  return (
+    <div
+      className="fixed bottom-5 left-1/2 z-40 flex max-w-[min(560px,calc(100vw-32px))] -translate-x-1/2 items-center gap-3 rounded-lg bg-foreground px-3.5 py-2 text-[13px] text-background shadow-xl"
+      role={notice.tone === 'error' ? 'alert' : 'status'}
+    >
+      <span className="min-w-0">{notice.text}</span>
+      <button
+        type="button"
+        className="shrink-0 font-medium text-background/70 hover:text-background"
+        onClick={() => {
+          undo?.()
+          actions.dismissNotice()
+        }}
+      >
+        {undo ? 'Undo' : 'Dismiss'}
+      </button>
+    </div>
   )
 }
 
@@ -234,7 +242,9 @@ function Workspace({ onDelete }: { onDelete: (id: string) => void }) {
       {visible && (
         <>
           <ResizablePanel id="overview" defaultSize={272} minSize={220} maxSize={420} groupResizeBehavior="preserve-pixel-size" className="flex">
-            <Sidebar />
+            <ErrorBoundary what="The overview" className="flex-1 bg-background">
+              <Sidebar />
+            </ErrorBoundary>
           </ResizablePanel>
           <Gap />
         </>

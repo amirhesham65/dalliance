@@ -18,7 +18,7 @@ export async function startWith(fn: () => Promise<OpenedNotebook | null>): Promi
 
 /** A notebook that isn't a file yet, on a fresh kernel. */
 export const fresh = (notebook: Notebook) => async (): Promise<OpenedNotebook> => {
-  await getApi()?.restartKernel()
+  await actions.freshKernel()
   return { notebook, path: null }
 }
 

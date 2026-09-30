@@ -109,7 +109,7 @@ function NotebookTab() {
             label="New notebook"
             onClick={() =>
               void load(async () => {
-                await api?.restartKernel()
+                await actions.freshKernel()
                 return { notebook: welcomeNotebook(), path: null }
               })
             }

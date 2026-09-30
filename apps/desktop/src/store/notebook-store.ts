@@ -48,6 +48,14 @@ export interface LogEntry {
   cellId?: string
 }
 
+/** A short message at the bottom of the window, with an Undo when the change can be taken back. Not saved. */
+export interface Notice {
+  id: number
+  text: string
+  tone: 'info' | 'error'
+  undo?: () => void
+}
+
 /** The side panes, one open at a time. Cmd+1 to Cmd+6 open them in this order. */
 export type PaneKind = PaneName
 export const PANE_ORDER: PaneKind[] = ['brief', 'variables', 'history', 'files', 'pinned', 'activity']
@@ -84,6 +92,8 @@ export interface NotebookState {
   brief: Brief | null
   /** What the model picker offers. Loaded when the picker first opens. */
   models: ModelList | null
+  /** The message showing at the bottom of the window, if any. */
+  notice: Notice | null
 }
 
 let api: DallianceApi | undefined = typeof window === 'undefined' ? undefined : window.dalliance
@@ -136,6 +146,7 @@ export const useNotebook = create<NotebookState>(() => ({
   pinnedIds: [],
   brief: null,
   models: null,
+  notice: null,
 }))
 
 const MAX_LOG = 60
@@ -143,6 +154,16 @@ let logId = 0
 
 function addLog(entry: Omit<LogEntry, 'id' | 'at'>) {
   set((s) => ({ log: [{ ...entry, id: ++logId, at: Date.now() }, ...s.log].slice(0, MAX_LOG) }))
+}
+
+const NOTICE_MS = 6000
+let noticeId = 0
+let noticeTimer: ReturnType<typeof setTimeout> | undefined
+
+/** What went wrong, without the wrapper Electron puts around errors thrown in the main process. */
+export function errorText(err: unknown): string {
+  const text = err instanceof Error ? err.message : String(err)
+  return text.replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/, '')
 }
 
 const quoted = (cell: Cell) => `“${cellTitle(cell, 40)}”`
@@ -179,6 +200,8 @@ export const actions = {
       lastFinishedId: null,
       pinnedIds: [],
       pane: get().pane === 'pinned' ? null : get().pane,
+      // An Undo from the last notebook must not reach into this one
+      notice: null,
     })
     queue.length = 0
     void actions.loadBrief()
@@ -228,6 +251,24 @@ export const actions = {
     set({ log: [] })
   },
 
+  /** Show a message at the bottom of the window for a few seconds. With `undo`, it offers an Undo button. */
+  notify(text: string, options: { undo?: () => void; tone?: Notice['tone'] } = {}) {
+    const notice: Notice = { id: ++noticeId, text, tone: options.tone ?? 'info', undo: options.undo }
+    set({ notice })
+    clearTimeout(noticeTimer)
+    noticeTimer = setTimeout(() => actions.dismissNotice(notice.id), NOTICE_MS)
+  },
+
+  /** A bridge call failed. Say what the user was trying to do and why it didn't work. */
+  notifyFailure(what: string, err: unknown) {
+    actions.notify(`${what}. ${errorText(err)}`, { tone: 'error' })
+  },
+
+  /** Hide the message, or only the given one so a newer message stays up. */
+  dismissNotice(id?: number) {
+    if (id == null || get().notice?.id === id) set({ notice: null })
+  },
+
   async loadModels(force = false) {
     const { models, settings } = get()
     if (!api || (!force && models && models.provider === settings?.provider && !models.error)) return
@@ -239,9 +280,25 @@ export const actions = {
     set({ brief: await api.readBrief().catch(() => null) })
   },
 
-  async saveBrief(text: string) {
-    if (!api) return
-    set({ brief: await api.writeBrief(text) })
+  /** Resolves true once AGENTS.md is written. A failure shows a message and resolves false. */
+  async saveBrief(text: string): Promise<boolean> {
+    if (!api) return false
+    try {
+      set({ brief: await api.writeBrief(text) })
+      return true
+    } catch (err) {
+      actions.notifyFailure("Couldn't save the brief", err)
+      return false
+    }
+  },
+
+  /** A fresh kernel for a new notebook. A failure shows a message; the notebook still opens. */
+  async freshKernel() {
+    try {
+      await api?.restartKernel()
+    } catch (err) {
+      actions.notifyFailure("Couldn't restart Python", err)
+    }
   },
 
   /** A suggested prompt becomes the next cell and runs. */
@@ -362,12 +419,26 @@ export const actions = {
     updateCells(() => cells)
   },
 
+  /**
+   * Make a cell a note or a prompt. A note keeps only the prompt's text, so turning a prompt cell that has
+   * code, outputs or history into a note offers Undo, which puts the original cell back as it was.
+   */
   setKind(id: string, kind: 'prompt' | 'note') {
-    updateCell(id, (c) => {
-      if (c.kind === kind) return c
-      if (kind === 'note') return { ...newNoteCell(c.kind === 'prompt' ? c.prompt : ''), id: c.id }
-      return { ...newPromptCell(c.kind === 'note' ? c.markdown : ''), id: c.id }
-    })
+    const before = get().notebook.cells.find((c) => c.id === id)
+    if (!before || before.kind === kind) return
+    if (before.kind === 'prompt') removeFromQueue(id)
+    updateCell(id, (c) =>
+      c.kind === 'prompt' ? { ...newNoteCell(c.prompt), id: c.id } : { ...newPromptCell(c.kind === 'note' ? c.markdown : ''), id: c.id },
+    )
+    if (before.kind === 'prompt' && (before.code.trim() || before.outputs.length || before.history.length))
+      actions.notify('Made the cell a note', { undo: () => actions.replaceCell(before) })
+  },
+
+  /** Put a cell back exactly as it was, in the same place, if it's still in the notebook. */
+  replaceCell(cell: Cell) {
+    if (!get().notebook.cells.some((c) => c.id === cell.id)) return
+    updateCell(cell.id, () => cell)
+    set({ selectedId: cell.id })
   },
 
   /** Fold or unfold a cell's tables. The choice is saved with the notebook. */
@@ -402,7 +473,12 @@ export const actions = {
 
   async restart() {
     await actions.interrupt()
-    await api?.restartKernel()
+    try {
+      await api?.restartKernel()
+    } catch (err) {
+      actions.notifyFailure("Couldn't restart Python", err)
+      return
+    }
     addLog({ kind: 'restarted', text: 'Restarted Python' })
     // Outputs stay, but the variables they came from are gone
     updateCells((cells) =>
@@ -531,7 +607,8 @@ async function pump() {
       const result: CellRunResult = api
         ? await api.runCell(request).catch((err: unknown) => failed(request, err))
         : failed(request, 'Running cells needs the desktop app.')
-      finish(id, generate, result)
+      // `cell` is the version sent. Edits made while the agent works are checked against it in finish()
+      finish(id, generate, result, cell)
     }
   } finally {
     pumping = false
@@ -556,7 +633,7 @@ function failed(request: RunCellRequest, err: unknown): CellRunResult {
   }
 }
 
-function finish(id: string, generate: boolean, result: CellRunResult) {
+function finish(id: string, generate: boolean, result: CellRunResult, sent: PromptCell) {
   const stopped = result.error === 'Stopped.'
   logRun(get().notebook.cells.find((c) => c.id === id), generate, result)
   set((s) => {
@@ -568,29 +645,44 @@ function finish(id: string, generate: boolean, result: CellRunResult) {
 
     // Nothing ran at all (no key, no Python, stopped before code ran): keep the cell as it was
     const nothingRan = result.executionCount == null && result.outputs.length === 0 && !result.ok
+    // The user can keep typing while the agent works. Their edits win over the result, and the cell stays
+    // `edited`, so the next run regenerates for the new prompt or runs their code
+    const promptEdited = cell.prompt !== sent.prompt
+    const codeEdited = cell.code !== sent.code
+    const ran: PromptCell = {
+      ...cell,
+      prompt: sent.prompt,
+      code: result.code,
+      outputs: result.outputs,
+      variables: result.ok ? result.variables : cell.variables,
+      executionCount: result.executionCount,
+      durationMs: result.durationMs,
+      state: result.ok ? 'done' : 'error',
+      ...(generate
+        ? {
+            // A failed generation leaves generatedFrom empty, so the next run tries again
+            generatedFrom: result.ok ? sent.prompt : '',
+            codeEdited: false,
+            corrections: result.ok ? [] : cell.corrections,
+            interpretation: result.ok ? result.interpretation : cell.interpretation,
+            answer: result.ok ? result.answer : null,
+            suggestions: result.ok ? result.suggestions : [],
+          }
+        : {}),
+    }
+    // History keeps the version that actually ran, not the edits made meanwhile
+    if (result.ok && !nothingRan) ran.history = remember(ran)
     const updated: PromptCell = nothingRan
       ? cell
-      : {
-          ...cell,
-          code: result.code,
-          outputs: result.outputs,
-          variables: result.ok ? result.variables : cell.variables,
-          executionCount: result.executionCount,
-          durationMs: result.durationMs,
-          state: result.ok ? 'done' : 'error',
-          ...(generate
-            ? {
-                // A failed generation leaves generatedFrom empty, so the next run tries again
-                generatedFrom: result.ok ? cell.prompt : '',
-                codeEdited: false,
-                corrections: result.ok ? [] : cell.corrections,
-                interpretation: result.ok ? result.interpretation : cell.interpretation,
-                answer: result.ok ? result.answer : null,
-                suggestions: result.ok ? result.suggestions : [],
-              }
-            : {}),
-        }
-    if (result.ok && !nothingRan) updated.history = remember(updated)
+      : promptEdited || codeEdited
+        ? {
+            ...ran,
+            prompt: cell.prompt,
+            code: codeEdited ? cell.code : ran.code,
+            codeEdited: codeEdited || ran.codeEdited,
+            state: 'edited',
+          }
+        : ran
 
     const nextCells = cells.map((c, i) => {
       if (i === index) return updated

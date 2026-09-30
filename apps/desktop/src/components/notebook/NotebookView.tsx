@@ -1,5 +1,6 @@
 import { NotebookText, Play, Plus, RotateCw, Square } from 'lucide-react'
 import { Fragment, useEffect, useRef } from 'react'
+import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { IconButton } from '@/components/app/IconButton'
 import { Button } from '@/components/ui/button'
 import { actions, useNotebook } from '@/store/notebook-store'
@@ -48,7 +49,9 @@ export function NotebookView({ onDelete }: { onDelete: (id: string) => void }) {
           {cells.length === 0 && <p className="ml-11 py-3 text-sm text-faint">This notebook is empty.</p>}
           {cells.map((cell, i) => (
             <Fragment key={cell.id}>
-              <CellView cell={cell} selected={cell.id === selectedId} onDelete={onDelete} />
+              <ErrorBoundary what="This cell" className="my-3 ml-11">
+                <CellView cell={cell} selected={cell.id === selectedId} onDelete={onDelete} />
+              </ErrorBoundary>
               <CellInserter index={i + 1} />
             </Fragment>
           ))}
