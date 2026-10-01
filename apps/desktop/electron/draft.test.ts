@@ -209,6 +209,35 @@ describe('DraftStore with tabs', () => {
     expect(relaunch(folder).restore()).toMatchObject({ notebook: { cells: [{ prompt: 'Still here' }] } })
   })
 
+  it('keeps a closed tab closed when a save from it lands afterwards', () => {
+    const folder = dir()
+    const first = new DraftStore(folder)
+    first.update('t1', { path: null, dirty: true, notebook: notebook('Closed mid-save') })
+    first.update('t2', { path: null, dirty: true, notebook: notebook('Kept') })
+    first.close('t1')
+    first.update('t1', { path: '/work/closed.ipynb', dirty: false, notebook: notebook('Closed mid-save') })
+    first.flush()
+
+    const { restore, ids } = relaunch(folder)
+    expect(ids).toHaveLength(1)
+    expect(restore(0)).toMatchObject({ notebook: { cells: [{ prompt: 'Kept' }] } })
+  })
+
+  it('keeps the last write when a save lands after the window closed', () => {
+    const folder = dir()
+    const first = new DraftStore(folder)
+    first.update('t1', { path: null, dirty: true, notebook: notebook('One') })
+    first.update('t2', { path: null, dirty: true, notebook: notebook('Two') })
+    first.flush()
+    first.clear()
+    first.update('t1', { path: '/work/one.ipynb', dirty: false, notebook: notebook('One') })
+    first.flush()
+
+    const { restore, ids } = relaunch(folder)
+    expect(ids).toHaveLength(2)
+    expect(restore(1)).toMatchObject({ notebook: { cells: [{ prompt: 'Two' }] } })
+  })
+
   it('reads a session.json from before tabs as one tab', () => {
     const folder = dir()
     const file = path.join(folder, 'sales.ipynb')

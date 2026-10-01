@@ -42,6 +42,8 @@ interface Entry {
  */
 export class DraftStore {
   private entries = new Map<string, Entry>()
+  /** Tabs that closed. A save that lands after its tab closed never brings the tab back. Ids are never reused. */
+  private gone = new Set<string>()
   private order: string[] = []
   private active: string | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
@@ -82,6 +84,7 @@ export class DraftStore {
   }
 
   update(id: string, state: DraftState) {
+    if (this.gone.has(id)) return
     const entry = this.entries.get(id)
     if (entry) entry.live = state
     else this.entries.set(id, { live: state, saved: null })
@@ -146,6 +149,7 @@ export class DraftStore {
 
   /** The tab closed. The next launch doesn't bring it back. */
   close(id: string) {
+    this.gone.add(id)
     this.entries.delete(id)
     this.order = this.order.filter((o) => o !== id)
     if (this.active === id) this.active = null
@@ -156,6 +160,7 @@ export class DraftStore {
   clear() {
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
+    for (const id of this.entries.keys()) this.gone.add(id)
     this.entries.clear()
     this.order = []
     this.active = null

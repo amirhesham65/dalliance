@@ -46,7 +46,7 @@ Switching provider resets the model to the new provider's default, but only if t
 
 `DraftStore` makes a reload of a tab, or a relaunch, come back to the same tabs and notebooks.
 
-Each tab's renderer sends its document with `saveDraft()` 400 ms after each change and on `beforeunload`. The main process keeps one draft per tab in memory, with the tabs' order and the one showing, and writes `session.json` 1 second after the last update, on save, on quit, when a tab closes, on Don't Save, and when the window closes.
+Each tab's renderer sends its document with `saveDraft()` 400 ms after each change and on `beforeunload`. The main process keeps one draft per tab in memory, with the tabs' order and the one showing, and writes `session.json` 1 second after the last update, on save, on quit, when a tab closes, on Don't Save, and when the window closes. A closed tab stays closed: a save or draft from it that lands afterwards is ignored, so it can't bring the tab back or overwrite what the window wrote when it closed.
 
 The file is version 2:
 
