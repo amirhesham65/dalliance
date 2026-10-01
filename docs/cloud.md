@@ -25,7 +25,7 @@ The client runs only in builds made with `DALLIANCE_CLOUD_URL` set to the servic
 ## Startup
 
 1. `main.ts` makes `Account` with the Cloud URL. Its session comes from `account.json` in userData, which the plugin encrypts with `safeStorage`.
-2. `watchCloud()` refreshes the session and calls `Billing.connect()`, which asks `<cloud>/api/config` for the Convex deployment's URL. A failure retries every 30 seconds and shows as the plan's `error`. Keeping the deployment URL behind the service means moving it never needs an app release.
+2. `watchCloud()` refreshes the session, sends every account and plan change to every tab (the account is the app's, not a tab's), and calls `Billing.connect()`, which asks `<cloud>/api/config` for the Convex deployment's URL. A failure retries every 30 seconds and shows as the plan's `error`. Keeping the deployment URL behind the service means moving it never needs an app release.
 3. `Billing` subscribes to `billing:plans` and `billing:status`. It follows the account: signed in, each query carries a Convex JWT from `/api/auth/convex/token`, cached in `Account` until a minute before it expires.
 
 ## Signing in

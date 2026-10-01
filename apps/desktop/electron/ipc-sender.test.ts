@@ -18,10 +18,13 @@ interface Frame {
 const frame = (url: string, ids = { processId: 4, routingId: 1 }, parent: Frame | null = null): Frame => ({ url, ...ids, parent })
 
 let nextId = 1
-function appWindow(url: string) {
-  const mainFrame = frame(url)
-  const win = { isDestroyed: () => false, webContents: { id: nextId++, mainFrame } }
-  return { win, event: { sender: win.webContents, senderFrame: mainFrame } }
+/** A tab's view showing `url`, and a message from its top frame. Each view gets its own renderer process. */
+function tabView(url: string) {
+  const id = nextId++
+  const mainFrame = frame(url, { processId: 100 + id, routingId: 1 })
+  let destroyed = false
+  const view = { webContents: { id, mainFrame, isDestroyed: () => destroyed } }
+  return { view, event: { sender: view.webContents, senderFrame: mainFrame }, destroy: () => (destroyed = true) }
 }
 
 describe('isAppUrl', () => {
@@ -48,32 +51,43 @@ describe('isAppUrl', () => {
 })
 
 describe('isTrustedSender', () => {
-  it('trusts the top frame of the app window on the app page', () => {
-    const { win, event } = appWindow(indexUrl)
-    expect(isTrustedSender(event, win, packaged)).toBe(true)
+  it('trusts the top frame of each tab view on the app page', () => {
+    const tabs = [tabView(indexUrl), tabView(indexUrl), tabView(`${indexUrl}#settings`)]
+    const views = tabs.map((t) => t.view)
+    for (const t of tabs) expect(isTrustedSender(t.event, views, packaged)).toBe(true)
   })
 
-  it('refuses a message from another window', () => {
-    const { win } = appWindow(indexUrl)
-    const other = appWindow(indexUrl)
-    expect(isTrustedSender(other.event, win, packaged)).toBe(false)
+  it('refuses a message from a view that is not one of the tabs', () => {
+    const [a, b] = [tabView(indexUrl), tabView(indexUrl)]
+    const other = tabView(indexUrl)
+    expect(isTrustedSender(other.event, [a.view, b.view], packaged)).toBe(false)
   })
 
-  it('refuses a message from an iframe inside the app window', () => {
-    const { win } = appWindow(indexUrl)
-    const child = frame(indexUrl, { processId: 4, routingId: 7 }, win.webContents.mainFrame)
-    expect(isTrustedSender({ sender: win.webContents, senderFrame: child }, win, packaged)).toBe(false)
+  it('refuses a frame from one tab sent as another tab', () => {
+    const [a, b] = [tabView(indexUrl), tabView(indexUrl)]
+    expect(isTrustedSender({ sender: b.view.webContents, senderFrame: a.view.webContents.mainFrame }, [a.view, b.view], packaged)).toBe(false)
   })
 
-  it('refuses the app window once it shows some other page', () => {
-    const { win, event } = appWindow('https://example.com/')
-    expect(isTrustedSender(event, win, packaged)).toBe(false)
+  it('refuses a message from an iframe inside a tab', () => {
+    const [a, b] = [tabView(indexUrl), tabView(indexUrl)]
+    const top = b.view.webContents.mainFrame
+    const child = frame(indexUrl, { processId: top.processId, routingId: 7 }, top)
+    expect(isTrustedSender({ sender: b.view.webContents, senderFrame: child }, [a.view, b.view], packaged)).toBe(false)
   })
 
-  it('refuses when there is no window, it is gone, or the frame is', () => {
-    const { win, event } = appWindow(indexUrl)
-    expect(isTrustedSender(event, null, packaged)).toBe(false)
-    expect(isTrustedSender(event, { ...win, isDestroyed: () => true }, packaged)).toBe(false)
-    expect(isTrustedSender({ ...event, senderFrame: null }, win, packaged)).toBe(false)
+  it('refuses a tab once it shows some other page, and keeps trusting the others', () => {
+    const good = tabView(indexUrl)
+    const moved = tabView('https://example.com/')
+    const views = [good.view, moved.view]
+    expect(isTrustedSender(moved.event, views, packaged)).toBe(false)
+    expect(isTrustedSender(good.event, views, packaged)).toBe(true)
+  })
+
+  it('refuses when there are no tabs, the tab closed, or the frame is gone', () => {
+    const t = tabView(indexUrl)
+    expect(isTrustedSender(t.event, [], packaged)).toBe(false)
+    expect(isTrustedSender({ ...t.event, senderFrame: null }, [t.view], packaged)).toBe(false)
+    t.destroy()
+    expect(isTrustedSender(t.event, [t.view], packaged)).toBe(false)
   })
 })

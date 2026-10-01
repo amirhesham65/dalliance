@@ -17,6 +17,7 @@ import type {
   RunCost,
   RunEvent,
   SettingsView,
+  TabsState,
   VariableView,
 } from '@dalliance/shared/ipc'
 import {
@@ -180,6 +181,8 @@ export interface NotebookState {
   models: ModelList | null
   /** The message showing at the bottom of the window, if any. */
   notice: Notice | null
+  /** The window's tabs, as the main process last sent them. Null outside the desktop app. */
+  tabs: TabsState | null
   /** The last Verify run's report, until it's closed or another notebook loads. */
   verify: VerifyReport | null
   /** Whether Verify's confirmation is showing. */
@@ -246,6 +249,7 @@ export const useNotebook = create<NotebookState>(() => ({
   brief: null,
   models: null,
   notice: null,
+  tabs: null,
   verify: null,
   verifyAsking: false,
   pinChanges: [],

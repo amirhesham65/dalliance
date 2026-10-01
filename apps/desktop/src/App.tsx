@@ -28,6 +28,8 @@ export default function App() {
   const kernel = useNotebook((s) => s.kernel)
   const path = useNotebook((s) => s.path)
   const dirty = useNotebook((s) => s.dirty)
+  // Queued counts, so the tab's indicator doesn't flicker between the cells of a Run all
+  const running = useNotebook((s) => Object.keys(s.runs).length > 0)
   const screen = useNotebook((s) => s.screen)
   const settingsPage = useNotebook((s) => s.settingsPage)
   const api = getApi()
@@ -54,26 +56,24 @@ export default function App() {
         case 'undo':
         case 'redo':
           return editFromMenu(action)
-        case 'new':
-          if (await api.confirmDiscard()) {
-            const created = await api.newNotebook(welcomeNotebook())
-            if (created) actions.load(created.notebook, created.path)
-          }
+        // These open in a new tab, or here when this tab is an untouched Untitled. Only then is there a notebook to
+        // load, so nothing unsaved is ever replaced.
+        case 'new': {
+          const created = await api.newNotebook(welcomeNotebook())
+          if (created) actions.load(created.notebook, created.path)
           break
-        case 'open-folder':
-          if (await api.confirmDiscard()) {
-            const opened = await api.openFolder(welcomeNotebook())
-            if (opened) actions.load(opened.notebook, opened.path)
-          }
+        }
+        case 'open-folder': {
+          const opened = await api.openFolder(welcomeNotebook())
+          if (opened) actions.load(opened.notebook, opened.path)
           break
+        }
         case 'open':
-          if (await api.confirmDiscard()) {
-            try {
-              const opened = await api.openNotebook()
-              if (opened) actions.load(opened.notebook, opened.path)
-            } catch (err) {
-              actions.notifyFailure("Couldn't open the notebook", err)
-            }
+          try {
+            const opened = await api.openNotebook()
+            if (opened) actions.load(opened.notebook, opened.path)
+          } catch (err) {
+            actions.notifyFailure("Couldn't open the notebook", err)
           }
           break
         case 'save':
@@ -125,6 +125,7 @@ export default function App() {
     void api.getSettings().then((settings) => useNotebook.setState({ settings }))
     void api.pythonState().then((python) => useNotebook.setState({ python }))
     void api.kernelState().then((kernel) => useNotebook.setState({ kernel }))
+    void api.listTabs().then((tabs) => useNotebook.setState({ tabs }))
     void api.getAccount().then((account) => useNotebook.setState({ account }))
     void api.getBilling().then((billing) => useNotebook.setState({ billing }))
     void actions.loadBrief()
@@ -134,13 +135,20 @@ export default function App() {
       api.onRunEvent((cellId, event) => actions.applyRunEvent(cellId, event)),
       api.onKernelState((kernel) => useNotebook.setState({ kernel })),
       api.onMenu((action) => void handleMenu(action)),
+      api.onTabs((tabs) => useNotebook.setState({ tabs })),
+      // Settings and the Python are the whole app's, so a change made in another tab shows here too
+      api.onSettingsChanged((settings) => useNotebook.setState({ settings })),
+      api.onPythonState((python) => {
+        useNotebook.setState({ python })
+        actions.environmentChanged()
+      }),
     ]
     return () => offs.forEach((off) => off())
   }, [api, handleMenu])
 
   useEffect(() => {
-    api?.setDocumentState({ path, dirty })
-  }, [api, path, dirty])
+    api?.setDocumentState({ path, dirty, running })
+  }, [api, path, dirty, running])
 
   useCommandMode()
   useScopedSelectAll()

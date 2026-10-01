@@ -17,9 +17,9 @@ interface SenderEvent {
   sender: { id: number }
   senderFrame: Frame | null
 }
-interface AppWindow {
-  isDestroyed(): boolean
-  webContents: { id: number; mainFrame: Frame }
+/** A tab's view. Electron's WebContentsView fits this. */
+interface AppView {
+  webContents: { id: number; mainFrame: Frame; isDestroyed(): boolean }
 }
 
 /** True when `url` is the app's own page. Query strings and hashes don't matter. */
@@ -41,14 +41,16 @@ export function isAppUrl(url: string, page: AppPage): boolean {
 }
 
 /**
- * True when an IPC message comes from the top frame of the app's window, showing the app's own page. Anything else,
- * such as an iframe, another window, or a page the window was somehow navigated to, gets no access to the main process.
+ * True when an IPC message comes from the top frame of one of the app's tab views, showing the app's own page.
+ * Anything else, such as an iframe, another window, or a page a view was somehow navigated to, gets no access to the
+ * main process.
  */
-export function isTrustedSender(event: SenderEvent, win: AppWindow | null, page: AppPage): boolean {
+export function isTrustedSender(event: SenderEvent, views: readonly AppView[], page: AppPage): boolean {
   const frame = event.senderFrame
-  if (!win || win.isDestroyed() || !frame) return false
-  if (event.sender.id !== win.webContents.id) return false
-  const main = win.webContents.mainFrame
+  if (!frame) return false
+  const view = views.find((v) => v.webContents.id === event.sender.id)
+  if (!view || view.webContents.isDestroyed()) return false
+  const main = view.webContents.mainFrame
   if (frame.parent != null || frame.processId !== main.processId || frame.routingId !== main.routingId) return false
   return isAppUrl(frame.url, page)
 }

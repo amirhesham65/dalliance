@@ -118,6 +118,9 @@ To look at the UI in a browser with sample data, run `pnpm --filter @dalliance/d
 
 | Keys | |
 | --- | --- |
+| <kbd>⌘</kbd> <kbd>T</kbd> | New tab |
+| <kbd>⌘</kbd> <kbd>W</kbd> | Close the tab, asking to save it first |
+| <kbd>⌃</kbd> <kbd>Tab</kbd>, <kbd>⌃</kbd> <kbd>⇧</kbd> <kbd>Tab</kbd> | Next tab, previous tab. <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>]</kbd> and <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>[</kbd> too |
 | <kbd>⌘</kbd> <kbd>B</kbd> | Show or hide the sidebar and side pane |
 | <kbd>⌘</kbd> <kbd>1</kbd> … <kbd>6</kbd> | Brief, Variables & Environment, History, Files, Pinned, Activity |
 

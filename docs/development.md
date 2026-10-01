@@ -60,8 +60,8 @@ The website's `typecheck` runs `next typegen` first, so Next's route types exist
 
 - Renderer changes hot reload.
 - Main process changes restart Electron.
-- Preload changes reload the window.
-- A window reload keeps the kernel, so variables survive. Restart the kernel from the Kernel menu to get a clean one.
+- Preload changes reload every tab.
+- Reloading a tab (View > Reload) keeps its kernel, so variables survive. Restart the kernel from the Kernel menu to get a clean one.
 
 The kernel script is imported with `?raw`, so edits to `dalliance_kernel.py` need a main process rebuild and a kernel restart before they take effect.
 
@@ -84,7 +84,7 @@ Open `http://localhost:4173/?demo`. `?demo&welcome` shows the start page and `?d
 
 - **Renderer.** View > Toggle Developer Tools.
 - **Main process.** `console.log` goes to the terminal running `pnpm dev`.
-- **The agent.** Every tool call and result is in `~/Library/Application Support/Dalliance/logs/agent.jsonl`. `tail -f` it while you run a cell.
+- **The agent.** Every tool call and result is in `~/Library/Application Support/Dalliance/logs/agent.jsonl`. `tail -f` it while you run a cell. Each line names its tab in `tab`, since tabs can run at once.
 - **The kernel.** A crash shows the last 4,000 characters of stderr as the kernel error. To test the script by hand, run `python3 apps/desktop/electron/kernel/dalliance_kernel.py 3>&1` and type a request like `{"id":"1","op":"execute","code":"1+1","store":true}`.
 - **A clean first launch.** Quit and delete `~/Library/Application Support/Dalliance/`. See [storage.md](storage.md).
 
