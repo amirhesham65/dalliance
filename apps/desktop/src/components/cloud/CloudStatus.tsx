@@ -23,7 +23,7 @@ export function CloudStatus({ api }: { api: DallianceApi }) {
   let action: { label: string; onClick: () => void } | null = null
   if (!account || account.checking) text = 'Checking your account…'
   else if (!user) {
-    text = account.waiting ? "Finish signing in in your browser. It sends you back here when it's done." : 'Sign in with GitHub or Google to run prompts on your Dalliance plan.'
+    text = account.waiting ? "Finish signing in in your browser. It sends you back here when it's done." : 'Sign in with Google to run prompts on your Dalliance plan.'
     action = { label: account.waiting ? 'Open the page again' : 'Sign in', onClick: () => void run(() => api.signIn()) }
   } else if (billing?.loading) text = `Signed in as ${user.email}. Checking your plan…`
   else if (!sub) {

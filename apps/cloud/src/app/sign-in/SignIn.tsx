@@ -41,7 +41,7 @@ export function SignIn({ request, methods, error }: { request: DesktopRequest; m
     }
   }
 
-  const social = (provider: 'github' | 'google') =>
+  const social = (provider: 'google') =>
     // The provider sends the browser to the callback, which issues the code, then on to the done page
     void run(() => authClient.signIn.social({ provider, callbackURL: DONE, errorCallbackURL: '/sign-in?error=oauth', fetchOptions }))
 
@@ -75,13 +75,8 @@ export function SignIn({ request, methods, error }: { request: DesktopRequest; m
 
   return (
     <div className="mt-8 grid max-w-sm gap-3">
-      {methods.includes('github') && (
-        <button type="button" className={buttonLarge} disabled={busy} onClick={() => social('github')}>
-          Continue with GitHub
-        </button>
-      )}
       {methods.includes('google') && (
-        <button type="button" className={methods.includes('github') ? `${buttonQuiet} h-10 text-[15px]` : buttonLarge} disabled={busy} onClick={() => social('google')}>
+        <button type="button" className={buttonLarge} disabled={busy} onClick={() => social('google')}>
           Continue with Google
         </button>
       )}

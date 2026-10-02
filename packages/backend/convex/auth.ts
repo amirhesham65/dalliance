@@ -53,7 +53,6 @@ const proxyOnly = (): BetterAuthPlugin => ({
 })
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
-  const github = provider('GITHUB')
   const google = provider('GOOGLE')
   return betterAuth({
     // The cloud site, which proxies /api/auth here, so cookies belong to its domain
@@ -61,7 +60,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     database: authComponent.adapter(ctx),
     // Only the cloud site and the desktop app may start or finish a sign-in
     trustedOrigins: [env('SITE_URL') ?? '', `${DESKTOP_SCHEME}:/`].filter(Boolean),
-    socialProviders: { ...(github && { github }), ...(google && { google }) },
+    socialProviders: { ...(google && { google }) },
     // Passwords are off: there's no email verification yet, and a billing account must belong to the email it shows.
     // A local deployment can turn them on for testing with PASSWORD_SIGN_IN=on.
     emailAndPassword: { enabled: env('PASSWORD_SIGN_IN') === 'on' },

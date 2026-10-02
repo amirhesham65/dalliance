@@ -25,7 +25,7 @@ sequenceDiagram
   R->>M: signIn()
   M->>M: new PKCE verifier and state, kept in memory
   M->>B: open /sign-in?client_id&state&code_challenge
-  B->>W: sign in with GitHub or Google
+  B->>W: sign in with Google
   W->>C: /api/auth/* through the proxy
   C-->>B: session cookie, plus a one-time code in a cookie
   B->>B: /sign-in/done opens io.dalliance.app://auth/callback#token=code
@@ -72,11 +72,10 @@ On the Convex deployment, set with `npx convex env set` from `packages/backend`:
 | `BETTER_AUTH_SECRET` | Signs cookies and codes. `openssl rand -base64 32` |
 | `SITE_URL` | The cloud site's origin, `https://cloud.dalliance.io` in production. Better Auth's base URL and a trusted origin |
 | `AUTH_PROXY_SECRET` | Shared with the cloud site. `openssl rand -hex 32` |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | GitHub sign-in. Off unless both are set |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google sign-in. Off unless both are set |
 | `PASSWORD_SIGN_IN` | `on` for email and password. Local deployments only |
 
-The OAuth apps' callback URLs are `<SITE_URL>/api/auth/callback/github` and `<SITE_URL>/api/auth/callback/google`.
+The Google OAuth client's redirect URI is `<SITE_URL>/api/auth/callback/google`.
 
 On the cloud site (Vercel), all read at request time, so they stay out of `turbo.json`:
 
@@ -84,7 +83,7 @@ On the cloud site (Vercel), all read at request time, so they stay out of `turbo
 | --- | --- |
 | `CONVEX_SITE_URL` | The deployment's `.convex.site` URL. `/api/auth` proxies to it |
 | `AUTH_PROXY_SECRET` | The same value as on Convex |
-| `AUTH_METHODS` | The buttons the sign-in page shows: `github`, `google`, `password`. Defaults to `github,google`. Keep it in step with the providers Convex has credentials for |
+| `AUTH_METHODS` | The buttons the sign-in page shows: `google`, `password`. Defaults to `google`. Keep it in step with the providers Convex has credentials for |
 
 The desktop app always talks to `https://cloud.dalliance.io`. A development build can point at another copy with `DALLIANCE_CLOUD_URL`, see [cloud.md](cloud.md#where-the-app-finds-it). What the app relies on is in [the contract](cloud.md#the-contract).
 

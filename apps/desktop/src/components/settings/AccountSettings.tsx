@@ -34,7 +34,7 @@ export function AccountSettings({ api }: { api: DallianceApi }) {
     ) : account.waiting ? (
       "Finish signing in in your browser. It sends you back here when it's done."
     ) : (
-      'Sign in with GitHub or Google, in your browser.'
+      'Sign in with Google, in your browser.'
     )
 
   return (

@@ -101,7 +101,7 @@ Zero data retention is not a HIPAA business associate agreement.
 ## Security
 
 - **The app never picks a product or a destination.** `billing:checkout` takes a plan key, validated as a literal, and maps it to a product id from the deployment's environment. The success URL is built from `SITE_URL` on the server. The component's own `api()`, which takes product ids and URLs from the caller, isn't exported.
-- **Only a verified email can reach a Polar customer.** Polar links a new customer to an existing one with the same email, and so to that customer's portal. `billingUser()` refuses unverified emails when `POLAR_SERVER` is `production`. GitHub and Google sign-in give verified emails. Sandbox allows unverified ones, so the local password sign-in can test checkout.
+- **Only a verified email can reach a Polar customer.** Polar links a new customer to an existing one with the same email, and so to that customer's portal. `billingUser()` refuses unverified emails when `POLAR_SERVER` is `production`. Google sign-in gives verified emails. Sandbox allows unverified ones, so the local password sign-in can test checkout.
 - **Subscriptions only come from Polar.** Nothing the app sends can write one. Webhooks with a bad signature get 403, and with `POLAR_WEBHOOK_SECRET` unset every webhook fails.
 - **Each user sees only their own plan and usage.** `billing:status`, `billing:portal` and `usage:credits` read the user from the Convex JWT, never from arguments. `syncProducts` is internal, so only the CLI or the dashboard can run it.
 - **The Convex token stays in the main process**, like the session.

@@ -37,7 +37,7 @@ Pick or create the dev deployment when asked. That writes `packages/backend/.env
 
 3. Vercel builds the cloud site from `main`.
 
-Production variables differ from development ones: a production `BETTER_AUTH_SECRET`, `SITE_URL=https://cloud.dalliance.io`, Polar's production token, webhook secret and product ids, and `POLAR_SERVER=production`. The GitHub and Google OAuth apps need callback URLs on `cloud.dalliance.io`.
+Production variables differ from development ones: a production `BETTER_AUTH_SECRET`, `SITE_URL=https://cloud.dalliance.io`, Polar's production token, webhook secret and product ids, and `POLAR_SERVER=production`. The Google OAuth client needs its redirect URI on `cloud.dalliance.io`.
 
 ## The Vercel project
 
