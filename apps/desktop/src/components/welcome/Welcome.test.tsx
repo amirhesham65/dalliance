@@ -59,7 +59,7 @@ describe('Welcome', () => {
     render(<App />)
 
     await user.click(await screen.findByRole('button', { name: /Continue/ }))
-    expect(screen.getByText(/Sign in with Google/)).toBeInTheDocument()
+    expect(screen.getByText(/Sign in with your email/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
     expect(await screen.findByText(/Pro plan/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Continue/ })).toBeInTheDocument()

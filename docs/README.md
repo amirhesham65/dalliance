@@ -35,7 +35,7 @@ apps/desktop/         the Electron app, @dalliance/desktop
   src/                renderer: React 19, zustand, shadcn, Tailwind v4
 apps/web/             dalliance.io, Next.js 16, @dalliance/web
 apps/cloud/           cloud.dalliance.io, Next.js 16, @dalliance/cloud: sign-in, billing pages, the auth and model proxies
-packages/backend/     the Convex backend, @dalliance/backend: Better Auth, Polar billing, the usage ledger
+packages/backend/     the Convex backend, @dalliance/backend: Better Auth with email sign-in links, Polar billing, the usage ledger
 packages/shared/      types and pure functions every side imports, @dalliance/shared, including the Cloud contract
 packages/brand/       the web brand dalliance.io and the cloud site share, @dalliance/brand
 patches/              pnpm patches, applied through patchedDependencies in pnpm-workspace.yaml

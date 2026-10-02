@@ -20,7 +20,7 @@ async function billingUser(ctx: GenericCtx<DataModel>) {
   const user = await authComponent.safeGetAuthUser(ctx)
   if (!user) throw new ConvexError('Sign in to manage a plan.')
   // Polar links a new customer to an existing one with the same email, and so to its billing portal.
-  // Only a verified email may claim that. Sandbox allows the local password sign-in, which has no verification
+  // Only a verified email may claim that. Signing in by email link verifies every address; this guards the rest
   if (production && !user.emailVerified) throw new ConvexError('Verify your email before subscribing.')
   return { userId: user._id, email: user.email }
 }
