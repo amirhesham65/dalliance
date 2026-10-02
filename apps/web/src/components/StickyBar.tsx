@@ -1,7 +1,7 @@
 'use client'
 
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { gutter, sheet } from '@/lib/ui'
+import { gutter, sheet } from '@dalliance/brand/ui'
 
 /**
  * The top bar. It scrolls with the page until it reaches the top, then stays there. Once stuck, its rule

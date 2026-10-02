@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 import { authClient } from '@/lib/auth/client'
-import { support } from '@/lib/ui'
+import { support } from '@dalliance/brand/ui'
 
 /**
  * Hands the sign-in to the desktop app. The server left a short-lived code in a cookie. This opens the app's

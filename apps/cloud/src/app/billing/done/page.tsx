@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { SiteFooter, SiteHeader } from '@/components/Chrome'
 import { DESKTOP_SCHEME } from '@/lib/auth/client'
-import { buttonLarge, headline, labelMono, mastheadRuled, sheet, support } from '@/lib/ui'
+import { buttonLarge, headline, labelMono, mastheadRuled, sheet, support } from '@dalliance/brand/ui'
 
 export const metadata: Metadata = { title: 'Back to Dalliance', robots: { index: false, follow: false } }
 

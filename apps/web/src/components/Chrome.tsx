@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { site } from '@/lib/site'
-import { button, buttonLarge, gutter, label, sheet } from '@/lib/ui'
+import { button, buttonLarge, gutter, label, sheet } from '@dalliance/brand/ui'
 import { StickyBar } from './StickyBar'
 import { Wordmark } from './Wordmark'
 

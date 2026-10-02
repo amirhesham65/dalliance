@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { SiteFooter, SiteHeader } from '@/components/Chrome'
-import { buttonLarge, headline, labelMono, mastheadRuled, sheet, support } from '@/lib/ui'
+import { buttonLarge, headline, labelMono, mastheadRuled, sheet, support } from '@dalliance/brand/ui'
 
 export const metadata: Metadata = { title: 'Page not found', robots: { index: false } }
 

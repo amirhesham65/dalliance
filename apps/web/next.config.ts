@@ -1,6 +1,7 @@
 import type { NextConfig } from 'next'
 
 const config: NextConfig = {
+  transpilePackages: ['@dalliance/brand'],
   poweredByHeader: false,
   images: { formats: ['image/avif', 'image/webp'] },
   headers: async () => [

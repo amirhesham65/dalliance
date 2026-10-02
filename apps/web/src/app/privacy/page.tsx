@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { Band, SiteFooter, SiteHeader } from '@/components/Chrome'
 import { site } from '@/lib/site'
-import { headline, labelMono, mastheadRuled, sheet, support } from '@/lib/ui'
+import { headline, labelMono, mastheadRuled, sheet, support } from '@dalliance/brand/ui'
 
 const description = 'What this site counts, what Dalliance keeps on your Mac, and what it sends to your model provider.'
 

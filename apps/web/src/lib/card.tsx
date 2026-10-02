@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ImageResponse } from 'next/og'
-import { MARK_SQUARES } from './mark'
+import { MARK_SQUARES } from '@dalliance/brand/mark'
 import { site } from './site'
 
 export const cardSize = { width: 1200, height: 630 }

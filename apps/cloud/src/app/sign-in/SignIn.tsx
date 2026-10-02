@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { authClient } from '@/lib/auth/client'
 import type { SignInMethod } from '@/lib/auth/methods'
-import { buttonLarge, buttonQuiet, focusRing, label } from '@/lib/ui'
+import { buttonLarge, buttonQuiet, focusRing, label } from '@dalliance/brand/ui'
 
 /** What the desktop app sent: the PKCE challenge and state its main process holds the other half of. */
 export interface DesktopRequest {

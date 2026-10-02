@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { cookies } from 'next/headers'
 import { SiteFooter, SiteHeader } from '@/components/Chrome'
-import { headline, labelMono, mastheadRuled, sheet } from '@/lib/ui'
+import { headline, labelMono, mastheadRuled, sheet } from '@dalliance/brand/ui'
 import { Handoff } from './Handoff'
 
 export const metadata: Metadata = { title: 'Back to Dalliance', robots: { index: false, follow: false } }

@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter, JetBrains_Mono, Source_Serif_4 } from 'next/font/google'
-import { site } from '@/lib/site'
+import { brand } from '@dalliance/brand/brand'
 import './globals.css'
 
 // The app's three voices: Inter for the interface, Source Serif for the wordmark and headlines, JetBrains Mono for codes
@@ -9,8 +9,8 @@ const serif = Source_Serif_4({ subsets: ['latin'], variable: '--font-source-seri
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-jetbrains-mono', display: 'swap' })
 
 export const metadata: Metadata = {
-  title: { default: site.name, template: `%s · ${site.name}` },
-  applicationName: site.name,
+  title: { default: brand.name, template: `%s · ${brand.name}` },
+  applicationName: brand.name,
   robots: { index: false, follow: false },
   formatDetection: { telephone: false, email: false, address: false },
 }
@@ -21,8 +21,8 @@ export const viewport: Viewport = {
   viewportFit: 'cover',
   colorScheme: 'light dark',
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: site.paper.light },
-    { media: '(prefers-color-scheme: dark)', color: site.paper.dark },
+    { media: '(prefers-color-scheme: light)', color: brand.paper.light },
+    { media: '(prefers-color-scheme: dark)', color: brand.paper.dark },
   ],
 }
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { type ImgHTMLAttributes, useEffect, useRef, useState } from 'react'
-import { focusRing, label } from '@/lib/ui'
+import { focusRing, label } from '@dalliance/brand/ui'
 
 export type Frame = {
   label: string

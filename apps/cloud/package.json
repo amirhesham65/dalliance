@@ -13,6 +13,7 @@
     "lint": "oxlint -c ../../.oxlintrc.json"
   },
   "dependencies": {
+    "@dalliance/brand": "workspace:*",
     "@better-auth/electron": "catalog:",
     "@better-auth/utils": "catalog:",
     "@better-fetch/fetch": "catalog:",

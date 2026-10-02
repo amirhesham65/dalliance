@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { SiteFooter, SiteHeader } from '@/components/Chrome'
 import { signInMethods } from '@/lib/auth/methods'
-import { headline, labelMono, mastheadRuled, sheet, support } from '@/lib/ui'
+import { headline, labelMono, mastheadRuled, sheet, support } from '@dalliance/brand/ui'
 import { SignIn, type DesktopRequest } from './SignIn'
 
 export const metadata: Metadata = { title: 'Sign in', robots: { index: false, follow: false } }

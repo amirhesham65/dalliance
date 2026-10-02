@@ -1,5 +1,5 @@
 import { ImageResponse } from 'next/og'
-import { MARK_SQUARES } from '@/lib/mark'
+import { MARK_SQUARES } from '@dalliance/brand/mark'
 
 export const size = { width: 180, height: 180 }
 export const contentType = 'image/png'
