@@ -1,19 +1,12 @@
-/**
- * The Cloud switch. Builds made with DALLIANCE_CLOUD_URL set offer Dalliance Cloud: an account, a plan and hosted
- * models. Builds without it, like a fork's, are the open source app on the user's own key, and none of the code in
- * electron/cloud/ runs. See docs/cloud.md.
- */
-declare const __DALLIANCE_CLOUD_URL__: string
+import { DESKTOP_SCHEME, SIGN_IN_CALLBACK } from '@dalliance/shared/cloud'
 
-/** Must match DESKTOP_SCHEME in the dalliance-cloud repo. The sign-in page sends the browser back on it. */
-export const DESKTOP_SCHEME = 'io.dalliance.app'
+/** Dalliance Cloud: the account, the plan and the models. See docs/cloud.md. */
+const PRODUCTION = 'https://cloud.dalliance.io'
 
-/** Dalliance Cloud's origin, like `https://cloud.dalliance.io`, or null when this build has none. */
-export function cloudUrl(packaged: boolean): string | null {
-  // Development builds can point at a local copy of the service
+/** Dalliance Cloud's origin. Development builds can point at a local copy of the service with DALLIANCE_CLOUD_URL. */
+export function cloudUrl(packaged: boolean): string {
   const override = packaged ? undefined : process.env.DALLIANCE_CLOUD_URL?.trim()
-  const url = override || __DALLIANCE_CLOUD_URL__
-  return url ? url.replace(/\/$/, '') : null
+  return (override || PRODUCTION).replace(/\/$/, '')
 }
 
 /** What the service tells the app about itself, from /api/config. */
@@ -43,7 +36,7 @@ export function signInCode(link: string): string | null {
     return null
   }
   // The plugin reads the host as the first path segment, so only this exact form counts
-  if (url.protocol !== `${DESKTOP_SCHEME}:` || url.hostname !== 'auth' || url.pathname !== '/callback') return null
+  if (`${url.protocol}//${url.hostname}${url.pathname}` !== SIGN_IN_CALLBACK) return null
   const code = url.hash.startsWith('#token=') ? url.hash.slice(7) : ''
   return code || null
 }

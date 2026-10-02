@@ -14,7 +14,6 @@
     "lint": "oxlint -c ../../.oxlintrc.json"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.65",
     "@ai-sdk/gateway": "^4.0.96",
     "@better-auth/electron": "catalog:",
     "@better-auth/utils": "catalog:",

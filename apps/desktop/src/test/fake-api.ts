@@ -35,16 +35,14 @@ export function fakeApi(onRun: RunHandler) {
     onKernelState: () => () => {},
     getSettings: async () => fakeSettings(),
     listModels: async () => ({
-      provider: 'gateway',
       models: [
-        { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', maker: 'Anthropic', price: '$2 / $10' },
-        { id: 'anthropic/claude-opus-5', name: 'Claude Opus 5', maker: 'Anthropic', price: '$5 / $25' },
-        { id: 'openai/gpt-5.2', name: 'GPT-5.2', maker: 'OpenAI', price: '$1.75 / $14' },
-        { id: 'google/gemini-3-pro', name: 'Gemini 3 Pro', maker: 'Google', price: '$2 / $12' },
+        { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', maker: 'Anthropic' },
+        { id: 'anthropic/claude-opus-5', name: 'Claude Opus 5', maker: 'Anthropic' },
+        { id: 'openai/gpt-5.2', name: 'GPT-5.2', maker: 'OpenAI' },
+        { id: 'google/gemini-3-pro', name: 'Gemini 3 Pro', maker: 'Google' },
       ],
       error: null,
     }),
-    checkKey: async () => ({ status: 'ok', detail: '$5.00 in credits' }),
     updateSettings: async () => {
       throw new Error('not used')
     },
@@ -69,14 +67,14 @@ export function fakeApi(onRun: RunHandler) {
     saveDraft: () => {},
     setDocumentState: () => {},
     onMenu: () => () => {},
-    getAccount: async () => SIGNED_OUT,
-    signIn: async () => SIGNED_OUT,
-    redeemSignInCode: async () => SIGNED_OUT,
+    getAccount: async () => SIGNED_IN,
+    signIn: async () => SIGNED_IN,
+    redeemSignInCode: async () => SIGNED_IN,
     signOut: async () => SIGNED_OUT,
     onAccount: () => () => {},
-    getBilling: async () => NO_BILLING,
-    startCheckout: async () => NO_BILLING,
-    openBillingPortal: async () => NO_BILLING,
+    getBilling: async () => ON_PLAN,
+    startCheckout: async () => ON_PLAN,
+    openBillingPortal: async () => ON_PLAN,
     onBilling: () => () => {},
     countCredits: async () => null,
   }
@@ -85,7 +83,6 @@ export function fakeApi(onRun: RunHandler) {
 
 export function fakeSettings(): SettingsView {
   return {
-    provider: 'gateway',
     model: 'anthropic/claude-sonnet-5.5',
     effort: 'medium',
     pythonPath: null,
@@ -94,15 +91,20 @@ export function fakeSettings(): SettingsView {
     suggestNext: true,
     showCosts: false,
     onboarded: true,
-    keySource: 'environment',
-    hasKey: { gateway: true, anthropic: false },
-    cloud: false,
   }
 }
 
-/** What a build without Dalliance Cloud answers. */
-const SIGNED_OUT: AccountView = { user: null, checking: false, waiting: false, error: null }
-const NO_BILLING: BillingView = { available: false, plans: [], subscription: null, usage: null, loading: false, checkingOut: false, error: null }
+/** Signed in on the Pro plan, so prompts can run. Tests of the signed-out app replace these. */
+export const SIGNED_IN: AccountView = { user: { name: 'Ada Lovelace', email: 'ada@example.com' }, checking: false, waiting: false, error: null }
+export const SIGNED_OUT: AccountView = { user: null, checking: false, waiting: false, error: null }
+export const ON_PLAN: BillingView = {
+  plans: [{ key: 'pro', name: 'Pro', description: null, price: '$20 / month', credits: 2000 }],
+  subscription: { key: 'pro', name: 'Pro', status: 'active', price: '$20 / month', currentPeriodEnd: '2026-11-01T00:00:00.000Z', cancelAtPeriodEnd: false },
+  usage: { spentCredits: 120, planCredits: 2000 },
+  loading: false,
+  checkingOut: false,
+  error: null,
+}
 
 export function result(overrides: Partial<CellRunResult> = {}): CellRunResult {
   return {

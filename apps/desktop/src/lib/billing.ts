@@ -1,4 +1,5 @@
-import type { BillingView, SubscriptionView } from '@dalliance/shared/ipc'
+import type { SubscriptionView } from '@dalliance/shared/cloud'
+import type { BillingView } from '@dalliance/shared/ipc'
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })
 

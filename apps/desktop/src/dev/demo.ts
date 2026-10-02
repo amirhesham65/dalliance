@@ -2,8 +2,8 @@
  * A pretend desktop bridge for looking at the UI in a plain browser: open the renderer with ?demo.
  * Nothing here runs inside Electron, where window.dalliance is the real bridge.
  */
-import { fakeApi, fakeSettings, provenance, result } from '@/test/fake-api'
-import type { PythonState, RunEvent } from '@dalliance/shared/ipc'
+import { ON_PLAN, SIGNED_IN, SIGNED_OUT, fakeApi, fakeSettings, provenance, result } from '@/test/fake-api'
+import type { AccountView, BillingView, PythonState, RunEvent } from '@dalliance/shared/ipc'
 import { type Notebook, type Output, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
 
@@ -240,22 +240,38 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
     { name: 'summary', type: 'DataFrame', shape: '2 × 5', detail: 'arm, patients, deaths, median_months, survival_24m' },
   ]
   let settings = fakeSettings()
-  if (mode === 'setup') settings = { ...settings, onboarded: false, keySource: null, hasKey: { gateway: false, anthropic: false } }
+  if (mode === 'setup') settings = { ...settings, onboarded: false }
   api.getSettings = async () => settings
-  // Any key works in the demo, except one with "bad" in it
-  api.checkKey = async (provider, key) => {
-    await wait(500)
-    if (key.includes('bad')) return { status: 'rejected', detail: 'The provider turned this key down. Check that you copied all of it.' }
-    return { status: 'ok', detail: provider === 'gateway' ? '$5.00 in credits' : null }
-  }
-  // Like the real store, switching provider swaps a default model name for the other provider's
-  const defaults = { gateway: 'anthropic/claude-sonnet-5.5', anthropic: 'claude-sonnet-5-5', cloud: 'anthropic/claude-sonnet-5.5' }
-  api.updateSettings = async ({ apiKey, ...rest }) => {
-    const model = rest.provider && rest.provider !== settings.provider && settings.model === defaults[settings.provider] ? defaults[rest.provider] : settings.model
-    settings = { ...settings, model, ...rest }
-    if (apiKey) settings.hasKey = { ...settings.hasKey, [apiKey.provider]: apiKey.key.trim() !== '' }
-    settings.keySource = settings.provider !== 'cloud' && settings.hasKey[settings.provider] ? 'settings' : null
+  api.updateSettings = async (update) => {
+    settings = { ...settings, ...update }
     return settings
+  }
+  // A first launch is signed out. Signing in takes a moment, as the browser round trip would, and lands on a plan
+  if (mode === 'setup') {
+    let account: AccountView = SIGNED_OUT
+    let billing: BillingView = { ...ON_PLAN, subscription: null, usage: null }
+    const accounts = new Set<(a: AccountView) => void>()
+    const billings = new Set<(b: BillingView) => void>()
+    api.getAccount = async () => account
+    api.getBilling = async () => billing
+    api.onAccount = (l) => {
+      accounts.add(l)
+      return () => accounts.delete(l)
+    }
+    api.onBilling = (l) => {
+      billings.add(l)
+      return () => billings.delete(l)
+    }
+    api.signIn = async () => {
+      account = { ...SIGNED_OUT, waiting: true }
+      setTimeout(() => {
+        account = SIGNED_IN
+        billing = ON_PLAN
+        accounts.forEach((l) => l(account))
+        billings.forEach((l) => l(billing))
+      }, 900)
+      return account
+    }
   }
   // A first launch finds no Python; setting one up streams a few lines and succeeds
   let python: PythonState = mode === 'setup' ? { python: null, version: null, source: null, managedEnvExists: false, missingPackages: [] } : { python: '/usr/bin/python3', version: '3.12.4', source: 'system', managedEnvExists: false, missingPackages: [] }
@@ -276,20 +292,19 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
   if (mode === 'setup') api.recentNotebooks = async () => []
   // A spread of makers like the gateway's, one of them without a logo
   api.listModels = async () => ({
-    provider: 'gateway',
     error: null,
     models: [
-      { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', maker: 'Anthropic', price: '$2 / $10' },
-      { id: 'anthropic/claude-opus-5', name: 'Claude Opus 5', maker: 'Anthropic', price: '$5 / $25' },
-      { id: 'openai/gpt-6', name: 'GPT-6', maker: 'OpenAI', price: '$2.50 / $15' },
-      { id: 'openai/gpt-6-luna', name: 'GPT-6 Luna', maker: 'OpenAI', price: '$0.20 / $1.20' },
-      { id: 'google/gemini-3-pro', name: 'Gemini 3 Pro', maker: 'Google', price: '$2 / $12' },
-      { id: 'spacexai/grok-4.20-non-reasoning', name: 'Grok 4.20', maker: 'xAI', price: '$3 / $15' },
-      { id: 'deepseek/deepseek-v4', name: 'DeepSeek V4', maker: 'DeepSeek', price: '$0.28 / $0.42' },
-      { id: 'mistral/mistral-large-3', name: 'Mistral Large 3', maker: 'Mistral', price: '$0.50 / $1.50' },
-      { id: 'moonshotai/kimi-k3', name: 'Kimi K3', maker: 'Moonshot AI', price: '$0.60 / $2.50' },
-      { id: 'zai/glm-5', name: 'GLM 5', maker: 'Z.ai', price: '$0.60 / $2.20' },
-      { id: 'thinkingmachines/inkling', name: 'Inkling', maker: 'Thinking Machines', price: '$1 / $4' },
+      { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', maker: 'Anthropic' },
+      { id: 'anthropic/claude-opus-5', name: 'Claude Opus 5', maker: 'Anthropic' },
+      { id: 'openai/gpt-6', name: 'GPT-6', maker: 'OpenAI' },
+      { id: 'openai/gpt-6-luna', name: 'GPT-6 Luna', maker: 'OpenAI' },
+      { id: 'google/gemini-3-pro', name: 'Gemini 3 Pro', maker: 'Google' },
+      { id: 'spacexai/grok-4.20-non-reasoning', name: 'Grok 4.20', maker: 'xAI' },
+      { id: 'deepseek/deepseek-v4', name: 'DeepSeek V4', maker: 'DeepSeek' },
+      { id: 'mistral/mistral-large-3', name: 'Mistral Large 3', maker: 'Mistral' },
+      { id: 'moonshotai/kimi-k3', name: 'Kimi K3', maker: 'Moonshot AI' },
+      { id: 'zai/glm-5', name: 'GLM 5', maker: 'Z.ai' },
+      { id: 'thinkingmachines/inkling', name: 'Inkling', maker: 'Thinking Machines' },
     ],
   })
   setApi(api)

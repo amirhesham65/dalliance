@@ -2,12 +2,10 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
+import { DESKTOP_SCHEME } from '@dalliance/shared/cloud'
 import {
-  type AccountView,
-  type BillingView,
   type DraftState,
   IPC,
-  type KeyProvider,
   type MenuAction,
   type OpenedNotebook,
   type RenameResult,
@@ -21,26 +19,25 @@ import type { Notebook } from '@dalliance/shared/notebook'
 import { writeFileAtomic } from './atomic-write'
 import { Account } from './cloud/account'
 import { Billing } from './cloud/billing'
-import { type CloudConfig, DESKTOP_SCHEME, cloudUrl, deepLinkFromArgv, fetchCloudConfig } from './cloud/config'
-import { checkKey, listModels } from './harness/model'
+import { type CloudConfig, cloudUrl, deepLinkFromArgv, fetchCloudConfig } from './cloud/config'
+import { listModels } from './harness/model'
 import { DraftStore } from './draft'
 import { type AppPage, isTrustedSender } from './ipc-sender'
 import { buildMenu } from './menu'
 import { folderForNewNotebook, newNotebookPath, notebookPathIn, renameNotebookFile } from './notebook-files'
 import { OpenQueue, notebookFromArgv } from './open-files'
 import { NotebookSession } from './session'
-import { ENV_KEYS, SettingsStore } from './settings'
-import { readShellEnv } from './shell-env'
+import { SettingsStore } from './settings'
 
 const isMac = process.platform === 'darwin'
 const TITLE_BAR_HEIGHT = 48
 
 // One copy of the app at a time. A second launch hands its command line to this one through 'second-instance'
-// and quits without reading shell keys or registering anything.
+// and exits at once, before it reads settings or signs in to anything.
 const primary = app.requestSingleInstanceLock()
-if (!primary) app.quit()
+if (!primary) app.exit(0)
 
-// In development, read keys from .env in the project folder
+// In development, read .env in the project folder, which can point the app at a local Dalliance Cloud
 const envFile = path.join(app.getAppPath(), '.env')
 if (!app.isPackaged && existsSync(envFile)) process.loadEnvFile(envFile)
 
@@ -50,37 +47,31 @@ let allowClose = false
 // Set when the close dialog chose Save: once the save lands, the window closes
 let allowCloseAfterSave = false
 
-const settings = new SettingsStore(app.getPath('userData'))
-// Keys exported in the user's shell profile. Settings wait for this, so the first view already counts them.
-const shellKeys = primary ? readShellEnv(Object.values(ENV_KEYS)).then((env) => settings.useShellKeys(env)) : Promise.resolve()
+// Dalliance Cloud: the account, the plan and the models. See docs/cloud.md
+const cloud = cloudUrl(app.isPackaged)
+const account = new Account({ userData: app.getPath('userData'), cloud, getWindow: () => win })
+let cloudConfig: Promise<CloudConfig> | null = null
+const billing = new Billing({
+  // Asked once and kept. A failure is forgotten, so the next attempt asks again
+  convexUrl: async () => {
+    cloudConfig ??= fetchCloudConfig(cloud).catch((err: unknown) => {
+      cloudConfig = null
+      throw err
+    })
+    return (await cloudConfig).convexUrl
+  },
+  token: () => account.convexToken(),
+  open: (url) => shell.openExternal(url),
+})
+const settings = new SettingsStore(app.getPath('userData'), {
+  baseURL: `${cloud}/api/ai`,
+  signedIn: () => account.signedIn,
+  token: () => account.convexToken(),
+})
 const drafts = new DraftStore(app.getPath('userData'))
 // Unsaved notebooks run in their own folder, never in all of Documents
 const defaultWorkspace = path.join(app.getPath('documents'), 'Dalliance Notebooks')
 mkdirSync(defaultWorkspace, { recursive: true })
-// Dalliance Cloud: the account, the plan and hosted models, in builds made with a Cloud URL. Without one, like a
-// fork's build, none of it runs and models use the user's own key. See docs/cloud.md
-const cloud = primary ? cloudUrl(app.isPackaged) : null
-const account = cloud ? new Account({ userData: app.getPath('userData'), cloud, getWindow: () => win }) : null
-let cloudConfig: Promise<CloudConfig> | null = null
-const billing =
-  cloud && account
-    ? new Billing({
-        // Asked once and kept. A failure is forgotten, so the next attempt asks again
-        convexUrl: async () => {
-          cloudConfig ??= fetchCloudConfig(cloud).catch((err: unknown) => {
-            cloudConfig = null
-            throw err
-          })
-          return (await cloudConfig).convexUrl
-        },
-        token: () => account.convexToken(),
-        open: (url) => shell.openExternal(url),
-      })
-    : null
-if (cloud && account) settings.setCloud({ baseURL: `${cloud}/api/ai`, signedIn: () => account.signedIn, token: () => account.convexToken() })
-
-const SIGNED_OUT: AccountView = { user: null, checking: false, waiting: false, error: null }
-const NO_BILLING: BillingView = { available: false, plans: [], subscription: null, usage: null, loading: false, checkingOut: false, error: null }
 
 const session = new NotebookSession({
   settings,
@@ -239,10 +230,9 @@ function showWindow() {
 
 /**
  * A link on the app's scheme, from the browser. A sign-in link redeems its code; `io.dalliance.app://billing`,
- * from the page after checkout, only brings the app forward. Builds without Dalliance Cloud ignore them all.
+ * from the page after checkout, only brings the app forward.
  */
 function openLink(link: string) {
-  if (!account) return
   account.handleLink(link)
   showWindow()
 }
@@ -291,18 +281,8 @@ function registerIpc() {
   handle(IPC.kernelState, () => session.kernelState())
   handle(IPC.listVariables, () => session.variables())
   handle(IPC.listPackages, () => session.environment())
-  handle(IPC.getSettings, async () => {
-    await shellKeys
-    return settings.view()
-  })
-  handle(IPC.listModels, async () => {
-    await shellKeys
-    return listModels(settings.modelConfig())
-  })
-  handle(IPC.checkKey, (_e, provider: KeyProvider, key: string) => {
-    if ((provider !== 'gateway' && provider !== 'anthropic') || typeof key !== 'string') throw new Error('Not a provider that takes a key.')
-    return checkKey(provider, key)
-  })
+  handle(IPC.getSettings, () => settings.view())
+  handle(IPC.listModels, () => listModels(settings.modelConfig().cloud))
   handle(IPC.updateSettings, async (_e, update: SettingsUpdate) => {
     const pythonChanged = update.pythonPath !== undefined && update.pythonPath !== settings.pythonPath
     const view = settings.update(update)
@@ -488,23 +468,22 @@ function registerIpc() {
     updateTitle()
   })
 
-  // Dalliance Cloud. Builds without it answer signed out, with billing unavailable
-  handle(IPC.getAccount, () => account?.current ?? SIGNED_OUT)
-  handle(IPC.signIn, () => account?.signIn() ?? SIGNED_OUT)
-  handle(IPC.redeemSignInCode, (_e, code: string) => (account && typeof code === 'string' ? account.redeem(code) : (account?.current ?? SIGNED_OUT)))
-  handle(IPC.signOut, () => account?.signOut() ?? SIGNED_OUT)
-  handle(IPC.getBilling, () => billing?.current ?? NO_BILLING)
-  handle(IPC.startCheckout, (_e, plan: string) => (billing && plan === 'pro' ? billing.checkout(plan) : (billing?.current ?? NO_BILLING)))
-  handle(IPC.openBillingPortal, () => billing?.portal() ?? NO_BILLING)
+  // Dalliance Cloud
+  handle(IPC.getAccount, () => account.current)
+  handle(IPC.signIn, () => account.signIn())
+  handle(IPC.redeemSignInCode, (_e, code: string) => (typeof code === 'string' ? account.redeem(code) : account.current))
+  handle(IPC.signOut, () => account.signOut())
+  handle(IPC.getBilling, () => billing.current)
+  handle(IPC.startCheckout, (_e, plan: string) => (plan === 'pro' ? billing.checkout(plan) : billing.current))
+  handle(IPC.openBillingPortal, () => billing.portal())
   handle(IPC.countCredits, (_e, ids: unknown) => {
     const generationIds = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []
-    return billing ? billing.credits(generationIds) : null
+    return billing.credits(generationIds)
   })
 }
 
 /** Sends account and plan changes to the page, and keeps the plan following the account. */
 function watchCloud() {
-  if (!account || !billing) return
   const send = (channel: string, view: unknown) => {
     if (win && !win.isDestroyed()) win.webContents.send(channel, view)
   }
@@ -543,16 +522,14 @@ if (primary) {
   const launchFile = notebookFromArgv(process.argv, process.cwd())
   if (launchFile) opens.request(launchFile)
 
-  if (account) {
-    // macOS sends links here, at launch before 'ready' too
-    app.on('open-url', (event, url) => {
-      event.preventDefault()
-      void app.whenReady().then(() => openLink(url))
-    })
-    registerScheme()
-    const launchLink = deepLinkFromArgv(process.argv)
-    if (launchLink) void app.whenReady().then(() => openLink(launchLink))
-  }
+  // macOS sends links here, at launch before 'ready' too
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    void app.whenReady().then(() => openLink(url))
+  })
+  registerScheme()
+  const launchLink = deepLinkFromArgv(process.argv)
+  if (launchLink) void app.whenReady().then(() => openLink(launchLink))
 
   void app.whenReady().then(() => {
     registerIpc()
@@ -576,7 +553,7 @@ if (primary) {
   // Not in before-quit: the close dialog can still cancel the quit, and the notebook would stay open with a dead kernel
   app.on('will-quit', () => {
     drafts.flush()
-    billing?.close()
+    billing.close()
     void session.shutdown()
   })
 }

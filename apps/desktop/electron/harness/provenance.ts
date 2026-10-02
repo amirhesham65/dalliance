@@ -155,7 +155,7 @@ export function buildProvenance(input: ProvenanceInput): Provenance {
     madeAt: (input.now ?? new Date()).toISOString(),
     model: input.model,
     effort: input.effort,
-    steps: input.steps.map((s) => ({ step: s.step, model: s.modelId, fallback: s.fallback })),
+    steps: input.steps.map((s) => ({ step: s.step, model: s.modelId })),
     rationale: statedRationale(input.steps, input.interpretation, input.answer),
     attemptCount: attempts.length,
     attempts,

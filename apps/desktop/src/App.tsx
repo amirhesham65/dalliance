@@ -17,7 +17,7 @@ import { useMediaQuery } from '@/hooks/use-media-query'
 import { useDefaultLayout } from 'react-resizable-panels'
 import type { MenuAction } from '@dalliance/shared/ipc'
 import { PANE_ORDER, actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
-import { modelReady } from '@/lib/keys'
+import { signedIn } from '@/lib/cloud'
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => readStored('dalliance-sidebar') !== 'closed')
@@ -164,13 +164,10 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [sidebarOpen])
 
-  // Dalliance Cloud takes no key, so it needs a signed-in account instead
-  const needsKey = settings != null && !modelReady(settings, account)
+  const needsSignIn = settings != null && !signedIn(account)
   const needsPython = python != null && (!python.python || python.missingPackages.length > 0)
-  const banner = needsKey
-    ? settings.provider === 'cloud'
-      ? 'Sign in to Dalliance to run prompts.'
-      : 'Add an API key to turn prompts into code.'
+  const banner = needsSignIn
+    ? 'Sign in to Dalliance to run prompts.'
     : needsPython
       ? !python?.python
         ? 'Python is not set up yet.'
@@ -195,7 +192,7 @@ export default function App() {
                 {banner && banner !== dismissedBanner && (
                   <div className="mx-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-background py-2 pr-2 pl-4 text-[13px] shadow-pane">
                     <span className="text-muted-foreground">{banner}</span>
-                    <Button size="xs" variant="secondary" onClick={() => actions.openSettings(needsKey ? 'models' : 'python')}>
+                    <Button size="xs" variant="secondary" onClick={() => actions.openSettings(needsSignIn ? 'account' : 'python')}>
                       Open Settings
                     </Button>
                     <IconButton label="Dismiss notice" size="icon-xs" className="ml-auto" onClick={() => setDismissedBanner(banner)}>

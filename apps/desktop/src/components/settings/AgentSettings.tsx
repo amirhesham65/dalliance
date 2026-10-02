@@ -35,7 +35,7 @@ export function AgentSettings({ api, settings }: { api: DallianceApi; settings: 
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="model">Short titles from {settings.provider === 'gateway' ? 'GPT-6 Luna' : 'Claude Haiku 4.5'}</SelectItem>
+              <SelectItem value="model">Short titles from GPT-6 Luna</SelectItem>
               <SelectItem value="prompt">The prompt itself</SelectItem>
             </SelectContent>
           </Select>

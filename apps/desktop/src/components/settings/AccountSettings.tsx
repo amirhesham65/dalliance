@@ -9,7 +9,7 @@ import { useNotebook } from '@/store/notebook-store'
 import { Group, Note, Row, SectionHeading } from './parts'
 
 /**
- * The Dalliance account and its plan, in builds with Dalliance Cloud. The session and the connection to the service
+ * The Dalliance account and its plan. The session and the connection to Dalliance Cloud
  * live in the main process; this only shows who is signed in and what the plan has left.
  */
 export function AccountSettings({ api }: { api: DallianceApi }) {
@@ -40,7 +40,7 @@ export function AccountSettings({ api }: { api: DallianceApi }) {
   return (
     <>
       <SectionHeading title="Account">
-        Your Dalliance account runs models on your plan, without an API key of your own. Notebooks and data stay on this computer.
+        Your Dalliance account runs models on your plan. Notebooks and data stay on this computer, and every model call runs with zero data retention.
       </SectionHeading>
       <Group label="Account">
         <Row label="Dalliance account" description={status}>

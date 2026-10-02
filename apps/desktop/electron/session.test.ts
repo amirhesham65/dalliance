@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test'
 import type { WebContents } from 'electron'
 import { IPC, type KernelState } from '@dalliance/shared/ipc'
@@ -14,18 +14,9 @@ import { NotebookSession } from './session'
 import type { SettingsStore } from './settings'
 
 // Only the sessions below that don't pass launchKernel reach these: the real launcher with a fake Python
-const python = vi.hoisted(() => ({
-  source: 'managed' as 'managed' | 'system',
-  topUp: async (_envDir: string, _onLog: (line: string) => void): Promise<string[]> => [],
-  topUps: [] as string[],
-}))
 vi.mock('./kernel/python-env', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./kernel/python-env')>()),
-  pythonStatus: async () => ({ python: '/py/bin/python', version: '3.12.0', source: python.source, managedEnvExists: true, missingPackages: [] }),
-  installMissingBasePackages: (envDir: string, onLog: (line: string) => void) => {
-    python.topUps.push(envDir)
-    return python.topUp(envDir, onLog)
-  },
+  pythonStatus: async () => ({ python: '/py/bin/python', version: '3.12.0', source: 'managed', managedEnvExists: true, missingPackages: [] }),
 }))
 vi.mock('./kernel/python-kernel', async () => {
   const { FakeKernel } = await import('./kernel/fake-kernel')
@@ -212,65 +203,6 @@ describe('NotebookSession environment', () => {
   })
 })
 
-describe('base packages in an older managed environment', () => {
-  const userData = () => mkdtempSync(path.join(tmpdir(), 'dalliance-session-'))
-  const start = (s: NotebookSession) => (s as unknown as { ensureKernel(): Promise<unknown> }).ensureKernel()
-  function realSession(dir: string) {
-    const logs: string[] = []
-    const s = new NotebookSession({
-      settings: { pythonPath: null } as unknown as SettingsStore,
-      userData: dir,
-      defaultWorkspace: '/default',
-      send: (channel, line) => {
-        if (channel === IPC.pythonLog) logs.push(line as string)
-      },
-    })
-    return { s, logs }
-  }
-
-  beforeEach(() => {
-    python.source = 'managed'
-    python.topUp = async () => []
-    python.topUps = []
-  })
-
-  it('installs what is missing once, without holding up the kernel, and logs to python-log', async () => {
-    let finish!: () => void
-    python.topUp = (_envDir, onLog) => {
-      onLog('Installing scipy, seaborn')
-      return new Promise((resolve) => (finish = () => resolve(['scipy', 'seaborn'])))
-    }
-    const dir = userData()
-    const { s, logs } = realSession(dir)
-    // The kernel is ready while pip is still going
-    await start(s)
-    expect(python.topUps).toEqual([path.join(dir, 'python-env')])
-    expect(logs).toEqual(['Installing scipy, seaborn'])
-
-    await s.restart()
-    await start(s)
-    expect(python.topUps).toHaveLength(1)
-    finish()
-  })
-
-  it('leaves a Python that is not the managed environment alone', async () => {
-    python.source = 'system'
-    const { s } = realSession(userData())
-    await start(s)
-    expect(python.topUps).toEqual([])
-  })
-
-  it('ignores a failed install', async () => {
-    python.topUp = async () => {
-      throw new Error('pip failed')
-    }
-    const { s } = realSession(userData())
-    await expect(start(s)).resolves.toBeDefined()
-    await tick()
-    expect(python.topUps).toHaveLength(1)
-  })
-})
-
 describe('what a run cost', () => {
   // One model call that finishes the cell: 1,000 input tokens, 800 of them read from the cache, and 100 out
   const finishing = () =>
@@ -296,7 +228,7 @@ describe('what a run cost', () => {
       settings: {
         workspaceDir: null,
         setWorkspaceDir: () => {},
-        modelConfig: () => ({ provider: 'anthropic', model: 'claude-haiku-4-5', effort: 'medium', apiKey: 'k', cloud: null }),
+        modelConfig: () => ({ model: 'anthropic/claude-haiku-4.5', effort: 'medium', cloud: { baseURL: 'https://cloud.example/api/ai', signedIn: () => true, token: async () => 'jwt' } }),
         showCosts,
         autoTitles: false,
         suggestNext: true,
@@ -311,18 +243,16 @@ describe('what a run cost', () => {
     return s.runCell({ cellId: 'c1', prompt: 'Nothing', code: '', generate: true, corrections: [], previousCells: [] }, contents)
   }
 
-  it('prices the run with Show costs on', async () => {
+  it("names the run's calls for Show costs", async () => {
     const result = await run(true)
     expect(result.steps[0].usage).toMatchObject({ inputTokens: 1000, cacheReadTokens: 800, outputTokens: 100 })
-    // Haiku 4.5: 200 fresh at $1, 800 cached at $0.10 and 100 out at $5 a million
-    expect(result.cost).toMatchObject({ unit: 'usd', unpricedTokens: 0 })
-    expect(result.cost?.unit === 'usd' && result.cost.usd).toBeCloseTo(0.0002 + 0.00008 + 0.0005, 10)
+    expect(result.cost).toEqual({ generationIds: [], tokens: 1100 })
   })
 
-  it('prices the run with Show costs off too, so turning it on later shows it', async () => {
+  it('counts the run with Show costs off too, so turning it on later shows it', async () => {
     const result = await run(false)
     expect(result.ok).toBe(true)
-    expect(result.cost).toMatchObject({ unit: 'usd', unpricedTokens: 0 })
+    expect(result.cost).toEqual({ generationIds: [], tokens: 1100 })
   })
 })
 

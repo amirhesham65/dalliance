@@ -29,9 +29,6 @@ const PIP_SPECS: Record<string, string> = { ipython: 'ipython>=8,<10' }
 /** What pip installs for a base package: its name, with a version range if it has one. */
 export const pipSpec = (name: string) => PIP_SPECS[name] ?? name
 
-/** Import names for the base packages whose pip name differs. */
-const IMPORT_NAMES: Record<string, string> = { 'scikit-learn': 'sklearn', ipython: 'IPython' }
-
 export interface PythonStatus {
   /** The interpreter the kernel will use, or null if none was found. */
   python: string | null
@@ -249,27 +246,6 @@ export async function setupManagedEnv(envDir: string, onLog: (line: string) => v
   }
   await installPackages(python, BASE_PACKAGES.map(pipSpec), onLog)
   return python
-}
-
-/**
- * Which of `BASE_PACKAGES` the managed environment lacks, as pip names. Environments made
- * before the list grew only have the required three. Empty when there's no environment.
- */
-export async function missingBasePackages(envDir: string, exec: Exec = realExec): Promise<string[]> {
-  const python = managedPython(envDir)
-  if (!existsSync(python)) return []
-  const missing = await missingPackages(python, BASE_PACKAGES.map((name) => IMPORT_NAMES[name] ?? name), exec)
-  return BASE_PACKAGES.filter((name) => missing.includes(IMPORT_NAMES[name] ?? name))
-}
-
-/**
- * Install whatever `BASE_PACKAGES` the managed environment lacks, and resolve with their pip
- * names. Does nothing, and resolves empty, when there's no environment or nothing is missing.
- */
-export async function installMissingBasePackages(envDir: string, onLog: (line: string) => void, exec: Exec = realExec): Promise<string[]> {
-  const missing = await missingBasePackages(envDir, exec)
-  if (missing.length) await installPackages(managedPython(envDir), missing.map(pipSpec), onLog)
-  return missing
 }
 
 /**

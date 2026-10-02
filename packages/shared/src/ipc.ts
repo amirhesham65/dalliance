@@ -1,3 +1,4 @@
+import type { PlanKey, PlanOption, PlanUsage, SubscriptionView } from './cloud'
 import type { Correction, CreatedVariable, Notebook, Output, Pins, Provenance } from './notebook'
 
 /** One line in a cell's activity log: what the agent did while writing the cell. */
@@ -43,15 +44,13 @@ export interface RunCellRequest {
 export interface RunStep {
   /** Which model call of the run, from 1. */
   step: number
-  /** The model that answered. It can differ from the chosen one, after a fallback. */
+  /** The model that answered, as the provider named it. */
   modelId: string | null
-  /** Whether the chosen model declined the call and a fallback model answered it instead. */
-  fallback: boolean
   /** The model's reasoning summary for this call. Null when it returned none, never left out. */
   reasoning: string | null
   /** The tokens the call used. */
   usage: StepUsage
-  /** The gateway's id for the call, which Dalliance Cloud bills by. Null from the Anthropic API. */
+  /** The gateway's id for the call, which Dalliance Cloud bills by. Null when the gateway sent none. */
   generationId: string | null
 }
 
@@ -70,15 +69,14 @@ export interface StepUsage {
 }
 
 /**
- * What a run's model calls cost, when Show costs is on. See docs/agent-harness.md.
- * - `usd`: on the user's own key, estimated from the tokens and list prices. `unpricedTokens` are the tokens of
- *   calls to a model with no known price, which are left out of `usd` rather than guessed.
- * - `credits`: on Dalliance Cloud, which counts them after each call. The renderer asks for them by generation id
- *   through `countCredits()`. `tokens` is what the calls used, for when the credits never arrive.
+ * What a run's model calls cost, for Show costs. See docs/agent-harness.md. Dalliance Cloud counts the credits after
+ * each call, so the run only names its calls; the renderer asks for the credits by generation id through
+ * `countCredits()`. `tokens` is what the calls used, for when the credits never arrive.
  */
-export type RunCost =
-  | { unit: 'usd'; usd: number; unpricedTokens: number }
-  | { unit: 'credits'; generationIds: string[]; tokens: number }
+export interface RunCost {
+  generationIds: string[]
+  tokens: number
+}
 
 export interface CellRunResult {
   ok: boolean
@@ -100,7 +98,7 @@ export interface CellRunResult {
   cost?: RunCost
   /** How a generated run made the code. Absent for a plain run of saved code, which keeps the cell's record. */
   provenance?: Provenance | null
-  /** Why the run failed, when the problem was not a Python error (no API key, stopped, the agent gave up). */
+  /** Why the run failed, when the problem was not a Python error (signed out, stopped, the agent gave up). */
   error: string | null
 }
 
@@ -120,17 +118,10 @@ export interface KernelState {
   error: string | null
 }
 
-/** A provider the user brings a key for. */
-export type KeyProvider = 'gateway' | 'anthropic'
-/**
- * Where models run: on the user's own key, or on their Dalliance account through Dalliance Cloud. `cloud` is only
- * offered in builds that have a Cloud URL. See docs/cloud.md.
- */
-export type Provider = KeyProvider | 'cloud'
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export interface SettingsView {
-  provider: Provider
+  /** A gateway id like `anthropic/claude-sonnet-5.5`. Models run on Dalliance Cloud. See docs/cloud.md. */
   model: string
   effort: Effort
   pythonPath: string | null
@@ -143,27 +134,9 @@ export interface SettingsView {
   showCosts: boolean
   /** True once the first-run setup was finished or skipped. */
   onboarded: boolean
-  /** Where the key for the chosen provider comes from: Settings, the app's environment, the user's shell profile, or nowhere. */
-  keySource: 'settings' | 'environment' | 'shell' | null
-  hasKey: Record<KeyProvider, boolean>
-  /**
-   * Providers whose saved key is there but can't be decrypted, usually because an update changed the app's
-   * keychain identity. The user has to paste it again. Optional so older views and test fixtures still type.
-   */
-  unreadableKeys?: KeyProvider[]
-  /**
-   * How each provider's key is kept: the saved key's form, or for no saved key, how a new one would be saved.
-   * `plain` means settings.json holds it unencrypted because the system has no keychain.
-   */
-  keyStorage?: Record<KeyProvider, KeyStorage>
-  /** True when this build has Dalliance Cloud, so `cloud` can be chosen and Settings shows the account. */
-  cloud: boolean
 }
 
-export type KeyStorage = 'keychain' | 'plain'
-
 export interface SettingsUpdate {
-  provider?: Provider
   model?: string
   effort?: Effort
   pythonPath?: string | null
@@ -172,31 +145,18 @@ export interface SettingsUpdate {
   suggestNext?: boolean
   showCosts?: boolean
   onboarded?: boolean
-  /** Set a key for a provider. An empty string removes it. */
-  apiKey?: { provider: KeyProvider; key: string }
 }
 
-/** A model the chosen provider can run, for the model picker. */
+/** A model Dalliance Cloud runs, for the model picker. */
 export interface ModelOption {
   id: string
   name: string
   /** Who makes the model, like Anthropic or OpenAI. */
   maker: string
   description?: string
-  /** Price per million input and output tokens, when the provider says. */
-  price?: string
-}
-
-/** What the provider said about a key before it was saved. */
-export interface KeyCheck {
-  /** `unchecked` when the provider couldn't be reached, so the key may still be fine. */
-  status: 'ok' | 'rejected' | 'unchecked'
-  /** The credit balance when the key works and the provider has one, otherwise why it failed. */
-  detail: string | null
 }
 
 export interface ModelList {
-  provider: Provider
   models: ModelOption[]
   error: string | null
 }
@@ -323,39 +283,13 @@ export interface AccountView {
   error: string | null
 }
 
-/** A plan Dalliance Cloud sells. Mirrors what `billing:plans` returns in the dalliance-cloud repo. */
-export interface PlanOption {
-  key: 'pro'
-  name: string
-  description: string | null
-  /** Like "$20 / month". */
-  price: string | null
-  /** The credits included each billing period. */
-  credits: number | null
-}
-
-/** The signed-in user's subscription. Mirrors `billing:status` in the dalliance-cloud repo. */
-export interface SubscriptionView {
-  /** Which plan it is, when it's one on offer. */
-  key: string | null
-  name: string
-  /** `active`, `trialing`, `past_due`, `canceled` and the like. */
-  status: string
-  price: string | null
-  /** When the period ends: the renewal date, or the last day when it's cancelling. ISO. */
-  currentPeriodEnd: string | null
-  cancelAtPeriodEnd: boolean
-}
-
 /** The plan, as the renderer sees it. The main process talks to Dalliance Cloud. */
 export interface BillingView {
-  /** False when this build has no Dalliance Cloud. */
-  available: boolean
   plans: PlanOption[]
   /** Null when signed out or without a plan. */
   subscription: SubscriptionView | null
   /** Credits used this billing period, against what the plan includes. Null without a plan. */
-  usage: { spentCredits: number; planCredits: number | null } | null
+  usage: PlanUsage | null
   /** True until the first answer from Dalliance Cloud. */
   loading: boolean
   /** True once checkout opened in the browser, until a plan arrives. */
@@ -378,8 +312,6 @@ export interface DallianceApi {
   onKernelState(listener: (state: KernelState) => void): () => void
   getSettings(): Promise<SettingsView>
   listModels(): Promise<ModelList>
-  /** Ask the provider whether a key works, without saving it. */
-  checkKey(provider: KeyProvider, key: string): Promise<KeyCheck>
   updateSettings(update: SettingsUpdate): Promise<SettingsView>
   pythonState(): Promise<PythonState>
   setupPython(): Promise<PythonState>
@@ -420,7 +352,7 @@ export interface DallianceApi {
   onAccount(listener: (account: AccountView) => void): () => void
   getBilling(): Promise<BillingView>
   /** Opens checkout for a plan in the browser. */
-  startCheckout(plan: PlanOption['key']): Promise<BillingView>
+  startCheckout(plan: PlanKey): Promise<BillingView>
   /** Opens the billing portal in the browser: invoices, the card, cancelling. */
   openBillingPortal(): Promise<BillingView>
   onBilling(listener: (billing: BillingView) => void): () => void
@@ -443,7 +375,6 @@ export const IPC = {
   kernelStateChanged: 'kernel-state-changed',
   getSettings: 'get-settings',
   listModels: 'list-models',
-  checkKey: 'check-key',
   updateSettings: 'update-settings',
   pythonState: 'python-state',
   setupPython: 'setup-python',

@@ -16,7 +16,7 @@ describe('maker logos', () => {
   })
 
   it('reads the maker from the model id', () => {
-    expect(makerOfModel('gateway', 'openai/gpt-6')).toBe('openai')
-    expect(makerOfModel('anthropic', 'claude-opus-5')).toBe('anthropic')
+    expect(makerOfModel('openai/gpt-6')).toBe('openai')
+    expect(makerOfModel('anthropic/claude-opus-5')).toBe('anthropic')
   })
 })

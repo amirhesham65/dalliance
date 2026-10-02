@@ -11,7 +11,6 @@ import {
   type PinChange,
   type PythonState,
   type RunCellRequest,
-  type RunCost,
   type RunEvent,
 } from '@dalliance/shared/ipc'
 import type { Notebook, Pins } from '@dalliance/shared/notebook'
@@ -20,11 +19,11 @@ import { createApproval, normalize } from './harness/approval'
 import { EventBus } from './harness/events'
 import { installExtensions } from './harness/extensions'
 import { type ModelCall, costOf } from './harness/cost'
-import { type ModelConfig, ModelSetupError, resolveModel } from './harness/model'
+import { ModelSetupError, resolveModel } from './harness/model'
 import { friendlyError, runCell } from './harness/run-cell'
 import { generateTitle, titleModel } from './harness/title'
 import type { Kernel, KernelEnvironment, KernelInfo } from './kernel/kernel'
-import { installMissingBasePackages, installPackages, pythonStatus, setupManagedEnv } from './kernel/python-env'
+import { installPackages, pythonStatus, setupManagedEnv } from './kernel/python-env'
 import { installedPackages } from './kernel/python-packages'
 import { PythonKernel } from './kernel/python-kernel'
 import { isBroadFolder, listFiles } from './harness/workspace'
@@ -65,8 +64,6 @@ export class NotebookSession {
   private trust = new Set<string>()
   private nextRequest = 0
   private lastKernelState: KernelState
-  /** Whether this app session has already topped up the managed environment's base packages. */
-  private baseChecked = false
   /** The files each cell's last run in the current kernel read, by cell id. Cleared with every new kernel. */
   private ran = new Map<string, string[]>()
   /** The current kernel's last answer about what it imported, for a save while a cell runs. */
@@ -148,16 +145,6 @@ export class NotebookSession {
 
   private logPython = (line: string) => this.options.send(IPC.pythonLog, line)
 
-  /**
-   * A managed environment made before the base package list grew lacks the newer packages. Install them once
-   * per app session, in the background, so the kernel doesn't wait. A failure only means they stay missing.
-   */
-  private topUpBasePackages() {
-    if (this.baseChecked) return
-    this.baseChecked = true
-    void installMissingBasePackages(this.envDir, this.logPython).catch(() => {})
-  }
-
   async setupPython(): Promise<PythonState> {
     await setupManagedEnv(this.envDir, this.logPython)
     await this.restart()
@@ -212,7 +199,6 @@ export class NotebookSession {
       onStatus,
     })
     await kernel.start()
-    if (status.source === 'managed') this.topUpBasePackages()
     return kernel
   }
 
@@ -263,7 +249,7 @@ export class NotebookSession {
       error,
     })
 
-    // The run's model, read once, so its cost is priced for the model that ran
+    // The run's model, read once, so the title and the run use the same settings
     const config = this.options.settings.modelConfig()
     let model
     let providerOptions
@@ -290,7 +276,7 @@ export class NotebookSession {
         let call: ModelCall | null = null
         void generateTitle(request.prompt, small, undefined, (c) => (call = c)).then(async (title) => {
           if (!title) return
-          const cost = call ? await this.costOf([call], config) : undefined
+          const cost = call ? costOf([call]) : undefined
           emit({ type: 'title', title, prompt: request.prompt, ...(cost ? { cost } : {}) })
         })
       }
@@ -340,11 +326,8 @@ export class NotebookSession {
         },
         signal: controller.signal,
       })
-      const cost = await this.costOf(
-        // A step a fallback model answered is priced as that model
-        result.steps.map((s) => ({ model: (s.fallback && s.modelId) || config.model, usage: s.usage, generationId: s.generationId })),
-        config,
-      )
+      // Counted whether or not Show costs is on, so turning it on shows the runs made while it was off
+      const cost = costOf(result.steps.map((s) => ({ model: s.modelId ?? config.model, usage: s.usage, generationId: s.generationId })))
       return cost ? { ...result, cost } : result
     } catch (err) {
       return fail(controller.signal.aborted ? 'Stopped.' : friendlyError(err))
@@ -352,17 +335,6 @@ export class NotebookSession {
       if (this.controller === controller) this.controller = null
       this.resolvePending(null)
     }
-  }
-
-  /**
-   * What these model calls cost. Priced whether or not Show costs is on, so turning it on shows the runs made
-   * while it was off; the renderer only shows it with the setting on. Priced by the model the run asked for, not
-   * the id the provider answered with, which can be a dated one the price list doesn't know. Nothing when there
-   * were no calls, or pricing failed, which never fails the run.
-   */
-  private async costOf(calls: ModelCall[], config: ModelConfig): Promise<RunCost | undefined> {
-    if (!calls.length) return undefined
-    return costOf(calls, config).catch(() => undefined)
   }
 
   /**
