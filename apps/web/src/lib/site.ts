@@ -25,6 +25,6 @@ export const site = {
     'macOS data analysis',
   ],
   status: 'Early preview',
-  // The release workflow overwrites this file in the Vercel Blob store on every release. See docs/releasing.md
-  downloadUrl: 'https://qxsto1algu0y5wp9.public.blob.vercel-storage.com/Dalliance.dmg',
+  // The latest release in the public releases repo, which the release workflow publishes to. See docs/releasing.md
+  downloadUrl: 'https://github.com/amirhesham65/dalliance-releases/releases/latest/download/Dalliance.dmg',
 } as const

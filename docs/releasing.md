@@ -1,6 +1,6 @@
 # Releasing
 
-Dalliance ships as one universal `.dmg` for Apple Silicon and Intel Macs. The website's download comes from the Vercel Blob store `dalliance-downloads`, on the `dalliance` Vercel project. The repo is private, so its GitHub releases are only a record.
+Dalliance ships as one universal `.dmg` for Apple Silicon and Intel Macs. This repo is private, so downloads come from the public [amirhesham65/dalliance-releases](https://github.com/amirhesham65/dalliance-releases), which holds a README and the installers, never code. Its GitHub releases are the downloads; this repo's releases are only a record.
 
 ## Build the installer
 
@@ -35,23 +35,20 @@ Releases publish from a version tag. `.github/workflows/release.yml` does the bu
    git push origin v0.2.0
    ```
 
-3. The workflow checks that the tag matches the version and fails if it doesn't. It sets up Python 3.12 with pandas, NumPy, matplotlib and IPython 8 or 9 and runs `pnpm turbo run lint typecheck test`, the same checks as CI, so a failing test stops the release. Then it runs `dist:mac --publish never` and uploads `Dalliance.dmg` to the blob store twice: as `releases/<tag>/Dalliance.dmg`, kept for good, and over `Dalliance.dmg`, the one `/download` sends people to. That one has a five-minute cache, so a new release reaches the site within minutes. Last, `gh release create` records the tag, with the DMG and notes generated from the merged pull requests.
+3. The workflow checks that the tag matches the version and fails if it doesn't. It sets up Python 3.12 with pandas, NumPy, matplotlib and IPython 8 or 9 and runs `pnpm turbo run lint typecheck test`, the same checks as CI, so a failing test stops the release. Then it runs `dist:mac --publish never` and publishes a release with `Dalliance.dmg` in `dalliance-releases`, its notes from `.github/release-notes.md`. Last, it records the tag here, with notes generated from the merged pull requests.
+4. Edit the release in `dalliance-releases` to add what's new above the install notes. The generated notes stay here, since they name pull requests in a private repo.
 
-Keep the name `Dalliance.dmg`. `downloadUrl` in `apps/web/src/lib/site.ts` is its blob URL.
+Keep the name `Dalliance.dmg`. `downloadUrl` in `apps/web/src/lib/site.ts` is `releases/latest/download/Dalliance.dmg` in `dalliance-releases`, so it always serves the newest release.
 
-The upload needs the `BLOB_READ_WRITE_TOKEN` repository secret, the store's read-write token from the Vercel dashboard under Storage > dalliance-downloads.
+Publishing there needs the `RELEASES_TOKEN` repository secret: a fine-grained personal access token with access to `dalliance-releases` only and Contents set to read and write. `GITHUB_TOKEN` can't write to another repo.
 
-To put an older build back, copy its versioned file over the latest one:
-
-```bash
-vercel blob copy releases/v0.2.0/Dalliance.dmg Dalliance.dmg
-```
+To put an older build back, delete the newer release in `dalliance-releases` (or mark it as a pre-release), and `latest` falls back to the one before.
 
 Before tagging, it's worth building the DMG locally and checking that the app launches, finds Python, and runs a cell. CI doesn't open the app.
 
 ### Install notes
 
-The app isn't notarized, so macOS blocks the first launch. Every release needs to tell users to open System Settings > Privacy & Security and click Open Anyway, once. It also needs to say the app wants Python 3.9 or newer. The v0.1.0 release has the wording to reuse.
+The app isn't notarized, so macOS blocks the first launch. Every release needs to tell users to open System Settings > Privacy & Security and click Open Anyway, once. It also needs to say the app wants Python 3.9 or newer. `.github/release-notes.md` has the wording, and every release in `dalliance-releases` starts from it.
 
 ## Signing, notarization and auto-update
 
@@ -75,7 +72,7 @@ In GitHub > Settings > Secrets and variables > Actions:
 | `APPLE_API_KEY_ID` | The key ID |
 | `APPLE_API_ISSUER` | The issuer ID |
 
-The release job already gets `GITHUB_TOKEN` and `BLOB_READ_WRITE_TOKEN`.
+The release job already gets `GITHUB_TOKEN` and `RELEASES_TOKEN`.
 
 ### 3. Add the entitlements
 
@@ -105,7 +102,7 @@ In the `build` key of `apps/desktop/package.json`:
 - [ ] In `mac`, set `"hardenedRuntime": true`. Notarization rejects apps without it.
 - [ ] In `mac`, add `"notarize": true`, `"gatekeeperAssess": false`, `"entitlements": "build/entitlements.mac.plist"` and `"entitlementsInherit": "build/entitlements.mac.inherit.plist"`. `notarize` reads `APPLE_API_KEY`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER` from the environment. electron-builder 26 takes a boolean here, not the older options object.
 - [ ] For auto-update, add `zip` to `mac.target` next to `dmg`, both `universal`. The updater downloads the zip, never the DMG. `artifactName` gives it the stable name `Dalliance.zip`.
-- [ ] For auto-update, add `"publish": [{ "provider": "generic", "url": "https://qxsto1algu0y5wp9.public.blob.vercel-storage.com" }]` at the top of `build`. The repo is private, so the updater can't read GitHub releases. electron-builder then writes `release/latest-mac.yml` and `Dalliance.zip.blockmap`, and bakes `app-update.yml` into the app so it knows where to look.
+- [ ] For auto-update, add `"publish": [{ "provider": "github", "owner": "amirhesham65", "repo": "dalliance-releases", "releaseType": "release" }]` at the top of `build`. The releases repo is public, so the updater reads it without a token. electron-builder then writes `release/latest-mac.yml` and `Dalliance.zip.blockmap`, and bakes `app-update.yml` into the app so it knows where to look.
 - [ ] Optionally, `"dmg": { "sign": true }` to sign the disk image as well. The app inside is what Gatekeeper checks, and it's stapled either way.
 
 ### 5. Change the release workflow
@@ -134,13 +131,7 @@ In `.github/workflows/release.yml`:
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
   ```
 
-- [ ] Upload the update files next to the DMG, at the root of the blob store, with the same short cache. The updater reads `latest-mac.yml` there:
-
-  ```bash
-  for f in Dalliance.zip Dalliance.zip.blockmap latest-mac.yml; do
-    npx --yes vercel@54 blob put "apps/desktop/release/$f" --access public --pathname "$f" --allow-overwrite true --cache-control-max-age 300
-  done
-  ```
+- [ ] Attach the update files to the release in `dalliance-releases` next to the DMG. The updater reads `latest-mac.yml` from the latest release. Add `apps/desktop/release/Dalliance.zip`, `Dalliance.zip.blockmap` and `latest-mac.yml` to the `gh release create` in the "Publish the installer" step.
 
   Keep the DMG's name. The website links to it.
 - [ ] Add `timeout-minutes: 60` to the job. Notarization usually takes a few minutes but can queue for longer.
@@ -159,7 +150,7 @@ This part touches the main process, `electron/main.ts`.
   ```
 
   `checkForUpdatesAndNotify()` downloads in the background, shows a system notification, and installs on quit. A menu item or a banner that calls `autoUpdater.quitAndInstall()` can come later.
-- [ ] Mention update checks on the privacy page: the app then asks the blob store for `latest-mac.yml` on launch.
+- [ ] Mention update checks on the privacy page: the app then asks GitHub for `latest-mac.yml` on launch.
 
 Squirrel.Mac only installs an update whose signature matches the running app's. Ad-hoc builds can't update themselves, so the first signed release has to be downloaded by hand, and updates work from there.
 

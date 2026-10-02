@@ -1,7 +1,7 @@
 name: Release
 
 # Push a tag that matches apps/desktop's version, e.g. v0.1.0, to build Dalliance.dmg
-# and publish it to the Vercel Blob store the website's Download button points at.
+# and publish it to amirhesham65/dalliance-releases, where the website's Download button points.
 on:
   push:
     tags: ['v*']
@@ -35,14 +35,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo run lint typecheck test
       - run: pnpm --filter @dalliance/desktop dist:mac --publish never
-      # The website's /download points at Dalliance.dmg in the Vercel Blob store. Each release also keeps its own copy
-      - name: Upload the installer
+      # This repo is private, so downloads come from the public amirhesham65/dalliance-releases, which holds only
+      # installers. The website's /download points at its latest release. See docs/releasing.md
+      - name: Publish the installer
         env:
-          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
-        run: |
-          npx --yes vercel@54 blob put apps/desktop/release/Dalliance.dmg --access public --pathname "releases/$GITHUB_REF_NAME/Dalliance.dmg"
-          npx --yes vercel@54 blob put apps/desktop/release/Dalliance.dmg --access public --pathname Dalliance.dmg --allow-overwrite true --cache-control-max-age 300
-      - name: Record the release
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" apps/desktop/release/Dalliance.dmg --repo amirhesham65/dalliance-releases --title "Dalliance ${GITHUB_REF_NAME#v}" --notes-file .github/release-notes.md
+      - name: Record the release here
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" apps/desktop/release/Dalliance.dmg --title "Dalliance $GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" --title "Dalliance ${GITHUB_REF_NAME#v}" --generate-notes
