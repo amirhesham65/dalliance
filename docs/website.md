@@ -42,7 +42,7 @@ src/assets/shots/        light and dark captures of the app
 
 `NEXT_PUBLIC_SITE_URL` is read at build time. `turbo.json` lists it in the build task's `env`, so changing it busts the cache. The Redis pair is only read when `/download` runs, so it stays out of `turbo.json`. `site.ts` and the route read them with `||` rather than `??`, because Vercel lets a variable be set but empty.
 
-Every download button links to `/download`, with `?from=` naming the button: `bar` for the top bar, `hero` and `end` for the two on the home page. `download/route.ts` answers it with a temporary redirect to `downloadUrl` in `site.ts`, the blob URL of `Dalliance.dmg` in the Vercel Blob store `dalliance-downloads`. The release workflow overwrites that file on every release, so the URL never changes. See [releasing.md](releasing.md). The redirect is temporary, not permanent, so moving the installer only means changing `downloadUrl`. `robots.ts` disallows `/download`. The config also sets `nosniff`, `DENY` framing, a strict referrer policy and a permissions policy on every route.
+Every download button links to `/download`, with `?from=` naming the button: `bar` for the top bar, `hero` and `end` for the two on the home page. `download/route.ts` answers it with a temporary redirect to `downloadUrl` in `site.ts`, `Dalliance.dmg` on the latest release of the public `amirhesham65/dalliance-releases`, so the URL always serves the newest version. See [releasing.md](releasing.md). The redirect is temporary, not permanent, so moving the installer only means changing `downloadUrl`. `robots.ts` disallows `/download`. The config also sets `nosniff`, `DENY` framing, a strict referrer policy and a permissions policy on every route.
 
 ## Analytics
 
@@ -58,7 +58,7 @@ The list keeps the newest 10,000 entries, `KEEP` in the route. `LPUSH` and `LTRI
 
 The website has no test runner, so the route has no test. The transaction was checked by pointing the Upstash client at a local server: it sends `[["lpush","downloads",...],["ltrim","downloads",0,9999]]` to `/multi-exec`.
 
-The Redis store is `dalliance-downloads`, on Upstash's free plan. It shares the name with the blob store that holds the installer, but it's a separate thing. To read the log, use the Data Browser in the Upstash console, or pull the variables with the Vercel CLI and call the REST API with the read-only token:
+The Redis store is `dalliance-downloads`, on Upstash's free plan. To read the log, use the Data Browser in the Upstash console, or pull the variables with the Vercel CLI and call the REST API with the read-only token:
 
 ```bash
 vercel link --yes --project dalliance
@@ -68,7 +68,7 @@ vercel env pull .env.local --yes
 
 `.env.local` holds the store's tokens, so it must stay out of git.
 
-The log only sees clicks that go through the site. Anyone with the blob URL can download the installer without it.
+The log only sees clicks that go through the site. Anyone with the releases repo's link can download the installer without it.
 
 ## Design
 
