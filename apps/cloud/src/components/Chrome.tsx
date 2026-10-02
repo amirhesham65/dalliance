@@ -2,7 +2,7 @@ import { brand } from '@dalliance/brand/brand'
 import { gutter, sheet } from '@dalliance/brand/ui'
 import { Wordmark } from './Wordmark'
 
-/** The hatched band and the top bar, as on the website, without its download and GitHub buttons. */
+/** The hatched band and the top bar, as on the website, without its download button. */
 export function SiteHeader() {
   return (
     <>

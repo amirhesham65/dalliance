@@ -152,7 +152,7 @@ export default function Home() {
                 <strong>A Mac with Python 3.</strong> Dalliance can create a private environment with pandas, NumPy and matplotlib, or use an interpreter you already have.
               </p>
               <p>
-                <strong>A Dalliance plan.</strong> Claude, GPT, Gemini and more, paid for in credits, with no API key to manage. Sign in with GitHub or Google.
+                <strong>A Dalliance plan.</strong> Claude, GPT, Gemini and more, paid for in credits, with no API key to manage. Sign in with your email.
               </p>
             </div>
           </Band>

@@ -37,7 +37,7 @@ Pick or create the dev deployment when asked. That writes `packages/backend/.env
 
 3. Vercel builds the cloud site from `main`.
 
-Production variables differ from development ones: a production `BETTER_AUTH_SECRET`, `SITE_URL=https://cloud.dalliance.io`, Polar's production token, webhook secret and product ids, and `POLAR_SERVER=production`. The GitHub and Google OAuth apps need callback URLs on `cloud.dalliance.io`.
+Production variables differ from development ones: a production `BETTER_AUTH_SECRET`, `SITE_URL=https://cloud.dalliance.io`, Polar's production token, webhook secret and product ids, and `POLAR_SERVER=production`., and `RESEND_API_KEY` for sign-in emails, with `dalliance.io` verified in Resend.
 
 ## The Vercel project
 
@@ -45,6 +45,6 @@ The Vercel project for `cloud.dalliance.io` doesn't exist for this repo yet. Whe
 
 - This repo, with `apps/cloud` as the root directory. Vercel then installs the whole pnpm workspace from the root, so `@dalliance/shared` and `@dalliance/brand` resolve, and runs the build in `apps/cloud`.
 - The production branch `main`.
-- The cloud site's variables from [accounts.md](accounts.md#configuration) and [billing.md](billing.md#configuration): `CONVEX_SITE_URL`, `CONVEX_URL`, `AUTH_PROXY_SECRET`, `AI_GATEWAY_API_KEY` and `AUTH_METHODS`. Never `ZERO_DATA_RETENTION` in production.
+- The cloud site's variables from [accounts.md](accounts.md#configuration) and [billing.md](billing.md#configuration): `CONVEX_SITE_URL`, `CONVEX_URL`, `AUTH_PROXY_SECRET` and `AI_GATEWAY_API_KEY`. Never `ZERO_DATA_RETENTION` in production.
 - The domain `cloud.dalliance.io`.
 - A Pro or Enterprise plan on the team that owns `AI_GATEWAY_API_KEY`, so the gateway accepts zero data retention. See [billing.md](billing.md#zero-data-retention).

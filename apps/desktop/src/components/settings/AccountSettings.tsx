@@ -32,9 +32,9 @@ export function AccountSettings({ api }: { api: DallianceApi }) {
         {account.user.name && ` (${account.user.email})`}.
       </>
     ) : account.waiting ? (
-      "Finish signing in in your browser. It sends you back here when it's done."
+      "Finish in your browser, then open the link we email you. It brings you back here."
     ) : (
-      'Sign in with GitHub or Google, in your browser.'
+      'Sign in with your email, in your browser. We send you a link.'
     )
 
   return (

@@ -37,7 +37,7 @@ const sections = [
     id: 'account',
     label: 'Your account',
     rows: [
-      { k: 'Who you are.', v: 'Your name and email, from GitHub or Google when you sign in.' },
+      { k: 'Who you are.', v: 'Your email address. You sign in with a link sent to it.' },
       { k: 'Your plan.', v: 'Polar handles checkout, payment and invoices as the merchant of record. Dalliance keeps your subscription and never sees your card.' },
       { k: 'Usage.', v: 'For each model call: when it ran, the model, and what it cost in credits. Never the prompt or the answer.' },
     ],

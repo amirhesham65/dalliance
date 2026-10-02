@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import { SiteFooter, SiteHeader } from '@/components/Chrome'
-import { signInMethods } from '@/lib/auth/methods'
 import { headline, labelMono, mastheadRuled, sheet, support } from '@dalliance/brand/ui'
 import { SignIn, type DesktopRequest } from './SignIn'
 
@@ -29,8 +28,8 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
           <h1 className={headline}>Sign in to Dalliance</h1>
           {request ? (
             <>
-              <p className={support}>Once you're signed in, this page sends you back to the app.</p>
-              <SignIn request={request} methods={signInMethods()} error={error} />
+              <p className={support}>Enter your email and we'll send you a link. Opening it signs you in, or creates your account, and brings you back to the app.</p>
+              <SignIn request={request} error={error} />
             </>
           ) : (
             <p className={support}>Open Dalliance and choose Sign in in Settings. The app opens this page with what it needs to finish.</p>

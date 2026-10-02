@@ -3,8 +3,9 @@ import { createClient, type GenericCtx } from '@convex-dev/better-auth'
 import { convex } from '@convex-dev/better-auth/plugins'
 import type { BetterAuthPlugin } from 'better-auth'
 import { betterAuth } from 'better-auth/minimal'
+import { magicLink } from 'better-auth/plugins'
 import { CLIENT_IP_HEADER, DESKTOP_SCHEME, PROXY_HEADER } from '@dalliance/shared/cloud'
-import { components } from './_generated/api'
+import { components, internal } from './_generated/api'
 import type { DataModel } from './_generated/dataModel'
 import { query } from './_generated/server'
 import authConfig from './auth.config'
@@ -12,13 +13,6 @@ import authConfig from './auth.config'
 export const authComponent = createClient<DataModel>(components.betterAuth)
 
 const env = (name: string) => process.env[name]?.trim() || undefined
-
-/** A social provider, only when both of its credentials are set on the deployment. */
-function provider(id: string) {
-  const clientId = env(`${id}_CLIENT_ID`)
-  const clientSecret = env(`${id}_CLIENT_SECRET`)
-  return clientId && clientSecret ? { clientId, clientSecret } : undefined
-}
 
 /** Compares every character whatever the first difference, so timing says nothing about the secret. */
 function sameSecret(a: string, b: string) {
@@ -52,23 +46,43 @@ const proxyOnly = (): BetterAuthPlugin => ({
   },
 })
 
+/** How long a sign-in link works, in seconds. The Electron plugin's own code lasts as long. */
+export const LINK_EXPIRES_IN = 300
+
+/** The desktop app's sign-in request, which the Electron plugin reads off the link to issue the app's code. */
+const DESKTOP_PARAMS = ['client_id', 'state', 'code_challenge', 'code_challenge_method'] as const
+
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
-  const github = provider('GITHUB')
-  const google = provider('GOOGLE')
   return betterAuth({
     // The cloud site, which proxies /api/auth here, so cookies belong to its domain
     baseURL: env('SITE_URL'),
     database: authComponent.adapter(ctx),
     // Only the cloud site and the desktop app may start or finish a sign-in
     trustedOrigins: [env('SITE_URL') ?? '', `${DESKTOP_SCHEME}:/`].filter(Boolean),
-    socialProviders: { ...(github && { github }), ...(google && { google }) },
-    // Passwords are off: there's no email verification yet, and a billing account must belong to the email it shows.
-    // A local deployment can turn them on for testing with PASSWORD_SIGN_IN=on.
-    emailAndPassword: { enabled: env('PASSWORD_SIGN_IN') === 'on' },
     // Isolates don't share memory, so limits are counted in the database
     rateLimit: { enabled: true, storage: 'database' },
     advanced: { ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] } },
-    plugins: [proxyOnly(), electron(), convex({ authConfig })],
+    plugins: [
+      proxyOnly(),
+      // Email only: a link to the address signs in, or signs up, and proves the address, which billing relies on
+      magicLink({
+        expiresIn: LINK_EXPIRES_IN,
+        sendMagicLink: async ({ email, url }, request) => {
+          // The sign-in page sends the app's request with the call. The link carries it too, so it works in any
+          // browser, not only the one with the page's cookie
+          const link = new URL(url)
+          for (const name of DESKTOP_PARAMS) {
+            const value = request?.query?.[name]
+            if (typeof value === 'string') link.searchParams.set(name, value)
+          }
+          if (!('scheduler' in ctx)) throw new Error('Sign-in links can only be sent from an action or a mutation.')
+          // Sent in the background, so the page answers at once. Rendering the email needs Node
+          await ctx.scheduler.runAfter(0, internal.emails.sendSignInLink, { email, url: link.toString(), minutes: LINK_EXPIRES_IN / 60 })
+        },
+      }),
+      electron(),
+      convex({ authConfig }),
+    ],
   })
 }
 
