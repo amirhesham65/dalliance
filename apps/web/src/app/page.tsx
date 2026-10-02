@@ -58,7 +58,7 @@ const frames = [
   ),
   frame(
     'Any model',
-    'The model picker, grouped by maker with a price for each model, and an effort setting below.',
+    'The model picker, grouped by maker, with an effort setting below.',
     modelsLight,
     modelsDark,
   ),
@@ -152,7 +152,7 @@ export default function Home() {
                 <strong>A Mac with Python 3.</strong> Dalliance can create a private environment with pandas, NumPy and matplotlib, or use an interpreter you already have.
               </p>
               <p>
-                <strong>A model key.</strong> Pick Claude, GPT, Gemini and more through the Vercel AI Gateway, or use the Anthropic API directly. Dalliance keeps keys in the macOS Keychain.
+                <strong>A Dalliance plan.</strong> Claude, GPT, Gemini and more, paid for in credits, with no API key to manage. Sign in with GitHub or Google.
               </p>
             </div>
           </Band>
@@ -166,7 +166,7 @@ export default function Home() {
                 <strong>Not a black box.</strong> Every cell has a Code tab with the exact Python that ran. Notebooks save as standard .ipynb files and open in Jupyter.
               </p>
               <p>
-                <strong>Not a cloud service.</strong> Your data, code and Python kernel stay on your Mac. Only your prompt and the context the agent reads go to your model provider.
+                <strong>Not a cloud notebook.</strong> Your data, code and Python kernel stay on your Mac. Only your prompt and the context the agent reads go to the model, and every model call runs with zero data retention.
               </p>
             </div>
           </Band>

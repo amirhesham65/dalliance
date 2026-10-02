@@ -52,7 +52,7 @@ export function ModelSettings({ api, settings }: { api: DallianceApi; settings: 
         <Row
           label="Effort"
           htmlFor="effort"
-          description={effortApplies ? 'How hard the model thinks before it writes. Higher is slower and costs more.' : 'Applies to Anthropic and OpenAI models. This one uses its default.'}
+          description={effortApplies ? 'How hard the model thinks before it writes. Higher is slower and uses more credits.' : 'Applies to Anthropic and OpenAI models. This one uses its default.'}
         >
           <Select value={settings.effort} onValueChange={(v) => update({ effort: v as Effort })} disabled={!effortApplies}>
             <SelectTrigger id="effort" className="w-52">
