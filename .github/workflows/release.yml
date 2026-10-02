@@ -1,7 +1,7 @@
 name: Release
 
 # Push a tag that matches apps/desktop's version, e.g. v0.1.0, to build Dalliance.dmg
-# and publish it as a GitHub Release. The website's Download button points at the latest one.
+# and publish it to the Vercel Blob store the website's Download button points at.
 on:
   push:
     tags: ['v*']
@@ -35,11 +35,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo run lint typecheck test
       - run: pnpm --filter @dalliance/desktop dist:mac --publish never
+      # The website's /download points at Dalliance.dmg in the Vercel Blob store. Each release also keeps its own copy
+      - name: Upload the installer
         env:
-          # The Cloud switch: the repository variable turns Dalliance Cloud on in official builds. Forks without it
-          # build the app on the user's own key. See docs/cloud.md
-          DALLIANCE_CLOUD_URL: ${{ vars.DALLIANCE_CLOUD_URL }}
-      - name: Publish the release
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: |
+          npx --yes vercel@54 blob put apps/desktop/release/Dalliance.dmg --access public --pathname "releases/$GITHUB_REF_NAME/Dalliance.dmg"
+          npx --yes vercel@54 blob put apps/desktop/release/Dalliance.dmg --access public --pathname Dalliance.dmg --allow-overwrite true --cache-control-max-age 300
+      - name: Record the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" apps/desktop/release/Dalliance.dmg --title "Dalliance $GITHUB_REF_NAME" --generate-notes
