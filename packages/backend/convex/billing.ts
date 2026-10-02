@@ -1,5 +1,6 @@
 import type { GenericCtx } from '@convex-dev/better-auth'
 import { Polar } from '@convex-dev/polar'
+import type { BillingStatus, PlanKey, PlanOption } from '@dalliance/shared/cloud'
 import { ConvexError, v } from 'convex/values'
 import { components } from './_generated/api'
 import type { DataModel } from './_generated/dataModel'
@@ -10,8 +11,7 @@ import { periodUsage, planCredits } from './usage'
 const env = (name: string) => process.env[name]?.trim() || undefined
 
 /** The plans the app offers, by key. Each maps to a Polar product id set on the deployment. */
-const PLANS = { pro: env('POLAR_PRODUCT_PRO') ?? '' }
-type PlanKey = keyof typeof PLANS
+const PLANS: Record<PlanKey, string> = { pro: env('POLAR_PRODUCT_PRO') ?? '' }
 
 const production = env('POLAR_SERVER') === 'production'
 
@@ -48,8 +48,8 @@ function priceLabel(amount: number | null | undefined, currency: string | null |
 /** What the app can offer: each configured plan whose product has synced from Polar and isn't archived. */
 export const plans = query({
   args: {},
-  handler: async (ctx) => {
-    const offers = []
+  handler: async (ctx): Promise<PlanOption[]> => {
+    const offers: PlanOption[] = []
     for (const [key, productId] of Object.entries(PLANS) as [PlanKey, string][]) {
       if (!productId) continue
       const product = await polar.getProduct(ctx, { productId })
@@ -70,7 +70,7 @@ export const plans = query({
 /** The signed-in user's plan. Null when signed out, `subscription: null` when they have none. */
 export const status = query({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<BillingStatus | null> => {
     const user = await authComponent.safeGetAuthUser(ctx)
     if (!user) return null
     const sub = await polar.getCurrentSubscription(ctx, { userId: user._id })

@@ -1,3 +1,4 @@
+import { PROXY_HEADER, REFUSAL_TYPE } from '@dalliance/shared/cloud'
 import { after, type NextRequest } from 'next/server'
 import { filterModelList, modelsOf, qualifyingModels, withZeroDataRetention } from '@/lib/zdr'
 
@@ -25,12 +26,12 @@ const ROUTES: Record<string, 'GET' | 'POST'> = { 'language-model': 'POST', confi
  * purpose: `authentication_error` would be replaced with text about API keys, and a 429 would be retried.
  */
 function refuse(status: number, message: string) {
-  return Response.json({ error: { message, type: 'dalliance_account' } }, { status })
+  return Response.json({ error: { message, type: REFUSAL_TYPE } }, { status })
 }
 
 /** The gateway's refusal of zero data retention on a Vercel team without a paid plan. */
 const ZDR_PLAN = /ZdrUnauthorizedError|Zero Data Retention \(ZDR\) is only available/
-const UNAVAILABLE = "Hosted models aren't available right now. We're on it. Try again later, or use your own key in Settings."
+const UNAVAILABLE = "Hosted models aren't available right now. We're on it. Try again later."
 
 const NOT_OFFERED = "This model doesn't run with zero data retention, so Dalliance Cloud doesn't offer it. Choose another model in Settings."
 
@@ -40,7 +41,7 @@ type Authorized = { ok: true; userId: string } | { ok: false; status: number; me
 async function authorize(token: string, check: 'account' | 'spend'): Promise<Authorized> {
   const res = await fetch(`${convex}/gateway/authorize${check === 'account' ? '?check=account' : ''}`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${token}`, 'x-dalliance-proxy': secret! },
+    headers: { authorization: `Bearer ${token}`, [PROXY_HEADER]: secret! },
   }).catch(() => null)
   const body = res ? ((await res.json().catch(() => null)) as { ok?: boolean; userId?: string; message?: string } | null) : null
   if (res?.ok && body?.ok && body.userId) return { ok: true, userId: body.userId }
@@ -86,7 +87,7 @@ async function meter(reply: ReadableStream<Uint8Array>, userId: string, model: s
   if (costUsd == null) return console.error('no cost for generation, not billed', { userId, model, generationId })
   const res = await fetch(`${convex}/gateway/report`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-dalliance-proxy': secret! },
+    headers: { 'content-type': 'application/json', [PROXY_HEADER]: secret! },
     body: JSON.stringify({ userId, generationId, model, costUsd }),
   }).catch(() => null)
   if (!res?.ok) console.error('recording usage failed', { userId, generationId, status: res?.status })

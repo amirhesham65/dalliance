@@ -1,3 +1,4 @@
+import type { CallCredits, PlanUsage } from '@dalliance/shared/cloud'
 import { v } from 'convex/values'
 import { internal } from './_generated/api'
 import { type QueryCtx, httpAction, internalMutation, internalQuery, query } from './_generated/server'
@@ -69,7 +70,7 @@ export const allowance = internalQuery({
 })
 
 /** A user's credits used and included this period, for the Plan section. Null without a current plan. */
-export async function periodUsage(ctx: QueryCtx, userId: string) {
+export async function periodUsage(ctx: QueryCtx, userId: string): Promise<PlanUsage | null> {
   const sub = await polar.getCurrentSubscription(ctx, { userId })
   if (!sub) return null
   return { spentCredits: toCredits(await spentMicros(ctx, userId, sub.currentPeriodStart)), planCredits: planCredits(sub.productKey) }
@@ -110,10 +111,10 @@ export const MAX_CREDIT_IDS = 100
  */
 export const credits = query({
   args: { generationIds: v.array(v.string()) },
-  handler: async (ctx, { generationIds }) => {
+  handler: async (ctx, { generationIds }): Promise<CallCredits[] | null> => {
     const user = await authComponent.safeGetAuthUser(ctx)
     if (!user) return null
-    const found: { generationId: string; credits: number }[] = []
+    const found: CallCredits[] = []
     for (const generationId of new Set(generationIds.slice(0, MAX_CREDIT_IDS))) {
       const row = await ctx.db
         .query('usage')

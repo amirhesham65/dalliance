@@ -3,13 +3,11 @@ import { createClient, type GenericCtx } from '@convex-dev/better-auth'
 import { convex } from '@convex-dev/better-auth/plugins'
 import type { BetterAuthPlugin } from 'better-auth'
 import { betterAuth } from 'better-auth/minimal'
+import { CLIENT_IP_HEADER, DESKTOP_SCHEME, PROXY_HEADER } from '@dalliance/shared/cloud'
 import { components } from './_generated/api'
 import type { DataModel } from './_generated/dataModel'
 import { query } from './_generated/server'
 import authConfig from './auth.config'
-
-/** The scheme the desktop app registers. Sign-in in the browser ends with a redirect to it. */
-export const DESKTOP_SCHEME = 'io.dalliance.app'
 
 export const authComponent = createClient<DataModel>(components.betterAuth)
 
@@ -21,11 +19,6 @@ function provider(id: string) {
   const clientSecret = env(`${id}_CLIENT_SECRET`)
   return clientId && clientSecret ? { clientId, clientSecret } : undefined
 }
-
-/** Header the cloud site's proxy adds. Holds AUTH_PROXY_SECRET. */
-export const PROXY_HEADER = 'x-dalliance-proxy'
-/** Header the cloud site's proxy sets to the caller's IP, from Vercel. Rate limits count by it. */
-export const CLIENT_IP_HEADER = 'x-dalliance-client-ip'
 
 /** Compares every character whatever the first difference, so timing says nothing about the secret. */
 function sameSecret(a: string, b: string) {

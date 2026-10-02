@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next'
 
 const config: NextConfig = {
-  transpilePackages: ['@dalliance/brand'],
+  transpilePackages: ['@dalliance/brand', '@dalliance/shared'],
   poweredByHeader: false,
   headers: async () => [
     {

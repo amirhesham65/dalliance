@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@dalliance/brand": "workspace:*",
+    "@dalliance/shared": "workspace:*",
     "@better-auth/electron": "catalog:",
     "@better-auth/utils": "catalog:",
     "@better-fetch/fetch": "catalog:",

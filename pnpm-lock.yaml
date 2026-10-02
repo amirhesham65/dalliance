@@ -82,6 +82,9 @@ importers:
       '@dalliance/brand':
         specifier: workspace:*
         version: link:../../packages/brand
+      '@dalliance/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       better-auth:
         specifier: 'catalog:'
         version: 1.6.33(next@16.3.6(@babel/core@7.29.7)(@types/node@24.19.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.2(@types/node@24.19.0)(jsdom@30.1.1(@noble/hashes@2.4.0))(vite@8.3.1(@types/node@24.19.0)(esbuild@0.27.0)(jiti@2.7.0)))
@@ -119,9 +122,6 @@ importers:
 
   apps/desktop:
     dependencies:
-      '@ai-sdk/anthropic':
-        specifier: ^4.0.65
-        version: 4.0.65(zod@4.6.5)
       '@ai-sdk/gateway':
         specifier: ^4.0.96
         version: 4.0.96(zod@4.6.5)
@@ -304,6 +304,9 @@ importers:
       '@convex-dev/polar':
         specifier: ^0.9.2
         version: 0.9.2(patch_hash=d36553fdb915696003b0b3d05c0bdde75f87f774fe7873bfcaef9d9348f867d1)(@polar-sh/checkout@0.4.2(@stripe/react-stripe-js@5.6.1(@stripe/stripe-js@8.11.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@stripe/stripe-js@8.11.0)(react@19.3.0))(@polar-sh/sdk@0.49.0)(@standard-schema/spec@1.1.0)(convex@1.46.0(react@19.3.0))(hono@4.13.9)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@6.0.3)(zod@4.6.5)
+      '@dalliance/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@polar-sh/sdk':
         specifier: ^0.49.0
         version: 0.49.0
@@ -338,6 +341,10 @@ importers:
         version: 6.0.3
 
   packages/shared:
+    dependencies:
+      convex:
+        specifier: 'catalog:'
+        version: 1.46.0(react@19.3.0)
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -353,12 +360,6 @@ packages:
 
   '@adobe/css-tools@4.5.0':
     resolution: {integrity: sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q==}
-
-  '@ai-sdk/anthropic@4.0.65':
-    resolution: {integrity: sha512-3fmxxn5xWGOPU1wGrUCI30YFW5r6h2WrY+sz3rokkVlBHrDr889hPYP1yNoSmOVvtAwCFWlm79P2lRngIPOObg==}
-    engines: {node: '>=22'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
 
   '@ai-sdk/gateway@4.0.96':
     resolution: {integrity: sha512-1aniRTzEf9T7uRHdKnBQ36WgEVQswK6wDgkPVsNMl+sPy7otcmrBa2HEurdFBS51s1q3/UXlh8nNcguwU79Hkg==}
@@ -5099,12 +5100,6 @@ packages:
 snapshots:
 
   '@adobe/css-tools@4.5.0': {}
-
-  '@ai-sdk/anthropic@4.0.65(zod@4.6.5)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.18
-      '@ai-sdk/provider-utils': 5.0.49(zod@4.6.5)
-      zod: 4.6.5
 
   '@ai-sdk/gateway@4.0.96(zod@4.6.5)':
     dependencies:

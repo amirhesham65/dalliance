@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { SiteFooter, SiteHeader } from '@/components/Chrome'
-import { DESKTOP_SCHEME } from '@/lib/auth/client'
+import { BILLING_LINK } from '@dalliance/shared/cloud'
 import { buttonLarge, headline, labelMono, mastheadRuled, sheet, support } from '@dalliance/brand/ui'
 
 export const metadata: Metadata = { title: 'Back to Dalliance', robots: { index: false, follow: false } }
@@ -24,7 +24,7 @@ export default async function BillingDone({ searchParams }: { searchParams: Prom
               : 'Any change you made shows up in Dalliance on its own. You can close this tab.'}
           </p>
           <div className="mt-6">
-            <a className={buttonLarge} href={`${DESKTOP_SCHEME}://billing`}>
+            <a className={buttonLarge} href={BILLING_LINK}>
               Open Dalliance
             </a>
           </div>

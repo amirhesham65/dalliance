@@ -1,8 +1,6 @@
 import { electronProxyClient } from '@better-auth/electron/proxy'
+import { DESKTOP_SCHEME } from '@dalliance/shared/cloud'
 import { createAuthClient } from 'better-auth/react'
-
-/** Must match DESKTOP_SCHEME in the backend and the scheme the desktop app registers. */
-export const DESKTOP_SCHEME = 'io.dalliance.app'
 
 // Same origin: /api/auth on this site, which proxies to Convex
 export const authClient = createAuthClient({
