@@ -39,9 +39,7 @@ jobs:
       - name: Upload the installer
         env:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
-        run: |
-          npx --yes vercel@54 blob put apps/desktop/release/Dalliance.dmg --access public --pathname "releases/$GITHUB_REF_NAME/Dalliance.dmg"
-          npx --yes vercel@54 blob put apps/desktop/release/Dalliance.dmg --access public --pathname Dalliance.dmg --allow-overwrite true --cache-control-max-age 300
+        run: node apps/desktop/scripts/upload-release.mjs "$GITHUB_REF_NAME"
       - name: Record the release
         env:
           GH_TOKEN: ${{ github.token }}

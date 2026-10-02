@@ -35,9 +35,11 @@ Releases publish from a version tag. `.github/workflows/release.yml` does the bu
    git push origin v0.2.0
    ```
 
-3. The workflow checks that the tag matches the version and fails if it doesn't. It sets up Python 3.12 with pandas, NumPy, matplotlib and IPython 8 or 9 and runs `pnpm turbo run lint typecheck test`, the same checks as CI, so a failing test stops the release. Then it runs `dist:mac --publish never` and uploads `Dalliance.dmg` to the blob store twice: as `releases/<tag>/Dalliance.dmg`, kept for good, and over `Dalliance.dmg`, the one `/download` sends people to. That one has a five-minute cache, so a new release reaches the site within minutes. Last, `gh release create` records the tag, with the DMG and notes generated from the merged pull requests.
+3. The workflow checks that the tag matches the version and fails if it doesn't. It sets up Python 3.12 with pandas, NumPy, matplotlib and IPython 8 or 9 and runs `pnpm turbo run lint typecheck test`, the same checks as CI, so a failing test stops the release. Then it runs `dist:mac --publish never`, and `apps/desktop/scripts/upload-release.mjs` uploads `Dalliance.dmg` to the blob store twice with `@vercel/blob`: as `releases/<tag>/Dalliance.dmg`, kept for good, and over `Dalliance.dmg`, the one `/download` sends people to. That one has a five-minute cache, so a new release reaches the site within minutes. Last, `gh release create` records the tag, with the DMG and notes generated from the merged pull requests.
 
 Keep the name `Dalliance.dmg`. `downloadUrl` in `apps/web/src/lib/site.ts` is its blob URL.
+
+The store needs the team on Vercel Pro. Every download is the whole DMG, over 200 MB, so Hobby's Blob quota runs out after a few dozen downloads a month, and Vercel then suspends the store and `/download` answers 403.
 
 The upload needs the `BLOB_READ_WRITE_TOKEN` repository secret, the store's read-write token from the Vercel dashboard under Storage > dalliance-downloads.
 
@@ -134,13 +136,7 @@ In `.github/workflows/release.yml`:
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
   ```
 
-- [ ] Upload the update files next to the DMG, at the root of the blob store, with the same short cache. The updater reads `latest-mac.yml` there:
-
-  ```bash
-  for f in Dalliance.zip Dalliance.zip.blockmap latest-mac.yml; do
-    npx --yes vercel@54 blob put "apps/desktop/release/$f" --access public --pathname "$f" --allow-overwrite true --cache-control-max-age 300
-  done
-  ```
+- [ ] Upload the update files next to the DMG, at the root of the blob store, with the same short cache. The updater reads `latest-mac.yml` there. Add `Dalliance.zip`, `Dalliance.zip.blockmap` and `latest-mac.yml` to `apps/desktop/scripts/upload-release.mjs`, each put with `allowOverwrite` and `cacheControlMaxAge: 300` like the latest DMG.
 
   Keep the DMG's name. The website links to it.
 - [ ] Add `timeout-minutes: 60` to the job. Notarization usually takes a few minutes but can queue for longer.
