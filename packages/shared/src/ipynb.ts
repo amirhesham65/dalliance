@@ -124,8 +124,7 @@ function provenanceToNb(p: Provenance): Json {
     madeAt: p.madeAt,
     model: p.model,
     effort: p.effort,
-    // A fallback is rare, so a step only says so when it happened
-    steps: p.steps.map(({ step, model, fallback }) => ({ step, model, ...(fallback ? { fallback } : {}) })),
+    steps: p.steps,
     rationale: p.rationale,
     attemptCount: p.attemptCount,
     ...(p.attempts.length ? { attempts: p.attempts.slice(-1) } : {}),
@@ -162,7 +161,7 @@ function approvalFromNb(a: unknown): ProvenanceApproval | null {
 
 function stepFromNb(s: unknown): Provenance['steps'][number] | null {
   const step = isObject(s) ? asNumber(s.step) : null
-  return isObject(s) && step != null ? { step, model: asString(s.model), fallback: s.fallback === true } : null
+  return isObject(s) && step != null ? { step, model: asString(s.model) } : null
 }
 
 const isCorrection = (c: unknown): c is { from: string; to: string } => isObject(c) && typeof c.from === 'string' && typeof c.to === 'string'

@@ -2,13 +2,13 @@ import { GatewayError } from '@ai-sdk/gateway'
 import {
   APICallError,
   type LanguageModel,
-  type ProviderMetadata,
   RetryError,
   ToolLoopAgent,
   type ToolLoopAgentSettings,
   parsePartialJson,
   stepCountIs,
 } from 'ai'
+import { REFUSAL_TYPE } from '@dalliance/shared/cloud'
 import type { ActivityItem, CellRunResult, RunCellRequest, RunEvent, RunStep } from '@dalliance/shared/ipc'
 import type { Output } from '@dalliance/shared/notebook'
 import type { Kernel } from '../kernel/kernel'
@@ -167,11 +167,9 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
           break
         case 'finish-step': {
           const { usage } = part
-          const served = servedByFallback(part.providerMetadata)
           const record: RunStep = {
             step,
-            modelId: served.model || part.response.modelId || deps.modelId || null,
-            fallback: served.fallback,
+            modelId: part.response.modelId || deps.modelId || null,
             reasoning: reasoning.trim() || null,
             usage: stepUsage(usage),
             generationId: generationIdOf(part.providerMetadata),
@@ -181,7 +179,6 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
             cellId: request.cellId,
             step,
             modelId: record.modelId ?? undefined,
-            fallback: record.fallback,
             reasoning: record.reasoning,
             finishReason: part.finishReason,
             durationMs: Date.now() - stepStarted,
@@ -305,19 +302,6 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     }),
     error,
   }
-}
-
-/**
- * Whether a server-side fallback answered a call the chosen model declined, and which model it was. Anthropic
- * reports one in its usage iterations as a `fallback_message`, the last one being the model that served the turn.
- */
-export function servedByFallback(metadata: ProviderMetadata | undefined): { fallback: boolean; model: string | null } {
-  const iterations = metadata?.anthropic?.iterations
-  const served = Array.isArray(iterations)
-    ? (iterations.filter((i) => (i as { type?: unknown } | null)?.type === 'fallback_message').at(-1) as { model?: unknown } | undefined)
-    : undefined
-  if (!served) return { fallback: false, model: null }
-  return { fallback: true, model: typeof served.model === 'string' ? served.model : null }
 }
 
 const created = (vars: { name: string; type: string; shape: string }[]) => vars.map(({ name, type, shape }) => ({ name, type, shape }))
@@ -448,7 +432,7 @@ function accountRefusal(err: unknown): string | null {
     if (APICallError.isInstance(e) && e.responseBody) {
       try {
         const body = JSON.parse(e.responseBody) as { error?: { type?: unknown; message?: unknown } }
-        if (body.error?.type === 'dalliance_account' && typeof body.error.message === 'string') return body.error.message
+        if (body.error?.type === REFUSAL_TYPE && typeof body.error.message === 'string') return body.error.message
       } catch {
         // Not JSON, so not the proxy's
       }
@@ -458,26 +442,14 @@ function accountRefusal(err: unknown): string | null {
   return null
 }
 
-/**
- * Anthropic's own answer, on a direct key, when a model needs data retention and the key's organization has zero
- * data retention. Only from api.anthropic.com, so a gateway error that mentions retention keeps its own words.
- */
-function needsRetention(err: unknown, status: number | undefined, message: string): boolean {
-  const call = RetryError.isInstance(err) ? err.lastError : err
-  return status === 400 && APICallError.isInstance(call) && /^https:\/\/api\.anthropic\.com\//.test(call.url) && /\bdata retention\b/i.test(message)
-}
-
 export function friendlyError(err: unknown): string {
   const refusal = accountRefusal(err)
   if (refusal) return refusal
   const message = errorMessage(err)
   const detail = clip(message, 200)
   const status = statusOf(err)
-  if (needsRetention(err, status, message)) {
-    return "This model needs data retention, and your Anthropic organization has zero data retention. Choose another model in Settings."
-  }
-  if (status === 401 || status === 403 || (status == null && /\b(?:invalid (?:x-)?api[ -]key|unauthorized|authentication (?:error|failed))\b/i.test(message))) {
-    return `The model provider rejected the API key. Check it in Settings. (${detail})`
+  if (status === 401 || status === 403 || (status == null && /\b(?:unauthorized|authentication (?:error|failed))\b/i.test(message))) {
+    return `Dalliance Cloud didn't accept your sign-in. Sign in again in Settings > Account. (${detail})`
   }
   if (status === 429 || (status == null && /\brate[ -]limit/i.test(message))) return 'The model provider is rate limiting requests. Try again in a minute.'
   if ((status === 404 || (status == null && /\bnot found\b/i.test(message))) && /\bmodel\b/i.test(message)) return `The model wasn't found. Check the model name in Settings. (${detail})`

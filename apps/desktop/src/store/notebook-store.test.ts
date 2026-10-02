@@ -470,23 +470,23 @@ describe('the environment view', () => {
 })
 
 describe('the model list', () => {
-  const cloudList = { provider: 'cloud' as const, models: [{ id: 'anthropic/claude-opus-5', name: 'Claude Opus 5', maker: 'Anthropic' }], error: null }
+  const cloudList = { models: [{ id: 'anthropic/claude-opus-5', name: 'Claude Opus 5', maker: 'Anthropic' }], error: null }
 
-  function onCloud(model: string) {
+  function withModel(model: string) {
     const { api } = fakeApi(() => result())
     const updates: unknown[] = []
     api.listModels = async () => cloudList
     api.updateSettings = async (update) => {
       updates.push(update)
-      return { ...fakeSettings(), provider: 'cloud', model: 'anthropic/claude-opus-5' }
+      return { ...fakeSettings(), model: 'anthropic/claude-opus-5' }
     }
     setApi(api)
-    useNotebook.setState({ settings: { ...fakeSettings(), provider: 'cloud', model }, models: null, notice: null })
+    useNotebook.setState({ settings: { ...fakeSettings(), model }, models: null, notice: null })
     return updates
   }
 
-  it("moves a saved Cloud model that Dalliance Cloud doesn't offer back to the default", async () => {
-    const updates = onCloud('anthropic/claude-fable-5.1')
+  it("moves a saved model that Dalliance Cloud doesn't offer back to the default", async () => {
+    const updates = withModel('anthropic/claude-fable-5.1')
     await actions.loadModels()
     expect(updates).toEqual([{ model: '' }])
     expect(useNotebook.getState().settings?.model).toBe('anthropic/claude-opus-5')
@@ -494,7 +494,7 @@ describe('the model list', () => {
   })
 
   it('checks the saved model against a cached list too', async () => {
-    const updates = onCloud('anthropic/claude-opus-5')
+    const updates = withModel('anthropic/claude-opus-5')
     await actions.loadModels()
     // The model changes to one the service doesn't offer after the list was cached
     useNotebook.setState((s) => ({ settings: { ...s.settings!, model: 'anthropic/claude-fable-5.1' } }))
@@ -502,17 +502,17 @@ describe('the model list', () => {
     expect(updates).toEqual([{ model: '' }])
   })
 
-  it('leaves an offered Cloud model alone', async () => {
-    const updates = onCloud('anthropic/claude-opus-5')
+  it('leaves an offered model alone', async () => {
+    const updates = withModel('anthropic/claude-opus-5')
     await actions.loadModels()
     expect(updates).toEqual([])
   })
 
   it("leaves the model alone when the list didn't load", async () => {
-    const updates = onCloud('anthropic/claude-fable-5.1')
+    const updates = withModel('anthropic/claude-fable-5.1')
     useNotebook.setState({ models: null })
     const { api } = fakeApi(() => result())
-    api.listModels = async () => ({ provider: 'cloud', models: [], error: 'Sign in to Dalliance.' })
+    api.listModels = async () => ({ models: [], error: 'Sign in to Dalliance.' })
     api.updateSettings = async (update) => {
       updates.push(update)
       return fakeSettings()
@@ -525,29 +525,32 @@ describe('the model list', () => {
 
 describe("the notebook's costs", () => {
   it('adds up runs and cell names, keeps the total through Clear, and starts again for another notebook', async () => {
-    setApi(fakeApi(() => result({ cost: { unit: 'usd', usd: 0.02, unpricedTokens: 0 } })).api)
+    const { api } = fakeApi(() => result({ cost: { generationIds: ['gen_1'], tokens: 1000 } }))
+    api.countCredits = async (ids) => (ids.includes('gen_1') ? 2 : 0.5)
+    setApi(api)
     load(newPromptCell('What is x?'))
     actions.run(cell(0).id)
     await flush()
-    actions.applyRunEvent(cell(0).id, { type: 'title', title: 'X', prompt: 'What is x?', cost: { unit: 'usd', usd: 0.001, unpricedTokens: 40 } })
+    actions.applyRunEvent(cell(0).id, { type: 'title', title: 'X', prompt: 'What is x?', cost: { generationIds: ['gen_2'], tokens: 40 } })
+    await flush()
 
     const { log, spend } = useNotebook.getState()
-    expect(log[0].cost).toEqual({ unit: 'usd', usd: 0.02, unpricedTokens: 0 })
-    expect(spend.usd).toBeCloseTo(0.021)
-    expect(spend.unpricedTokens).toBe(40)
+    expect(log[0].cost).toEqual({ credits: 2, tokens: 1000, counting: false })
+    expect(spend).toEqual({ credits: 2.5, uncountedTokens: 0, counting: 0 })
     actions.clearLog()
-    expect(useNotebook.getState().spend.usd).toBeCloseTo(0.021)
+    expect(useNotebook.getState().spend.credits).toBe(2.5)
     // A cell name for a cell that isn't there counts for nothing
-    actions.applyRunEvent('no-such-cell', { type: 'title', title: 'Ghost', prompt: 'a', cost: { unit: 'usd', usd: 5, unpricedTokens: 0 } })
-    expect(useNotebook.getState().spend.usd).toBeCloseTo(0.021)
+    actions.applyRunEvent('no-such-cell', { type: 'title', title: 'Ghost', prompt: 'a', cost: { generationIds: ['gen_3'], tokens: 10 } })
+    await flush()
+    expect(useNotebook.getState().spend.credits).toBe(2.5)
 
     load(newPromptCell('Another'))
-    expect(useNotebook.getState().spend).toEqual({ usd: 0, credits: 0, unpricedTokens: 0, counting: 0 })
+    expect(useNotebook.getState().spend).toEqual({ credits: 0, uncountedTokens: 0, counting: 0 })
   })
 
   it("drops credits that arrive after the notebook changed, and shows tokens for credits that never came", async () => {
     let arrive!: (credits: number | null) => void
-    const { api } = fakeApi(() => result({ cost: { unit: 'credits', generationIds: ['gen_1'], tokens: 700 } }))
+    const { api } = fakeApi(() => result({ cost: { generationIds: ['gen_1'], tokens: 700 } }))
     api.countCredits = () => new Promise((resolve) => (arrive = resolve))
     setApi(api)
     load(newPromptCell('What is x?'))
@@ -556,15 +559,15 @@ describe("the notebook's costs", () => {
     expect(useNotebook.getState().spend.counting).toBe(1)
     arrive(null)
     await flush()
-    expect(useNotebook.getState().spend).toEqual({ usd: 0, credits: 0, unpricedTokens: 700, counting: 0 })
-    expect(useNotebook.getState().log[0].cost).toEqual({ unit: 'credits', credits: null, tokens: 700, counting: false })
+    expect(useNotebook.getState().spend).toEqual({ credits: 0, uncountedTokens: 700, counting: 0 })
+    expect(useNotebook.getState().log[0].cost).toEqual({ credits: null, tokens: 700, counting: false })
 
     actions.run(cell(0).id)
     await flush()
     load(newPromptCell('Another'))
     arrive(3)
     await flush()
-    expect(useNotebook.getState().spend).toEqual({ usd: 0, credits: 0, unpricedTokens: 0, counting: 0 })
+    expect(useNotebook.getState().spend).toEqual({ credits: 0, uncountedTokens: 0, counting: 0 })
   })
 })
 

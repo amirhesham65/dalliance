@@ -1,8 +1,5 @@
 // @vitest-environment node
 import { EventEmitter } from 'node:events'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import path from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DiscoveryDeps, Exec } from './python-env'
 
@@ -27,7 +24,7 @@ vi.mock('node:child_process', async (importOriginal) => {
   }
 })
 
-const { BASE_PACKAGES, EXTERNALLY_MANAGED_MESSAGE, REQUIRED_PACKAGES, findSystemPython, installMissingBasePackages, installPackages, isPackageSpec, managedPython, missingBasePackages, missingPackages, pipSpec } =
+const { BASE_PACKAGES, EXTERNALLY_MANAGED_MESSAGE, REQUIRED_PACKAGES, findSystemPython, installPackages, isPackageSpec, missingPackages, pipSpec } =
   await import('./python-env')
 
 beforeEach(() => {
@@ -166,64 +163,6 @@ describe('findSystemPython elsewhere', () => {
       return { stdout: `Python ${v}`, stderr: '' }
     }
     expect(await findSystemPython({ platform: 'linux', exec })).toBe('/usr/local/bin/python3')
-  })
-})
-
-describe('missing base packages in the managed environment', () => {
-  /** An environment folder whose python exists on disk. The probe itself goes through `exec`. */
-  function envWith(missing: string[]) {
-    const envDir = mkdtempSync(path.join(tmpdir(), 'dalliance-env-'))
-    mkdirSync(path.dirname(managedPython(envDir)), { recursive: true })
-    writeFileSync(managedPython(envDir), '')
-    const probes: string[][] = []
-    const exec: Exec = async (file, args) => {
-      probes.push([file, ...args])
-      const asked: string[] = JSON.parse(args[1].match(/for p in (\[.*?\])/)![1])
-      return { stdout: JSON.stringify(asked.filter((name) => missing.includes(name))), stderr: '' }
-    }
-    return { envDir, exec, probes }
-  }
-
-  it('reports pip names, mapping sklearn back to scikit-learn', async () => {
-    const { envDir, exec, probes } = envWith(['scipy', 'sklearn', 'seaborn', 'statsmodels'])
-    expect(await missingBasePackages(envDir, exec)).toEqual(['scipy', 'statsmodels', 'seaborn', 'scikit-learn'])
-    expect(probes[0][0]).toBe(managedPython(envDir))
-    expect(probes[0][2]).toContain('"sklearn"')
-  })
-
-  it('maps IPython back to ipython', async () => {
-    const { envDir, exec, probes } = envWith(['IPython'])
-    expect(await missingBasePackages(envDir, exec)).toEqual(['ipython'])
-    expect(probes[0][2]).toContain('"IPython"')
-  })
-
-  it('installs only what is missing into the managed environment', async () => {
-    const { envDir, exec } = envWith(['sklearn', 'seaborn'])
-    const log: string[] = []
-    expect(await installMissingBasePackages(envDir, (line) => log.push(line), exec)).toEqual(['seaborn', 'scikit-learn'])
-    expect(spawned).toEqual([{ cmd: managedPython(envDir), args: ['-m', 'pip', 'install', '--', 'seaborn', 'scikit-learn'] }])
-    expect(log[0]).toBe('Installing seaborn, scikit-learn')
-  })
-
-  it('installs IPython within the versions the kernel supports', async () => {
-    const { envDir, exec } = envWith(['IPython'])
-    expect(await installMissingBasePackages(envDir, () => {}, exec)).toEqual(['ipython'])
-    expect(spawned).toEqual([{ cmd: managedPython(envDir), args: ['-m', 'pip', 'install', '--', 'ipython>=8,<10'] }])
-  })
-
-  it('does nothing when the environment is complete', async () => {
-    const { envDir, exec } = envWith([])
-    expect(await installMissingBasePackages(envDir, () => {}, exec)).toEqual([])
-    expect(spawned).toEqual([])
-  })
-
-  it('does nothing when there is no managed environment', async () => {
-    const exec = vi.fn<Exec>()
-    const envDir = path.join(tmpdir(), 'dalliance-no-env-here')
-    expect(await missingBasePackages(envDir, exec)).toEqual([])
-    expect(await installMissingBasePackages(envDir, () => {}, exec)).toEqual([])
-    expect(exec).not.toHaveBeenCalled()
-    expect(spawned).toEqual([])
   })
 })
 

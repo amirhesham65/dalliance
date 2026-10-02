@@ -5,9 +5,10 @@
     "react/rules-of-hooks": "error",
     "react/only-export-components": ["warn", { "allowConstantExport": true }]
   },
+  "ignorePatterns": ["packages/backend/convex/_generated/**"],
   "overrides": [
     {
-      "files": ["apps/web/src/app/**"],
+      "files": ["apps/web/src/app/**", "apps/cloud/src/app/**"],
       "rules": { "react/only-export-components": "off" }
     },
     {

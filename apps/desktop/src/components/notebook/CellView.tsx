@@ -7,7 +7,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { answerBlocks, answerHtml, answerMarkdown, formatDuration, parseMarkdown } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
 import type { ActivityItem } from '@dalliance/shared/ipc'
-import { splitLeaked } from '@dalliance/shared/leaked'
 import { type Cell, type NoteCell, type PromptCell, needsGeneration, parseInterpretation, tablesOpen } from '@dalliance/shared/notebook'
 import { type CellRun, actions, useNotebook } from '@/store/notebook-store'
 import { HighlightedEditor } from './HighlightedEditor'
@@ -279,9 +278,7 @@ const hasAssumptions = (text: string | null) => Boolean(text && /\[\[[^\]]+\]\]/
 /** The answer leads the result. Long answers fold until you ask for more. */
 const Answer = memo(function Answer({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
-  // Answers saved before the harness cleaned up leaked tool markup still carry it
-  const clean = useMemo(() => splitLeaked(text).text, [text])
-  const long = clean.length > 600
+  const long = text.length > 600
   return (
     <div className="flex items-start gap-1">
       <div className="max-w-[62ch] min-w-0 flex-1">
@@ -289,7 +286,7 @@ const Answer = memo(function Answer({ text }: { text: string }) {
           data-selectable
           className={cn('flex flex-col gap-3 font-serif text-[16px] leading-[1.6]', long && !open && 'max-h-[11rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)]')}
         >
-          {answerBlocks(clean).map((b, i) =>
+          {answerBlocks(text).map((b, i) =>
             b.type === 'p' ? (
               <p key={i}>
                 <InlineText text={b.text} />
@@ -314,7 +311,7 @@ const Answer = memo(function Answer({ text }: { text: string }) {
           </button>
         )}
       </div>
-      <CopyAnswer text={clean} />
+      <CopyAnswer text={text} />
     </div>
   )
 })

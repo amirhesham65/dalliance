@@ -210,8 +210,8 @@ describe('the record of how a cell was made', () => {
     model: 'anthropic/claude-sonnet-5.5',
     effort: 'medium',
     steps: [
-      { step: 1, model: 'anthropic/claude-sonnet-5.5', fallback: false },
-      { step: 2, model: 'anthropic/claude-opus-5', fallback: true },
+      { step: 1, model: 'anthropic/claude-sonnet-5.5' },
+      { step: 2, model: 'anthropic/claude-sonnet-5.5' },
     ],
     rationale: { from: 'summaries', text: ['Group by plan, then average.'] },
     attemptCount: 3,
@@ -237,11 +237,7 @@ describe('the record of how a cell was made', () => {
   it('saves only the final attempt, with the count of all of them', () => {
     const file = saved().cells[0].metadata.dalliance.provenance
     expect(file.attemptCount).toBe(3)
-    // Only a step a fallback answered says so
-    expect(file.steps).toEqual([
-      { step: 1, model: 'anthropic/claude-sonnet-5.5' },
-      { step: 2, model: 'anthropic/claude-opus-5', fallback: true },
-    ])
+    expect(file.steps).toEqual(record.steps)
     expect(file.attempts).toEqual([record.attempts[2]])
     expect(file).not.toHaveProperty('filesReadTruncated')
   })
@@ -290,7 +286,7 @@ describe('the record of how a cell was made', () => {
       madeAt: '2026-09-30',
       model: null,
       effort: null,
-      steps: [{ step: 2, model: null, fallback: false }],
+      steps: [{ step: 2, model: null }],
       rationale: { from: 'none', text: ['kept'] },
       attemptCount: 1,
       attempts: [{ code: 'x = 1', error: null, changed: null }],

@@ -1,9 +1,9 @@
 {
   "name": "dalliance-monorepo",
   "private": true,
-  "license": "Apache-2.0",
+  "license": "UNLICENSED",
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --filter=@dalliance/desktop",
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
@@ -13,5 +13,8 @@
     "oxlint": "^1.85.0",
     "turbo": "^2.11.4"
   },
-  "packageManager": "pnpm@10.11.0"
+  "packageManager": "pnpm@10.11.0",
+  "engines": {
+    "node": ">=24"
+  }
 }

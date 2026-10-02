@@ -29,7 +29,7 @@ A process forked by a cell has no writer thread, so it writes its lines to fd 3 
 
 Requests can't be read by a cell either. At startup the script reads requests from a copy of fd 0 and puts `/dev/null` on fd 0 and `sys.stdin`. Reading stdin in a cell, or in a subprocess it starts, returns nothing. `input()` raises `EOFError` saying cells can't read input.
 
-The child's environment is `process.env` minus the API keys in `ENV_KEYS` from `env-keys.ts`. That file imports nothing from Electron, so `python-kernel.ts` loads in plain Node tests. `settings.ts` re-exports it. Code in a cell can't read the model's keys.
+The child's environment is `process.env` plus `MPLBACKEND=Agg` and `PYTHONUNBUFFERED=1`. The app holds no model keys, so there's nothing to strip: models run on Dalliance Cloud with the account's token, which stays in `Account` and never reaches the environment.
 
 Requests:
 
@@ -120,7 +120,7 @@ What the kernel loads for itself at startup, IPython and matplotlib's styling, i
 
 ## IPython
 
-At startup `start_ipython()` imports IPython and creates an `InteractiveShell` over the kernel's namespace. It needs IPython 8 or 9, since `configure()` patches internals checked against those two. If IPython is missing, another version, fails to start, or `DALLIANCE_KERNEL_NO_IPYTHON=1` is set, `shell` stays `None` and every cell takes the plain path above, exactly as before IPython support. IPython is in `BASE_PACKAGES`, installed as `ipython>=8,<10`, so the managed environment has it, and `installMissingBasePackages()` adds it to environments made before. A Python the user brings works either way. It adds about 125 ms to the time before `ready`: 400 ms instead of 280 ms, median of seven starts with IPython 9.17 and matplotlib on Linux.
+At startup `start_ipython()` imports IPython and creates an `InteractiveShell` over the kernel's namespace. It needs IPython 8 or 9, since `configure()` patches internals checked against those two. If IPython is missing, another version, fails to start, or `DALLIANCE_KERNEL_NO_IPYTHON=1` is set, `shell` stays `None` and every cell takes the plain path above, exactly as before IPython support. IPython is in `BASE_PACKAGES`, installed as `ipython>=8,<10`, so the managed environment has it. A Python the user brings works either way. It adds about 125 ms to the time before `ready`: 400 ms instead of 280 ms, median of seven starts with IPython 9.17 and matplotlib on Linux.
 
 There is no ZeroMQ and no ipykernel. The shell lives inside the script, and every protocol rule above still holds: replies go through the writer thread on fd 3, one request runs at a time, `SIGINT` only raises while `interruptible` is set, and `input()` still refuses.
 
@@ -234,7 +234,7 @@ It also reports which of `pandas`, `numpy` and `matplotlib` are missing. The ren
 
 `setupManagedEnv()` creates the venv with the system Python if needed, then pip-installs `BASE_PACKAGES` (the three above plus SciPy, statsmodels, seaborn, scikit-learn and IPython), streaming lines to the renderer over `python-log`. Changing `pythonPath` in Settings restarts the kernel.
 
-Environments made before `BASE_PACKAGES` grew only have the three required packages. `missingBasePackages(envDir)` reports which base packages the managed environment lacks, as pip names, and `installMissingBasePackages(envDir, onLog)` installs just those and resolves with their names. Both do nothing when there's no managed environment. `NotebookSession` calls `installMissingBasePackages()` the first time a kernel starts on the managed environment in each app session, without waiting for it, and sends its lines over `python-log`. A failure is ignored, so the packages just stay missing.
+When `BASE_PACKAGES` grows, an existing managed environment doesn't pick up the new packages on its own. The update in Settings > Python runs `setupManagedEnv()` again, which installs the whole list into the existing venv.
 
 `installPackages()` only accepts package names: `isPackageSpec()` rejects anything that starts like a pip option or a path, and every archive name pip would install as a local file (`.whl`, `.zip`, `.tar`, `.tgz`, `.tar.gz`, `.tbz`, `.tar.bz2`, `.txz`, `.tlz`, `.tar.xz`, `.tar.lz`, `.tar.lzma`). When pip refuses a Homebrew or Debian Python with `externally-managed-environment` (PEP 668), it throws `EXTERNALLY_MANAGED_MESSAGE`, which tells the user to set up the managed environment in Settings > Python. It never passes `--break-system-packages`.
 

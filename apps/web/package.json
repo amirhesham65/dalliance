@@ -12,9 +12,10 @@
     "lint": "oxlint -c ../../.oxlintrc.json"
   },
   "dependencies": {
+    "@dalliance/brand": "workspace:*",
     "@upstash/redis": "^1.39.0",
     "@vercel/analytics": "^2.0.1",
-    "next": "16.3.6",
+    "next": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

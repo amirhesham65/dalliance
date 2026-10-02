@@ -26,3 +26,6 @@ export const support = 'mt-6 max-w-[56ch] text-pretty lg:text-[18px] lg:leading-
 export const mastheadRuled = `${gutter} border-b pt-16 pb-14 lg:pt-26 lg:pb-22`
 
 export { focusRing }
+
+/** The mark and the name, as each site's link to its home. */
+export const wordmark = 'inline-flex items-center gap-2 font-serif text-[17px] font-semibold tracking-[-0.02em] text-ink no-underline'

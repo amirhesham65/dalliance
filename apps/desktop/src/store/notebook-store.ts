@@ -59,23 +59,23 @@ export interface LogEntry {
 }
 
 /** A run's cost as the Activity pane shows it. Credits are `counting` until Dalliance Cloud has them all. */
-export type CostView =
-  | { unit: 'usd'; usd: number; unpricedTokens: number }
-  | { unit: 'credits'; credits: number | null; tokens: number; counting: boolean }
+export interface CostView {
+  credits: number | null
+  tokens: number
+  counting: boolean
+}
 
 /**
- * What the open notebook's model calls have cost since it was opened, cell names included. `unpricedTokens` are
- * tokens with no known price, and Cloud calls whose credits never arrived. `counting` is how many runs' credits
- * are still on their way.
+ * What the open notebook's model calls have cost since it was opened, cell names included. `uncountedTokens` are
+ * the tokens of calls whose credits never arrived. `counting` is how many runs' credits are still on their way.
  */
 export interface Spend {
-  usd: number
   credits: number
-  unpricedTokens: number
+  uncountedTokens: number
   counting: number
 }
 
-export const NO_SPEND: Spend = { usd: 0, credits: 0, unpricedTokens: 0, counting: 0 }
+export const NO_SPEND: Spend = { credits: 0, uncountedTokens: 0, counting: 0 }
 
 /** A short message at the bottom of the window, with an Undo when the change can be taken back. Not saved. */
 export interface Notice {
@@ -158,7 +158,7 @@ export interface NotebookState {
   /** Which view the Variables & Environment pane shows. */
   variablesView: VariablesView
   settings: SettingsView | null
-  /** The Dalliance account and its plan, in builds with Dalliance Cloud. Null until the main process answers. */
+  /** The Dalliance account and its plan. Null until the main process answers. */
   account: AccountView | null
   billing: BillingView | null
   /** The Settings section on screen, or null when Settings is closed. It covers whatever screen is under it. */
@@ -279,10 +279,6 @@ function withPins(notebook: Notebook, pins: Pins | null): Notebook {
  */
 function trackCost(cost: RunCost | undefined, entryId: number | null) {
   if (!cost) return
-  if (cost.unit === 'usd') {
-    set((s) => ({ spend: { ...s.spend, usd: s.spend.usd + cost.usd, unpricedTokens: s.spend.unpricedTokens + cost.unpricedTokens } }))
-    return
-  }
   const epoch = spendEpoch
   set((s) => ({ spend: { ...s.spend, counting: s.spend.counting + 1 } }))
   const counted = api && cost.generationIds.length ? api.countCredits(cost.generationIds).catch(() => null) : Promise.resolve(null)
@@ -294,16 +290,16 @@ function trackCost(cost: RunCost | undefined, entryId: number | null) {
         counting: s.spend.counting - 1,
         credits: s.spend.credits + (credits ?? 0),
         // Credits that never came: the tokens are all there is to show
-        unpricedTokens: s.spend.unpricedTokens + (credits == null ? cost.tokens : 0),
+        uncountedTokens: s.spend.uncountedTokens + (credits == null ? cost.tokens : 0),
       },
-      log: s.log.map((e) => (e.id === entryId && e.cost?.unit === 'credits' ? { ...e, cost: { ...e.cost, credits, counting: false } } : e)),
+      log: s.log.map((e) => (e.id === entryId && e.cost ? { ...e, cost: { ...e.cost, credits, counting: false } } : e)),
     }))
   })
 }
 
 function costView(cost: RunCost | undefined): CostView | undefined {
   if (!cost) return undefined
-  return cost.unit === 'usd' ? cost : { unit: 'credits', credits: null, tokens: cost.tokens, counting: true }
+  return { credits: null, tokens: cost.tokens, counting: true }
 }
 
 const NOTICE_MS = 6000
@@ -651,16 +647,16 @@ export const actions = {
   },
 
   async loadModels(force = false) {
-    const { models, settings } = get()
+    const { models } = get()
     if (!api) return
     // A cached list is reused, but the saved model is still checked against it below
-    const cached = !force && models && models.provider === settings?.provider && !models.error
-    const list = cached ? models : await api.listModels().catch((err: unknown) => ({ provider: settings?.provider ?? 'gateway', models: [], error: String(err) }))
+    const cached = !force && models && !models.error
+    const list = cached ? models : await api.listModels().catch((err: unknown) => ({ models: [], error: String(err) }))
     if (!cached) set({ models: list })
     // Dalliance Cloud only offers models with zero data retention. A saved model it doesn't offer goes back to the
     // default (an empty model resets it), rather than failing every run
     const current = get().settings
-    if (list.provider === 'cloud' && current?.provider === 'cloud' && !list.error && list.models.length && !list.models.some((m) => m.id === current.model)) {
+    if (current && !list.error && list.models.length && !list.models.some((m) => m.id === current.model)) {
       try {
         set({ settings: await api.updateSettings({ model: '' }) })
         actions.notify(`${current.model} isn't offered on Dalliance Cloud, so the model is back to the default.`)

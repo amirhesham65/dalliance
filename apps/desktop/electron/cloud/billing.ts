@@ -1,12 +1,7 @@
 import { ConvexClient } from 'convex/browser'
-import { anyApi } from 'convex/server'
-import type { BillingView, PlanOption, SubscriptionView } from '@dalliance/shared/ipc'
-
-// The functions in backend/convex/billing.ts in the dalliance-cloud repo. Called untyped, so the shapes in
-// packages/shared/src/ipc.ts have to match what they return
-const api = anyApi.billing
-// And `usage:credits`, from the same repo, for the credits a run used
-const usage = anyApi.usage
+import type { CallCredits, PlanKey } from '@dalliance/shared/cloud'
+import { cloudApi } from '@dalliance/shared/cloud-api'
+import type { BillingView } from '@dalliance/shared/ipc'
 
 function describe(error: unknown) {
   // A ConvexError carries its message in data
@@ -25,7 +20,7 @@ const CREDITS_WAIT_MS = 90_000
  */
 export class Billing {
   private client: ConvexClient | null = null
-  private view: BillingView = { available: true, plans: [], subscription: null, usage: null, loading: true, checkingOut: false, error: null }
+  private view: BillingView = { plans: [], subscription: null, usage: null, loading: true, checkingOut: false, error: null }
   private listener: (view: BillingView) => void = () => {}
   private signedIn = false
   private retry: ReturnType<typeof setTimeout> | null = null
@@ -60,15 +55,15 @@ export class Billing {
     this.set({ error: null })
     if (this.signedIn) client.setAuth(() => this.opts.token())
     client.onUpdate(
-      api.plans,
+      cloudApi.plans,
       {},
-      (plans: PlanOption[]) => this.set({ plans }),
+      (plans) => this.set({ plans }),
       (err) => this.set({ error: `Couldn't load plans: ${describe(err)}` }),
     )
     client.onUpdate(
-      api.status,
+      cloudApi.status,
       {},
-      (status: { subscription: SubscriptionView | null; usage: BillingView['usage'] } | null) => {
+      (status) => {
         const subscription = status?.subscription ?? null
         this.set({ subscription, usage: status?.usage ?? null, loading: false, error: null, checkingOut: subscription ? false : this.view.checkingOut })
       },
@@ -99,10 +94,10 @@ export class Billing {
     else this.client.setAuth(async () => null)
   }
 
-  async checkout(plan: PlanOption['key']): Promise<BillingView> {
+  async checkout(plan: PlanKey): Promise<BillingView> {
     if (!this.client) return this.view
     try {
-      const { url } = (await this.client.action(api.checkout, { plan })) as { url: string }
+      const { url } = await this.client.action(cloudApi.checkout, { plan })
       await this.opts.open(url)
       this.set({ checkingOut: true, error: null })
     } catch (err) {
@@ -114,7 +109,7 @@ export class Billing {
   async portal(): Promise<BillingView> {
     if (!this.client) return this.view
     try {
-      const { url } = (await this.client.action(api.portal, {})) as { url: string }
+      const { url } = await this.client.action(cloudApi.portal, {})
       await this.opts.open(url)
       this.set({ error: null })
     } catch (err) {
@@ -133,7 +128,7 @@ export class Billing {
     const ids = [...new Set(generationIds)]
     if (!client || !this.signedIn || !ids.length) return Promise.resolve(null)
     return new Promise((resolve) => {
-      let rows: { generationId: string; credits: number }[] = []
+      let rows: CallCredits[] = []
       let settled = false
       let stop: (() => void) | null = null
       const settle = () => {
@@ -145,9 +140,9 @@ export class Billing {
       }
       const timer = setTimeout(settle, waitMs)
       const unsubscribe = client.onUpdate(
-        usage.credits,
+        cloudApi.credits,
         { generationIds: ids },
-        (found: typeof rows | null) => {
+        (found) => {
           rows = found ?? []
           if (found == null || rows.length >= ids.length) settle()
         },

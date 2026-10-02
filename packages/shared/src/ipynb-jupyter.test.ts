@@ -229,7 +229,7 @@ describe.skipIf(!hasNbformat)('nbformat.validate', () => {
         madeAt: '2026-09-30T12:00:00.000Z',
         model: 'anthropic/claude-sonnet-5.5',
         effort: 'medium',
-        steps: [{ step: 1, model: 'anthropic/claude-sonnet-5.5', fallback: false }],
+        steps: [{ step: 1, model: 'anthropic/claude-sonnet-5.5' }],
         rationale: { from: 'interpretation', text: ['The mean of the total column.'] },
         attemptCount: 1,
         attempts: [{ code: 'orders.total.mean()', error: null, changed: null }],

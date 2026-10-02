@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { CellRunResult, DallianceApi, SettingsView } from '@dalliance/shared/ipc'
 import { type PromptCell, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
-import { fakeApi, fakeSettings, provenance, result } from '@/test/fake-api'
+import { SIGNED_IN, SIGNED_OUT, fakeApi, fakeSettings, provenance, result } from '@/test/fake-api'
 import App from './App'
 
 // These tests type and run whole cells, which takes longer than the 5s default on a loaded machine
@@ -673,13 +673,14 @@ describe('question cells', () => {
   it('opens Settings as its own screen, with a tab per section', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result())
-    api.getSettings = async () => ({ ...fakeSettings(), keySource: null, hasKey: { gateway: false, anthropic: false } })
+    api.getAccount = async () => SIGNED_OUT
     setApi(api)
     render(<App />)
 
-    // The banner for a missing key goes straight to Models
+    // The banner for a signed-out account goes straight to Account
     await user.click(await screen.findByRole('button', { name: 'Open Settings' }))
-    expect(screen.getByRole('tab', { name: 'Models' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Account' })).toHaveAttribute('aria-selected', 'true')
+    await user.click(screen.getByRole('tab', { name: 'Models' }))
     expect(screen.getByRole('textbox', { name: 'Model' })).toHaveValue('anthropic/claude-sonnet-5.5')
 
     await user.click(screen.getByRole('tab', { name: 'Python' }))
@@ -716,45 +717,40 @@ describe('question cells', () => {
   it('lets the notice over the workspace be dismissed', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result())
-    api.getSettings = async () => ({ ...fakeSettings(), keySource: null })
+    api.getAccount = async () => SIGNED_OUT
     setApi(api)
     render(<App />)
 
-    expect(await screen.findByText('Add an API key to turn prompts into code.')).toBeInTheDocument()
+    expect(await screen.findByText('Sign in to Dalliance to run prompts.')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Dismiss notice' }))
-    expect(screen.queryByText('Add an API key to turn prompts into code.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Sign in to Dalliance to run prompts.')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Open Settings' })).not.toBeInTheDocument()
   })
 
-  it("never asks for an API key on Dalliance Cloud, only for a sign-in when signed out", async () => {
-    const { api } = fakeApi(() => result())
-    api.getSettings = async () => ({ ...fakeSettings(), provider: 'cloud', cloud: true, keySource: null, hasKey: { gateway: false, anthropic: false } })
-    api.getAccount = async () => ({ user: { name: 'Amir', email: 'amir@example.com' }, checking: false, waiting: false, error: null })
-    setApi(api)
+  it('asks for a sign-in only when signed out', async () => {
+    setApi(fakeApi(() => result()).api)
     render(<App />)
     await waitFor(() => expect(useNotebook.getState().account?.user).not.toBeNull())
-    expect(screen.queryByText('Add an API key to turn prompts into code.')).not.toBeInTheDocument()
     expect(screen.queryByText('Sign in to Dalliance to run prompts.')).not.toBeInTheDocument()
 
-    act(() => useNotebook.setState({ account: { user: null, checking: false, waiting: false, error: null } }))
+    act(() => useNotebook.setState({ account: SIGNED_OUT }))
     expect(screen.getByText('Sign in to Dalliance to run prompts.')).toBeInTheDocument()
-    expect(screen.queryByText('Add an API key to turn prompts into code.')).not.toBeInTheDocument()
   })
 
   it('shows the notice again when its message changes, or when the problem comes back', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result())
-    api.getSettings = async () => ({ ...fakeSettings(), keySource: null })
+    api.getAccount = async () => SIGNED_OUT
     setApi(api)
     render(<App />)
 
     await user.click(await screen.findByRole('button', { name: 'Dismiss notice' }))
-    expect(screen.queryByText('Add an API key to turn prompts into code.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Sign in to Dalliance to run prompts.')).not.toBeInTheDocument()
 
-    // A key gets added and Python turns out to be missing a package: a new message
+    // Signing in, then Python turns out to be missing a package: a new message
     await waitFor(() => expect(useNotebook.getState().python).not.toBeNull())
     const python = useNotebook.getState().python!
-    act(() => useNotebook.setState({ settings: { ...fakeSettings(), keySource: 'settings' }, python: { ...python, missingPackages: ['pandas'] } }))
+    act(() => useNotebook.setState({ account: SIGNED_IN, python: { ...python, missingPackages: ['pandas'] } }))
     expect(screen.getByText('Python is missing pandas. Cells that need them will fail.')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Dismiss notice' }))
     expect(screen.queryByText(/Python is missing/)).not.toBeInTheDocument()
@@ -1080,26 +1076,14 @@ describe('Show costs', () => {
     return screen.getByRole('list', { name: 'Run log' })
   }
 
-  it('shows each run and the notebook total as an estimate on an own key', async () => {
-    const log = await runWithCost({ showCosts: true }, { unit: 'usd', usd: 0.0421, unpricedTokens: 0 })
-    expect(log).toHaveTextContent('Wrote “Revenue by month”About $0.042, estimated')
-    expect(screen.getByLabelText("This notebook's cost")).toHaveTextContent('This notebook: about $0.042, estimated')
-  })
-
-  it('shows tokens for a model with no known price', async () => {
-    const log = await runWithCost({ showCosts: true }, { unit: 'usd', usd: 0, unpricedTokens: 12_345 })
-    expect(log).toHaveTextContent('12,345 tokens, no price known')
-    expect(log).not.toHaveTextContent('$')
-  })
-
-  it('counts credits on Dalliance Cloud, never dollars', async () => {
+  it('counts credits for each run and the notebook, never dollars', async () => {
     let arrive!: (credits: number) => void
     const asked: string[][] = []
     const countCredits = (ids: string[]) => {
       asked.push(ids)
       return new Promise<number | null>((resolve) => (arrive = resolve))
     }
-    const log = await runWithCost({ showCosts: true, provider: 'cloud' }, { unit: 'credits', generationIds: ['gen_1', 'gen_2'], tokens: 900 }, countCredits)
+    const log = await runWithCost({ showCosts: true }, { generationIds: ['gen_1', 'gen_2'], tokens: 900 }, countCredits)
     expect(asked).toEqual([['gen_1', 'gen_2']])
     expect(log).toHaveTextContent('Counting credits')
     expect(screen.getByLabelText("This notebook's cost")).toHaveTextContent('This notebook: counting credits')
@@ -1109,18 +1093,24 @@ describe('Show costs', () => {
     expect(log).not.toHaveTextContent('$')
   })
 
+  it('shows tokens for credits that never came', async () => {
+    const log = await runWithCost({ showCosts: true }, { generationIds: ['gen_1'], tokens: 12_345 }, async () => null)
+    expect(log).toHaveTextContent('12,345 tokens')
+    expect(screen.getByLabelText("This notebook's cost")).toHaveTextContent('This notebook: 12,345 tokens not counted')
+  })
+
   it('shows nothing about cost with the setting off', async () => {
-    const log = await runWithCost({ showCosts: false }, { unit: 'usd', usd: 0.0421, unpricedTokens: 0 })
+    const log = await runWithCost({ showCosts: false }, { generationIds: ['gen_1'], tokens: 900 }, async () => 4)
     expect(log).toHaveTextContent('Wrote “Revenue by month”')
-    expect(log).not.toHaveTextContent(/\$|estimated|tokens|credits/)
+    expect(log).not.toHaveTextContent(/tokens|credits/)
     expect(screen.queryByLabelText("This notebook's cost")).not.toBeInTheDocument()
   })
 
   it('shows what runs cost while it was off, once it is turned on', async () => {
-    const log = await runWithCost({ showCosts: false }, { unit: 'usd', usd: 0.0421, unpricedTokens: 0 })
-    expect(log).not.toHaveTextContent(/\$/)
+    const log = await runWithCost({ showCosts: false }, { generationIds: ['gen_1'], tokens: 900 }, async () => 4)
+    expect(log).not.toHaveTextContent(/credits/)
     act(() => useNotebook.setState((s) => ({ settings: { ...s.settings!, showCosts: true } })))
-    expect(screen.getByRole('list', { name: 'Run log' })).toHaveTextContent('$0.04')
+    expect(screen.getByRole('list', { name: 'Run log' })).toHaveTextContent('4 credits')
     expect(screen.getByLabelText("This notebook's cost")).toBeInTheDocument()
   })
 })

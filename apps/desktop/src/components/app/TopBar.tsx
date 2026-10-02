@@ -3,7 +3,6 @@ import { useState } from 'react'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useSidebar } from '@/components/ui/sidebar'
-import { providerLabel } from '@/lib/keys'
 import { makerOfModel } from '@/lib/makers'
 import { ago, modelLabel } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
@@ -139,7 +138,7 @@ const EFFORTS: { value: Effort; label: string }[] = [
   { value: 'max', label: 'Max' },
 ]
 
-/** Which model writes the cells, and how hard it thinks. Searches every model the provider offers. */
+/** Which model writes the cells, and how hard it thinks. Searches every model Dalliance Cloud offers. */
 function ModelChip() {
   const settings = useNotebook((s) => s.settings)
   const list = useNotebook((s) => s.models)
@@ -155,11 +154,11 @@ function ModelChip() {
     setOpen(false)
     setQuery('')
   }
-  const models = list?.provider === settings.provider ? list.models : []
+  const models = list?.models ?? []
   const current = models.find((m) => m.id === settings.model)
   // Anthropic first, then the other makers alphabetically
   const makers = [...new Set(models.map((m) => m.maker))].sort((a, b) => (a === 'Anthropic' ? -1 : b === 'Anthropic' ? 1 : a.localeCompare(b)))
-  const effortApplies = settings.provider === 'anthropic' || /^(anthropic|openai)\//.test(settings.model)
+  const effortApplies = /^(anthropic|openai)\//.test(settings.model)
   return (
     <Popover
       open={open}
@@ -170,7 +169,7 @@ function ModelChip() {
     >
       <PopoverTrigger asChild>
         <button type="button" className="flex h-7 items-center gap-1.5 rounded-lg px-2 text-muted-foreground hover:bg-background hover:text-foreground aria-expanded:bg-background">
-          <MakerLogo maker={current?.maker ?? makerOfModel(settings.provider, settings.model)} />
+          <MakerLogo maker={current?.maker ?? makerOfModel(settings.model)} />
           <span className="max-w-[180px] truncate">{current?.name.replace(/^Claude /, '') ?? modelLabel(settings.model)}</span>
           {effortApplies && <span className="text-faint">· {EFFORTS.find((e) => e.value === settings.effort)?.label.toLowerCase()}</span>}
         </button>
@@ -212,7 +211,6 @@ function ModelChip() {
                       className="gap-2 text-[13px] [&>svg:last-child]:ml-0 [&>svg:last-child]:size-3.5 [&>svg:last-child]:text-ink"
                     >
                       <span className="truncate">{m.name}</span>
-                      {m.price && <span className="ml-auto shrink-0 text-[11.5px] text-faint tabular-nums">{m.price}</span>}
                     </CommandItem>
                   ))}
               </CommandGroup>
@@ -239,12 +237,12 @@ function ModelChip() {
             ))}
           </div>
           <p className="px-2 pt-1.5 text-[11.5px] text-faint">
-            {effortApplies ? 'Prices are per million input / output tokens.' : 'Effort applies to Anthropic and OpenAI models. This one uses its default.'}
+            {effortApplies ? 'Higher effort is slower and uses more credits.' : 'Effort applies to Anthropic and OpenAI models. This one uses its default.'}
           </p>
           <div className="mt-1 border-t pt-1">
             <MenuButton
               icon={<Settings />}
-              label={`Provider: ${providerLabel(settings.provider)}…`}
+              label="Model settings…"
               onClick={() => {
                 setOpen(false)
                 actions.openSettings('models')

@@ -113,20 +113,9 @@ for (const { name, env, skip } of PATHS) {
     const dir = mkdtempSync(path.join(tmpdir(), 'dalliance-kernel-'))
     const scratch = mkdtempSync(path.join(tmpdir(), 'dalliance-scratch-'))
     const kernel = new PythonKernel({ python: python!, cwd: dir, scratchDir: scratch, env })
-    const keys = ['AI_GATEWAY_API_KEY', 'ANTHROPIC_API_KEY']
-    const saved = keys.map((key) => process.env[key])
 
-    beforeAll(() => {
-      for (const key of keys) process.env[key] = 'secret'
-      return kernel.start()
-    }, 20_000)
-    afterAll(async () => {
-      await kernel.shutdown()
-      keys.forEach((key, i) => {
-        if (saved[i] === undefined) delete process.env[key]
-        else process.env[key] = saved[i]
-      })
-    })
+    beforeAll(() => kernel.start(), 20_000)
+    afterAll(() => kernel.shutdown())
 
     const value = async (code: string) => (await kernel.execute(code, { store: false })).outputs
 
@@ -152,11 +141,6 @@ for (const { name, env, skip } of PATHS) {
       expect(await value('import helpers\nhelpers.hi()')).toEqual([{ type: 'text', text: "'hello'" }])
       expect(await value('import sys\nsys.path[0]')).toEqual([{ type: 'text', text: "''" }])
       expect(await value(`${JSON.stringify(scratch)} in sys.path`)).toEqual([{ type: 'text', text: 'False' }])
-    })
-
-    it('does not pass API keys to the kernel', async () => {
-      const code = `import os\n[k for k in ${JSON.stringify(keys)} if k in os.environ]`
-      expect(await value(code)).toEqual([{ type: 'text', text: '[]' }])
     })
 
     it('gives cells an empty stdin instead of the request pipe', async () => {

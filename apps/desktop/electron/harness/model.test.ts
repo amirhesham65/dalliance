@@ -1,39 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_MODELS, agentProviderOptions, claudeReasoning } from './model'
+import { DEFAULT_MODEL, agentProviderOptions, claudeReasoning } from './model'
 
-describe('DEFAULT_MODELS', () => {
-  it('is Sonnet 5.5 on every provider', () => {
-    expect(DEFAULT_MODELS).toEqual({ gateway: 'anthropic/claude-sonnet-5.5', anthropic: 'claude-sonnet-5-5', cloud: 'anthropic/claude-sonnet-5.5' })
+describe('DEFAULT_MODEL', () => {
+  it('is Sonnet 5.5', () => {
+    expect(DEFAULT_MODEL).toBe('anthropic/claude-sonnet-5.5')
   })
 })
 
 describe('agentProviderOptions', () => {
-  it('turns on summarized thinking, effort, automatic caching and one tool per step for Anthropic models, direct or through the gateway', () => {
-    const expected = { anthropic: { thinking: { type: 'adaptive', display: 'summarized' }, effort: 'high', cacheControl: { type: 'ephemeral' }, disableParallelToolUse: true } }
-    expect(agentProviderOptions({ provider: 'gateway', model: 'anthropic/claude-opus-5', effort: 'high' })).toEqual(expected)
-    expect(agentProviderOptions({ provider: 'cloud', model: 'anthropic/claude-opus-5', effort: 'high' })).toEqual(expected)
-    expect(agentProviderOptions({ provider: 'anthropic', model: 'claude-opus-5', effort: 'high' })).toEqual({ anthropic: { ...expected.anthropic, fallbacks: 'default' } })
-  })
-
-  it('asks the Anthropic API to retry a declined request on a fallback model, for the models with safety classifiers', () => {
-    for (const model of ['claude-sonnet-5-5', 'claude-opus-5', 'claude-opus-4-7', 'claude-fable-5-1']) {
-      expect(agentProviderOptions({ provider: 'anthropic', model, effort: 'medium' })?.anthropic).toMatchObject({ fallbacks: 'default' })
-    }
-    for (const model of ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-opus-4-5', 'claude-haiku-4-5']) {
-      expect(agentProviderOptions({ provider: 'anthropic', model, effort: 'medium' })?.anthropic).not.toHaveProperty('fallbacks')
-    }
-  })
-
-  it('sends no fallback through the gateway or Dalliance Cloud, where the gateway drops it', () => {
-    for (const provider of ['gateway', 'cloud'] as const) {
-      expect(agentProviderOptions({ provider, model: 'anthropic/claude-sonnet-5.5', effort: 'medium' })?.anthropic).not.toHaveProperty('fallbacks')
-    }
+  it('turns on summarized thinking, effort, automatic caching and one tool per step for Anthropic models', () => {
+    expect(agentProviderOptions({ model: 'anthropic/claude-opus-5', effort: 'high' })).toEqual({
+      anthropic: { thinking: { type: 'adaptive', display: 'summarized' }, effort: 'high', cacheControl: { type: 'ephemeral' }, disableParallelToolUse: true },
+    })
   })
 
   it('gives Sonnet 5.5 adaptive thinking and every effort level, xhigh included', () => {
     // A live call through the gateway accepted xhigh on Sonnet 5.5, where Opus 4.6 turned it down
     for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
-      expect(agentProviderOptions({ provider: 'gateway', model: 'anthropic/claude-sonnet-5.5', effort })?.anthropic).toMatchObject({
+      expect(agentProviderOptions({ model: 'anthropic/claude-sonnet-5.5', effort })?.anthropic).toMatchObject({
         thinking: { type: 'adaptive', display: 'summarized' },
         effort,
       })
@@ -41,30 +25,28 @@ describe('agentProviderOptions', () => {
   })
 
   it('sends no Anthropic options to other makers, and asks OpenAI models for reasoning summaries', () => {
-    expect(agentProviderOptions({ provider: 'gateway', model: 'openai/gpt-6', effort: 'xhigh' })).toEqual({ openai: { reasoningEffort: 'high', reasoningSummary: 'auto' } })
-    expect(agentProviderOptions({ provider: 'gateway', model: 'google/gemini-3-pro', effort: 'high' })).toBeUndefined()
+    expect(agentProviderOptions({ model: 'openai/gpt-6', effort: 'xhigh' })).toEqual({ openai: { reasoningEffort: 'high', reasoningSummary: 'auto' } })
+    expect(agentProviderOptions({ model: 'google/gemini-3-pro', effort: 'high' })).toBeUndefined()
   })
 
-  it.each(['claude-haiku-4-5', 'claude-haiku-4-5-20251001', 'anthropic/claude-haiku-4.5', 'claude-sonnet-4-5', 'anthropic/claude-sonnet-4.5', 'claude-opus-4-1', 'claude-sonnet-4-20250514', 'claude-sonnet-4-0', 'claude-3-7-sonnet-latest', 'anthropic/claude-3.5-haiku'])(
+  it.each(['anthropic/claude-haiku-4.5', 'anthropic/claude-sonnet-4.5', 'anthropic/claude-opus-4.1', 'anthropic/claude-sonnet-4', 'anthropic/claude-3.7-sonnet', 'anthropic/claude-3.5-haiku'])(
     'sends neither thinking nor effort to %s, but still caches',
     (model) => {
-      const provider = model.startsWith('anthropic/') ? 'gateway' : 'anthropic'
-      expect(agentProviderOptions({ provider, model, effort: 'xhigh' })).toEqual({ anthropic: { cacheControl: { type: 'ephemeral' }, disableParallelToolUse: true } })
+      expect(agentProviderOptions({ model, effort: 'xhigh' })).toEqual({ anthropic: { cacheControl: { type: 'ephemeral' }, disableParallelToolUse: true } })
     },
   )
 
   it('gives Opus 4.5 effort without adaptive thinking, capped at high', () => {
-    expect(agentProviderOptions({ provider: 'anthropic', model: 'claude-opus-4-5', effort: 'max' })).toEqual({
+    expect(agentProviderOptions({ model: 'anthropic/claude-opus-4.5', effort: 'max' })).toEqual({
       anthropic: { effort: 'high', cacheControl: { type: 'ephemeral' }, disableParallelToolUse: true },
     })
-    expect(agentProviderOptions({ provider: 'anthropic', model: 'claude-opus-4-5-20251101', effort: 'low' })?.anthropic).toMatchObject({ effort: 'low' })
+
   })
 
   it('steps xhigh down to high on the 4.6 models, which take max but not xhigh', () => {
-    for (const model of ['claude-opus-4-6', 'anthropic/claude-sonnet-4.6']) {
-      const provider = model.startsWith('anthropic/') ? 'gateway' : 'anthropic'
-      expect(agentProviderOptions({ provider, model, effort: 'xhigh' })?.anthropic).toMatchObject({ thinking: { type: 'adaptive' }, effort: 'high' })
-      expect(agentProviderOptions({ provider, model, effort: 'max' })?.anthropic).toMatchObject({ effort: 'max' })
+    for (const model of ['anthropic/claude-opus-4.6', 'anthropic/claude-sonnet-4.6']) {
+      expect(agentProviderOptions({ model, effort: 'xhigh' })?.anthropic).toMatchObject({ thinking: { type: 'adaptive' }, effort: 'high' })
+      expect(agentProviderOptions({ model, effort: 'max' })?.anthropic).toMatchObject({ effort: 'max' })
     }
   })
 })

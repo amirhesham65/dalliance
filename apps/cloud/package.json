@@ -1,0 +1,35 @@
+{
+  "name": "@dalliance/cloud",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "cloud.dalliance.io: sign-in and billing pages for the app, and the proxies to Convex and the model gateway.",
+  "scripts": {
+    "dev": "next dev --port 3200",
+    "build": "next build",
+    "start": "next start --port 3200",
+    "test": "vitest run",
+    "typecheck": "next typegen && tsc --noEmit",
+    "lint": "oxlint -c ../../.oxlintrc.json"
+  },
+  "dependencies": {
+    "@dalliance/brand": "workspace:*",
+    "@dalliance/shared": "workspace:*",
+    "@better-auth/electron": "catalog:",
+    "@better-auth/utils": "catalog:",
+    "@better-fetch/fetch": "catalog:",
+    "better-auth": "catalog:",
+    "next": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

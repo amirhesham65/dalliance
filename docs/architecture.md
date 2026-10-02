@@ -1,6 +1,6 @@
 # Architecture
 
-Dalliance runs as three processes on the user's machine. Nothing runs on a server except the model provider.
+Dalliance runs as three processes on the user's machine. The only server it talks to is Dalliance Cloud, which holds the account and the plan and passes model calls on to Vercel AI Gateway. See [cloud.md](cloud.md).
 
 ```mermaid
 flowchart LR
@@ -10,7 +10,7 @@ flowchart LR
     M["Main process<br/>apps/desktop/electron"]
   end
   K["Python kernel<br/>dalliance_kernel.py"]
-  AI["Model provider<br/>Vercel AI Gateway or Anthropic API"]
+  AI["Dalliance Cloud<br/>cloud.dalliance.io/api/ai, then AI Gateway"]
 
   R -- "typed API calls" --> P
   P -- "ipcRenderer.invoke / send" --> M
@@ -23,7 +23,7 @@ flowchart LR
 | Process | Code | Owns |
 | --- | --- | --- |
 | Renderer | `apps/desktop/src/` | The open notebook, the run queue, live run state, layout, every pixel |
-| Main | `apps/desktop/electron/` | Files and dialogs, settings and keys, the agent loop, the kernel's lifecycle |
+| Main | `apps/desktop/electron/` | Files and dialogs, settings, the Dalliance account, the agent loop, the kernel's lifecycle |
 | Kernel | `apps/desktop/electron/kernel/dalliance_kernel.py` | One Python namespace that lives across cells |
 
 The renderer holds the document. The main process holds everything with side effects. The kernel holds Python state. `packages/shared` holds the types that cross those lines.
@@ -97,8 +97,7 @@ The renderer is treated as untrusted web content.
 - Links with `https://` open in the default browser. Every other new window is denied, and in-app navigation is blocked.
 - The main process answers IPC only from the top frame of its own window showing the app's own page. See [ipc.md](ipc.md#who-may-call).
 - Packaged builds get a strict Content Security Policy from the `dalliance-csp` plugin in `vite.config.ts`. The dev server skips it because React Fast Refresh needs inline scripts.
-- API keys are encrypted with Electron `safeStorage`, which uses the macOS keychain. See [storage.md](storage.md).
-- In builds with Dalliance Cloud, the account's session and tokens stay in the main process too. The renderer only sees the name, email and plan. See [cloud.md](cloud.md#security).
+- The app holds no model keys. The account's session and tokens stay in the main process, and the session is encrypted at rest with Electron `safeStorage`. The renderer only sees the name, email and plan. See [cloud.md](cloud.md#security).
 - File paths from the renderer aren't trusted. `saveNotebook()` only writes to an absolute path ending in `.ipynb` and shows the Save dialog for anything else. `openRecent()` only opens a path already in `settings.recent`. `checkPins()` only reads files inside the folder in use, by relative paths.
 
 The agent is fenced in by the harness rather than by the OS:
@@ -117,6 +116,7 @@ The agent is fenced in by the harness rather than by the OS:
 | The notebook document | Renderer store, mirrored to the main process as a draft | Window reload and relaunch. See [storage.md](storage.md#session-and-drafts) |
 | Live run state (`runs`, activity, questions) | Renderer store | Nothing. A reload interrupts the running cell |
 | Python variables | Kernel process | Window reload. Not a relaunch or a restart |
-| Settings and keys | `settings.json` in userData | Everything |
+| Settings | `settings.json` in userData | Everything |
+| The Dalliance account's session | `account.json` in userData, encrypted | Everything but signing out |
 | Layout, sidebar open | `localStorage` in the renderer | Relaunch |
 | Package trust for installs | `NotebookSession.trust` | The app session |

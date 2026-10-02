@@ -1,24 +1,21 @@
-import { ArrowRight, ArrowUpRight, Check, FilePlus, FolderOpen, Loader2, NotebookText } from 'lucide-react'
+import { ArrowRight, Check, FilePlus, FolderOpen, Loader2, NotebookText } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { CloudStatus } from '@/components/cloud/CloudStatus'
-import { cloudReady } from '@/lib/cloud'
-import { CLOUD, PROVIDERS, keySourceText, providerForKey, saveKey } from '@/lib/keys'
+import { CLOUD_RETENTION, cloudReady } from '@/lib/cloud'
 import { sampleNotebook } from '@/lib/notebook/samples'
 import { cn } from '@/lib/utils'
-import type { DallianceApi, KeyProvider, Provider, PythonState, SettingsView } from '@dalliance/shared/ipc'
+import type { DallianceApi, PythonState } from '@dalliance/shared/ipc'
 import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
 import { Kbd } from '@/components/ui/kbd'
 import { StepBar, Wordmark } from './parts'
 import { finishOnboarding, fresh, modKey, pythonReady, startWith } from './start'
 import { usePythonSetup } from './use-python-setup'
 
-const STEPS = ['Welcome', 'Model', 'Python', 'Start']
+const STEPS = ['Welcome', 'Account', 'Python', 'Start']
 
 /**
- * The first run: what a cell is, a model key, a Python to run on, and a first notebook.
+ * The first run: what a cell is, a Dalliance account, a Python to run on, and a first notebook.
  * Every step can be skipped; Settings has the same controls later.
  */
 export function Onboarding({ initialStep = 0, onClose }: { initialStep?: number; onClose: () => void }) {
@@ -30,8 +27,7 @@ export function Onboarding({ initialStep = 0, onClose }: { initialStep?: number;
   const api = getApi()
   if (!settings || !api) return null
 
-  const modelReady = settings.provider === 'cloud' ? cloudReady(account, billing) : settings.keySource != null
-  const ready = [true, modelReady, pythonReady(python), true]
+  const ready = [true, cloudReady(account, billing), pythonReady(python), true]
   const last = step === STEPS.length - 1
   const later = async () => {
     await finishOnboarding()
@@ -60,9 +56,9 @@ export function Onboarding({ initialStep = 0, onClose }: { initialStep?: number;
           )}
           <div key={step} className="col-start-1 row-start-1 duration-300 animate-in fade-in slide-in-from-bottom-1 motion-reduce:animate-none">
             {step === 0 && <IntroStep />}
-            {step === 1 && <ModelStep settings={settings} api={api} />}
+            {step === 1 && <AccountStep api={api} />}
             {step === 2 && <PythonStep python={python} api={api} />}
-            {step === 3 && <StartStep missing={[!ready[1] && (settings.provider === 'cloud' ? 'a Dalliance plan' : 'a model key'), !ready[2] && 'Python'].filter((m): m is string => !!m)} />}
+            {step === 3 && <StartStep missing={[!ready[1] && 'a Dalliance plan', !ready[2] && 'Python'].filter((m): m is string => !!m)} />}
           </div>
         </div>
 
@@ -169,146 +165,13 @@ function SampleCell() {
   )
 }
 
-function ModelStep({ settings, api }: { settings: SettingsView; api: DallianceApi }) {
-  const [key, setKey] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [replacing, setReplacing] = useState(false)
-  const [note, setNote] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const onCloud = settings.provider === 'cloud'
-  // Dalliance Cloud comes first where it's offered: it needs no key
-  const choices: Provider[] = [...(settings.cloud ? (['cloud'] as const) : []), ...(Object.keys(PROVIDERS) as KeyProvider[])]
-  const provider = PROVIDERS[settings.provider === 'cloud' ? 'gateway' : settings.provider]
-
-  const update = async (u: Parameters<DallianceApi['updateSettings']>[0]) => {
-    useNotebook.setState({ settings: await api.updateSettings(u) })
-  }
-  const change = (value: string) => {
-    setKey(value)
-    setError(null)
-    // A pasted key says whose it is, so the provider follows it
-    const detected = providerForKey(value)
-    if (detected && detected !== settings.provider) void update({ provider: detected })
-  }
-  const save = async () => {
-    if (!key.trim()) return
-    setSaving(true)
-    try {
-      const saved = await saveKey(api, settings.provider, key)
-      if (!saved.view) return setError(saved.error)
-      useNotebook.setState({ settings: saved.view })
-      setNote(saved.note)
-      setKey('')
-      setReplacing(false)
-    } catch (err) {
-      setError(`Couldn't save the key: ${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setSaving(false)
-    }
-  }
-
+function AccountStep({ api }: { api: DallianceApi }) {
   return (
     <>
-      <StepHeading title="Connect a model">
-        {settings.cloud
-          ? 'The agent needs a model to write code. Run it on a Dalliance plan, or bring your own API key, stored encrypted with your system keychain.'
-          : 'The agent needs an API key to write code. It is stored encrypted with your system keychain and only sent to the provider you choose.'}
+      <StepHeading title="Sign in to Dalliance">
+        The agent writes code on your Dalliance plan: Claude, GPT, Gemini and others, paid for in credits, with no API key to manage. {CLOUD_RETENTION}
       </StepHeading>
-
-      <div role="radiogroup" aria-label="Model provider" className="grid gap-2 sm:grid-cols-2">
-        {choices.map((p) => {
-          const checked = settings.provider === p
-          const { label, blurb } = p === 'cloud' ? CLOUD : PROVIDERS[p]
-          return (
-            <button
-              key={p}
-              type="button"
-              role="radio"
-              aria-checked={checked}
-              onClick={() => {
-                setReplacing(false)
-                setError(null)
-                setNote(null)
-                void update({ provider: p })
-              }}
-              className={cn(
-                'flex flex-col gap-1 rounded-lg border px-3.5 py-3 text-left transition-colors',
-                p === 'cloud' && 'sm:col-span-2',
-                checked ? 'border-ink/70 bg-background ring-1 ring-ink/70' : 'hover:border-ring/70 hover:bg-hover/60',
-              )}
-            >
-              <span className="flex items-center gap-2 text-[13.5px] font-medium">
-                <span className={cn('flex size-3.5 items-center justify-center rounded-full border', checked ? 'border-ink' : 'border-ring')}>
-                  {checked && <span className="size-1.5 rounded-full bg-ink" />}
-                </span>
-                {label}
-                {p !== 'cloud' && settings.hasKey[p] && <span className="ml-auto text-xs font-normal text-faint">key saved</span>}
-              </span>
-              <span className="pl-5.5 text-[12.5px] leading-[1.5] text-muted-foreground">{blurb}</span>
-            </button>
-          )
-        })}
-      </div>
-
-      <div className="mt-5">
-        {onCloud ? (
-          <CloudStatus api={api} />
-        ) : settings.keySource && !replacing ? (
-          <div className="flex items-center gap-2.5 rounded-lg bg-raised px-3.5 py-3 text-[13px]" role="status">
-            <span className="flex size-4 items-center justify-center rounded-full bg-go text-background">
-              <Check className="size-2.5" strokeWidth={3.5} />
-            </span>
-            <span className="flex-1">
-              {keySourceText(settings)}
-              {note && <span className="text-muted-foreground"> {note}</span>}
-            </span>
-            <button type="button" className="text-xs text-faint hover:text-foreground" onClick={() => setReplacing(true)}>
-              {settings.keySource === 'settings' ? 'Replace' : 'Use a different key'}
-            </button>
-          </div>
-        ) : (
-          <form
-            className="grid gap-1.5"
-            onSubmit={(e) => {
-              e.preventDefault()
-              void save()
-            }}
-          >
-            <div className="flex items-baseline justify-between">
-              <Label htmlFor="onboarding-key">{provider.keyLabel}</Label>
-              <a href={provider.keysUrl} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground">
-                Get a key from {provider.keysSite}
-                <ArrowUpRight className="size-3" />
-              </a>
-            </div>
-            <div className="flex gap-2">
-              <Input
-                id="onboarding-key"
-                type="password"
-                autoComplete="off"
-                autoFocus
-                value={key}
-                onChange={(e) => change(e.target.value)}
-                placeholder={provider.placeholder}
-                aria-invalid={error != null}
-                aria-describedby="onboarding-key-help"
-                className="font-mono text-xs"
-              />
-              <Button type="submit" variant="secondary" disabled={!key.trim() || saving}>
-                {saving && <Loader2 className="animate-spin" />}
-                {saving ? 'Checking…' : 'Save key'}
-              </Button>
-            </div>
-            <p id="onboarding-key-help" className={cn('text-xs', error ? 'text-destructive' : 'text-faint')} role={error ? 'alert' : undefined}>
-              {error ?? (
-                <>
-                  Paste either kind of key, and the provider follows it. Or export <span className="font-mono">{provider.env}</span> in your shell profile.
-                </>
-              )}
-            </p>
-          </form>
-        )}
-      </div>
+      <CloudStatus api={api} />
     </>
   )
 }

@@ -61,8 +61,7 @@ export function SettingsScreen() {
           <div className="flex flex-col gap-1">
             <h1 className="eyebrow px-2 pb-1">Settings</h1>
             <Tabs.List aria-label="Settings sections" className="flex flex-col gap-0.5">
-              {/* The account is Dalliance Cloud's, so builds without it have no Account section */}
-              {SETTINGS_SECTIONS.filter((id) => id !== 'account' || settings.cloud).map((id) => {
+              {SETTINGS_SECTIONS.map((id) => {
                 const { label, icon: Icon } = SECTIONS[id]
                 return (
                   <Tabs.Trigger
@@ -89,11 +88,9 @@ export function SettingsScreen() {
           <Tabs.Content value="python" className="mx-auto w-full max-w-[640px] px-10 py-10 outline-none">
             <PythonSettings api={api} settings={settings} />
           </Tabs.Content>
-          {settings.cloud && (
-            <Tabs.Content value="account" className="mx-auto w-full max-w-[640px] px-10 py-10 outline-none">
-              <AccountSettings api={api} />
-            </Tabs.Content>
-          )}
+          <Tabs.Content value="account" className="mx-auto w-full max-w-[640px] px-10 py-10 outline-none">
+            <AccountSettings api={api} />
+          </Tabs.Content>
         </div>
       </Tabs.Root>
     </div>

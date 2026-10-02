@@ -4,20 +4,14 @@ import { Button } from '@/components/ui/button'
 import { ago } from '@/lib/notebook/text'
 import { STARTERS, sampleNotebook } from '@/lib/notebook/samples'
 import { cn } from '@/lib/utils'
-import type { RecentNotebook, SettingsView } from '@dalliance/shared/ipc'
+import type { RecentNotebook } from '@dalliance/shared/ipc'
 import { newPromptCell } from '@dalliance/shared/notebook'
 import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
-import { modelReady } from '@/lib/keys'
+import { signedIn } from '@/lib/cloud'
 import { Onboarding } from './Onboarding'
 import { Kbd } from '@/components/ui/kbd'
 import { Wordmark } from './parts'
 import { folderName, fresh, modKey, pythonReady, startWith } from './start'
-
-const KEY_SOURCES: Record<NonNullable<SettingsView['keySource']>, string> = {
-  settings: 'Saved in your keychain',
-  environment: 'From the environment',
-  shell: 'From your shell profile',
-}
 
 /** What the window shows with no notebook open: the first-run setup the first time, the start page after that. */
 export function WelcomeScreen() {
@@ -30,7 +24,6 @@ export function WelcomeScreen() {
 }
 
 function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
-  const settings = useNotebook((s) => s.settings)
   const account = useNotebook((s) => s.account)
   const python = useNotebook((s) => s.python)
   const canReturn = useNotebook((s) => s.canReturn)
@@ -44,10 +37,7 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
   }, [api])
 
   const cwd = useNotebook((s) => s.kernel.cwd)
-  const keySource = settings?.keySource ?? null
-  const onCloud = settings?.provider === 'cloud'
-  // Dalliance Cloud takes no key: a signed-in account is what it needs
-  const hasKey = settings != null && modelReady(settings, account)
+  const hasAccount = signedIn(account)
   const hasPython = pythonReady(python)
   const name = path ? (path.split(/[\\/]/).pop() ?? path).replace(/\.ipynb$/, '') : 'Untitled'
 
@@ -108,8 +98,8 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
           )}
         </section>
 
-        <section aria-label={hasKey && hasPython ? 'Try a prompt' : 'Setup'} className="flex min-w-0 flex-1 flex-col rounded-xl border bg-background shadow-pane">
-          {hasKey && hasPython ? (
+        <section aria-label={hasAccount && hasPython ? 'Try a prompt' : 'Setup'} className="flex min-w-0 flex-1 flex-col rounded-xl border bg-background shadow-pane">
+          {hasAccount && hasPython ? (
             <>
               <header className="px-6 pt-6 pb-3">
                 <h2 className="font-serif text-[19px] font-medium">Try a prompt</h2>
@@ -141,17 +131,9 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
               </header>
               <ul className="flex flex-col gap-1 px-3 pb-3">
                 <SetupItem
-                  done={hasKey}
-                  title={onCloud ? 'A Dalliance account' : 'A model key'}
-                  detail={
-                    onCloud
-                      ? account?.user
-                        ? `Signed in as ${account.user.name || account.user.email}`
-                        : 'Runs prompts on your plan'
-                      : keySource
-                        ? KEY_SOURCES[keySource]
-                        : 'Writes the code for each cell'
-                  }
+                  done={hasAccount}
+                  title="A Dalliance account"
+                  detail={account?.user ? `Signed in as ${account.user.name || account.user.email}` : 'Runs prompts on your plan'}
                   onClick={() => onSetup(1)}
                 />
                 <SetupItem
@@ -162,7 +144,7 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
                 />
               </ul>
               <div className="px-6 pb-6">
-                <Button className="w-full" onClick={() => onSetup(hasKey ? 2 : 1)}>
+                <Button className="w-full" onClick={() => onSetup(hasAccount ? 2 : 1)}>
                   Finish setting up
                 </Button>
               </div>

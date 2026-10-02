@@ -25,10 +25,9 @@ Every handler goes through `handle()` or `on()` in `main.ts`, never `ipcMain` di
 | `kernelState()` | invoke | `session.kernelState` | Last known `KernelState` |
 | `listVariables()` | invoke | `session.variables` | Variables for the side pane |
 | `listPackages()` | invoke | `session.environment` | The Python in use and its libraries with versions, an `EnvironmentView`. `installedPackages()` in `electron/kernel/python-packages.ts` reads the interpreter with `importlib.metadata` in its own process, so a running cell doesn't hold it up. It runs in userData, since `python -c` puts its working directory first on `sys.path` and a stray `json.py` there would shadow the standard library. A failure comes back as `error`, never a throw: no Python, a timeout after 20 seconds, or the last line Python wrote to stderr |
-| `getSettings()` | invoke | `settings.view` | `SettingsView`, never the keys themselves |
+| `getSettings()` | invoke | `settings.view` | `SettingsView` |
 | `updateSettings(update)` | invoke | `settings.update` | Returns the new view. Restarts the kernel if `pythonPath` changed |
-| `listModels()` | invoke | `listModels` | Models for the picker |
-| `checkKey(provider, key)` | invoke | `checkKey` | Asks the provider whether a key works, without saving it. A `KeyCheck` with the balance or the reason |
+| `listModels()` | invoke | `listModels` | Dalliance Cloud's models for the picker, as a `ModelList`. Empty with an `error` when signed out |
 | `pythonState()` | invoke | `session.pythonState` | Which Python, which version, missing packages |
 | `setupPython()` | invoke | `session.setupPython` | Creates the managed venv, then restarts the kernel |
 | `openNotebook()` | invoke | dialog, `openFile` | Open dialog, parse, restart the kernel in that folder. A kernel still starting in the old folder shuts itself down. A file the OS asked to open takes the dialog's place, see [Opening files from the OS](#opening-files-from-the-os) |
@@ -44,14 +43,14 @@ Every handler goes through `handle()` or `on()` in `main.ts`, never `ipcMain` di
 | `listFiles()` | invoke | `session.files` | Workspace files, empty for broad folders |
 | `restoreSession()` | invoke | `drafts.restore` | The notebook to show at load, or a `RestoreFailure` with the reason it couldn't reopen, or null. See [storage.md](storage.md#session-and-drafts) |
 | `saveDraft(state)` | send | `drafts.update` | Mirrors the document to the main process |
-| `getAccount()` | invoke | `account.current` | The Dalliance account as an `AccountView`. Signed out in builds without Dalliance Cloud. See [cloud.md](cloud.md) |
+| `getAccount()` | invoke | `account.current` | The Dalliance account as an `AccountView`. See [cloud.md](cloud.md) |
 | `signIn()` | invoke | `account.signIn` | Opens the sign-in page in the browser and sets `waiting` |
 | `redeemSignInCode(code)` | invoke | `account.redeem` | The code the sign-in page shows when the browser couldn't open the app |
 | `signOut()` | invoke | `account.signOut` | Signs out here. The server session expires on its own |
-| `getBilling()` | invoke | `billing.current` | The plan as a `BillingView`. `available` is false in builds without Dalliance Cloud |
+| `getBilling()` | invoke | `billing.current` | The plan as a `BillingView` |
 | `startCheckout(plan)` | invoke | `billing.checkout` | Opens checkout for the plan in the browser. Only takes `pro` |
 | `openBillingPortal()` | invoke | `billing.portal` | Opens the billing portal in the browser |
-| `countCredits(generationIds)` | invoke | `billing.credits` | The credits Dalliance Cloud counted for a run's calls, once they've all landed or after 90 seconds. Null when none were, and in builds without Dalliance Cloud. See [agent-harness.md](agent-harness.md#costs) |
+| `countCredits(generationIds)` | invoke | `billing.credits` | The credits Dalliance Cloud counted for a run's calls, once they've all landed or after 90 seconds. Null when none were, or when signed out. See [agent-harness.md](agent-harness.md#costs) |
 | `setDocumentState({ path, dirty })` | send | `updateTitle` | Window title and the macOS edited dot |
 
 ## Events from main
@@ -85,7 +84,7 @@ Each `on*` method subscribes and returns an unsubscribe function.
 
 ## Opening files from the OS
 
-Dalliance runs one instance. `main.ts` takes `app.requestSingleInstanceLock()` at startup, and a second launch quits right away after handing its command line to the first through `second-instance`. The first brings its window forward.
+Dalliance runs one instance. `main.ts` takes `app.requestSingleInstanceLock()` at startup, and a second launch calls `app.exit(0)` as soon as it fails to get the lock, after handing its command line to the first through `second-instance`. The first brings its window forward.
 
 A notebook can arrive three ways: the macOS `open-file` event (a double-click in Finder, a drop on the Dock icon), an `.ipynb` on the first launch's own command line, and one on a second launch's command line. `notebookFromArgv()` in `electron/open-files.ts` picks the last argument ending in `.ipynb` that exists. `open-file` is registered before `ready`, because macOS sends the file that launched the app before then.
 
@@ -98,7 +97,7 @@ Each one goes through the renderer's ordinary Open, so unsaved changes get the D
 
 At launch this runs after `restoreSession()`, so the last notebook comes back first and the file then replaces it.
 
-In builds with Dalliance Cloud, links on the `io.dalliance.app` scheme arrive the same ways: `open-url` on macOS, and the command line elsewhere. They never go through `OpenQueue`. `openLink()` hands them to the account and brings the window forward. See [cloud.md](cloud.md#signing-in).
+Links on the `io.dalliance.app` scheme arrive the same ways: `open-url` on macOS, and the command line elsewhere. They never go through `OpenQueue`. `openLink()` hands them to the account and brings the window forward. See [cloud.md](cloud.md#signing-in).
 
 ## Saving and closing
 

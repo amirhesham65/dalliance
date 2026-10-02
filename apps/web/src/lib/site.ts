@@ -1,15 +1,16 @@
+import { brand } from '@dalliance/brand/brand'
+
 /** Everything the pages, metadata and social cards say about the site, in one place. */
 export const site = {
-  name: 'Dalliance',
+  ...brand,
   // `||`, not `??`: a variable set but left blank, as Vercel allows, counts as unset
   url: (process.env.NEXT_PUBLIC_SITE_URL?.trim() || 'https://dalliance.io').replace(/\/$/, ''),
-  title: 'Dalliance · The Open-Source Coding Agent for Researchers',
-  headline: 'The Open-Source Coding Agent for Researchers',
+  title: 'Dalliance · The Coding Agent for Researchers',
+  headline: 'The Coding Agent for Researchers',
   tagline: 'Like a Jupyter notebook, but you write each cell in plain language. Dalliance writes the Python, runs it and keeps the code that works.',
   description:
-    'Dalliance is an open-source coding agent for researchers. It works like a Jupyter notebook, but you write each cell in plain language and it writes, runs and checks the Python.',
+    'Dalliance is a coding agent for researchers. It works like a Jupyter notebook, but you write each cell in plain language and it writes, runs and checks the Python.',
   keywords: [
-    'open-source coding agent for researchers',
     'coding agent for researchers',
     'research notebook',
     'AI notebook',
@@ -23,10 +24,7 @@ export const site = {
     'Mac notebook app',
     'macOS data analysis',
   ],
-  author: 'Amir Hesham',
   status: 'Early preview',
-  repoUrl: 'https://github.com/amirhesham65/dalliance',
-  downloadUrl: process.env.DALLIANCE_DOWNLOAD_URL?.trim() || 'https://github.com/amirhesham65/dalliance/releases/latest/download/Dalliance.dmg',
-  // Light and dark page colours, for the browser chrome and the manifest
-  paper: { light: '#f7f6f3', dark: '#141413' },
+  // The release workflow overwrites this file in the Vercel Blob store on every release. See docs/releasing.md
+  downloadUrl: 'https://qxsto1algu0y5wp9.public.blob.vercel-storage.com/Dalliance.dmg',
 } as const

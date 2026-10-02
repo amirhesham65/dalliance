@@ -8,8 +8,8 @@ On macOS this is `~/Library/Application Support/Dalliance/`. The code gets it wi
 
 | Path | Written by | Holds |
 | --- | --- | --- |
-| `settings.json` | `SettingsStore`, `electron/settings.ts` | Provider, model, effort, Python path, approval mode, titles on or off, suggested next prompts on or off, Show costs on or off, onboarded, the folder in use, encrypted keys, recent notebooks. Mode `0600` |
-| `account.json` | The Better Auth Electron client, `electron/cloud/account.ts` | The Dalliance account's session, each value encrypted with `safeStorage`. Without a keychain the session stays in memory. Only in builds with Dalliance Cloud. Mode `0600` |
+| `settings.json` | `SettingsStore`, `electron/settings.ts` | Model, effort, Python path, approval mode, titles on or off, suggested next prompts on or off, Show costs on or off, onboarded, the folder in use, recent notebooks. No keys. Mode `0600` |
+| `account.json` | The Better Auth Electron client, `electron/cloud/account.ts` | The Dalliance account's session, each value encrypted with `safeStorage`. Without a keychain the session stays in memory. Mode `0600` |
 | `session.json` | `DraftStore`, `electron/draft.ts` | The open notebook's path, whether it's dirty, and its contents when dirty |
 | `logs/agent.jsonl` | `createRunLog()` and `logRuns()`, `electron/harness/extensions.ts` | One line per `run_start`, `tool_call`, `tool_result`, `step` (one per model call, with its reasoning summary) and `run_end`, strings clipped to 2,000 characters except the reasoning summaries. At 5 MB it moves to `agent.jsonl.1`, replacing the old backup. It holds the full trail behind each cell's record of how it was made. The notebook keeps only the final attempt |
 | `python-env/` | `setupManagedEnv()`, `electron/kernel/python-env.ts` | The managed virtual environment |
@@ -19,28 +19,15 @@ To reset the app to a first launch, quit it and delete this folder.
 
 `settings.json`, `session.json` and saved notebooks are written with `writeFileAtomic` or `writeFileAtomicSync` from `electron/atomic-write.ts`. The data goes to a temporary file in the same folder, is flushed to disk, then renamed over the old file. A crash or a full disk mid-write leaves the old file whole. The new file keeps the old one's mode, or the mode the caller asks for.
 
-## Settings and keys
+## Settings
 
-`SettingsStore` reads `settings.json` once, merges it over `DEFAULTS`, and writes the whole file on every change. A file that doesn't parse, or isn't a JSON object, is renamed to `settings.json.corrupt-<timestamp>` and the app starts from the defaults. The old file is kept so the next save can't overwrite the keys and recent notebooks it may still hold. The main process logs the move with `console.warn`. Settings from before the first-run setup existed count as onboarded if they list any recent notebooks.
+`SettingsStore` reads `settings.json` once, merges it over `DEFAULTS`, and writes the whole file on every change. A file that doesn't parse, or isn't a JSON object, is renamed to `settings.json.corrupt-<timestamp>` and the app starts from the defaults. The old file is kept so the next save can't overwrite the recent notebooks it may still hold. The main process logs the move with `console.warn`.
 
-Keys are stored per provider:
+`settings.json` holds no keys. Models run on Dalliance Cloud with the account's token: the session is in `account.json`, and the Convex token only in `Account`'s memory. See [cloud.md](cloud.md). The file is still written with mode `0600`, since it lists the user's folders and notebooks.
 
-- With `safeStorage.isEncryptionAvailable()`, the key is encrypted with the OS keychain and stored as base64.
-- Otherwise it's stored as `plain:<key>`. That only happens on systems without a keychain.
+`SettingsStore` takes the userData folder and a `CloudAccess`, and `modelConfig()` returns `{ model, effort, cloud }` for `resolveModel()`. `SettingsView` gives the renderer `model`, `effort`, `pythonPath`, `approvalMode`, `autoTitles`, `suggestNext`, `showCosts` and `onboarded`, and `SettingsUpdate` takes the same fields.
 
-`SettingsView.keyStorage` says which form each provider's key takes: the saved key's form, or for no saved key, the form a new one would get. Model settings warns when it's `plain`.
-
-A saved key can stop decrypting, most often after an update that changes the app's signature and so its keychain identity. `safeStorage` then throws, or returns something that isn't a key (anything but printable ASCII without spaces counts). The key is then treated as missing, so `apiKey()` falls back to the environment and the shell. `SettingsView.unreadableKeys` lists the provider, Model settings says "The saved key couldn't be read, probably after an update. Paste it again.", and the main process logs it once per provider. Saving a new key replaces the unreadable one.
-
-`apiKey(provider)` looks in three places, in order: a stored key, the app's environment, then the user's login shell. The environment variables are `AI_GATEWAY_API_KEY` and `ANTHROPIC_API_KEY`. In development, `electron/main.ts` loads `apps/desktop/.env` into the environment, and packaged builds never do. `SettingsView` tells the renderer whether a key exists and where it came from (`settings`, `environment` or `shell`), never the key.
-
-An app opened from Finder or the Dock doesn't inherit what `~/.zshrc` exports. So at startup `readShellEnv()` in `electron/shell-env.ts` runs the user's `$SHELL` as a login shell once, with a 5 second timeout, and reads those two variables from its `env`. The command prints a marker line first, so whatever the profile prints is skipped. `parseEnv()` starts after the last line that is exactly the marker, not a line containing it, because `sh` and `bash` set `_` to the last argument and `env` prints `_=__DALLIANCE_ENV__` near the end. `useShellKeys()` keeps them in `SettingsStore`, not in `process.env`, because the kernel inherits `process.env` and a cell could print the key. The `getSettings` and `listModels` handlers wait for the read, so the first view already counts them. Windows skips it.
-
-Before the first-run setup is done, `useShellKeys()` also switches to the other provider when only that one has a key, so someone with `ANTHROPIC_API_KEY` in their profile starts on Anthropic.
-
-The renderer saves a key with `saveKey()` in `src/lib/keys.ts`, from both the setup and Settings. It picks the provider from the prefix (`vck_` for the gateway, `sk-ant-` for Anthropic), checks the key with `checkKey()`, and only saves it when the provider doesn't reject it. Typing or pasting a key with a known prefix switches the provider straight away.
-
-Switching provider resets the model to the new provider's default, but only if the old one was still the default. The same goes for a new default: when settings load, a model that is still an earlier version's default (`PREVIOUS_DEFAULT_MODELS` in `harness/model.ts`, today Opus 5) moves to the current one. A model picked by hand stays, though someone who picked the old default on purpose moves too.
+Settings have no migrations. Nothing is released to users yet, so a renamed or retired setting is just changed. A setting the file doesn't have takes its default.
 
 ## Session and drafts
 

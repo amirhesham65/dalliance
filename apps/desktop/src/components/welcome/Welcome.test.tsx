@@ -5,22 +5,23 @@ import App from '@/App'
 import type { MenuAction, SettingsUpdate, SettingsView } from '@dalliance/shared/ipc'
 import { newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
-import { fakeApi, fakeSettings, result } from '@/test/fake-api'
+import { SIGNED_OUT, fakeApi, fakeSettings, result } from '@/test/fake-api'
 
 beforeEach(() => {
   actions.load({ cells: [newPromptCell('')] }, null)
   useNotebook.setState({ settings: null })
 })
 
-function setup(settings: Partial<SettingsView> = {}) {
+function setup(settings: Partial<SettingsView> = {}, { signedIn = true } = {}) {
   const fake = fakeApi(() => result({ answer: 'Seven is the most common total.' }))
+  if (!signedIn) fake.api.getAccount = async () => SIGNED_OUT
   let current = { ...fakeSettings(), ...settings }
   const updates: SettingsUpdate[] = []
   let menu: ((action: MenuAction) => void) | undefined
   fake.api.getSettings = async () => current
-  fake.api.updateSettings = async ({ apiKey, ...u }) => {
-    updates.push(apiKey ? { ...u, apiKey } : u)
-    current = { ...current, ...u, ...(apiKey ? { keySource: 'settings' as const } : {}) }
+  fake.api.updateSettings = async (u) => {
+    updates.push(u)
+    current = { ...current, ...u }
     return current
   }
   fake.api.onMenu = (l) => {
@@ -35,14 +36,14 @@ function setup(settings: Partial<SettingsView> = {}) {
 describe('Welcome', () => {
   it('walks a first launch through setup, and remembers when it is skipped', async () => {
     const user = userEvent.setup()
-    const { updates } = setup({ onboarded: false, keySource: null })
+    const { updates } = setup({ onboarded: false }, { signedIn: false })
     actions.showWelcome(false)
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: 'Write what you want to know' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Continue/ }))
-    expect(screen.getByRole('heading', { name: 'Connect a model' })).toBeInTheDocument()
-    // Without a key the step can still be passed over
+    expect(screen.getByRole('heading', { name: 'Sign in to Dalliance' })).toBeInTheDocument()
+    // Signed out, the step can still be passed over
     expect(screen.getByRole('button', { name: 'Skip for now' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Set up later' }))
@@ -51,30 +52,17 @@ describe('Welcome', () => {
     expect(screen.getByRole('button', { name: /review/ })).toBeInTheDocument()
   })
 
-  it('checks a pasted key and files it under the provider it belongs to', async () => {
+  it('signs in from the setup, and goes on once the account is on a plan', async () => {
     const user = userEvent.setup()
-    const { api, updates } = setup({ onboarded: false, keySource: null, hasKey: { gateway: false, anthropic: false } })
-    api.checkKey = async (_provider, key) => (key.includes('wrong') ? { status: 'rejected', detail: 'Turned down.' } : { status: 'ok', detail: null })
+    setup({ onboarded: false }, { signedIn: false })
     actions.showWelcome(false)
     render(<App />)
 
     await user.click(await screen.findByRole('button', { name: /Continue/ }))
-    expect(screen.getByRole('link', { name: /Get a key from Vercel/ })).toHaveAttribute('href', expect.stringContaining('vercel.com'))
-
-    // A rejected key stays unsaved, with the reason under the field
-    await user.type(screen.getByLabelText('AI Gateway key'), 'vck_wrong')
-    await user.click(screen.getByRole('button', { name: 'Save key' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Turned down.')
-    expect(updates.some((u) => 'apiKey' in u)).toBe(false)
-
-    // An Anthropic key pasted with the gateway chosen switches the provider
-    await user.clear(screen.getByLabelText('AI Gateway key'))
-    await user.type(screen.getByLabelText('AI Gateway key'), 'sk-ant-123')
-    expect(await screen.findByRole('radio', { name: /Anthropic API/, checked: true })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Save key' }))
-    expect(await screen.findByText('Key saved in your system keychain.')).toBeInTheDocument()
-    expect(screen.getByText('Key works.')).toBeInTheDocument()
-    expect(updates).toContainEqual({ provider: 'anthropic', apiKey: { provider: 'anthropic', key: 'sk-ant-123' } })
+    expect(screen.getByText(/Sign in with GitHub or Google/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(await screen.findByText(/Pro plan/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Continue/ })).toBeInTheDocument()
   })
 
   it('opens a starter prompt as a new notebook and runs it', async () => {

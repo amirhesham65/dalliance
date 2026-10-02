@@ -1,0 +1,4 @@
+@import "@dalliance/brand/theme.css";
+
+/* Dalliance Cloud's pages: the sign-in and billing pages the app sends people to. They share the website's
+   palette and theme through @dalliance/brand, so moving from dalliance.io to here doesn't look like leaving. */

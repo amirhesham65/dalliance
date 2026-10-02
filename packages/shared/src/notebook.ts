@@ -117,8 +117,8 @@ export interface Provenance {
   /** The model chosen in Settings, and its effort. */
   model: string | null
   effort: string | null
-  /** The model that answered each step. `fallback` is true when the chosen model declined and a fallback answered. */
-  steps: { step: number; model: string | null; fallback: boolean }[]
+  /** The model that answered each step. */
+  steps: { step: number; model: string | null }[]
   rationale: StatedRationale
   /** How many times the code ran. */
   attemptCount: number

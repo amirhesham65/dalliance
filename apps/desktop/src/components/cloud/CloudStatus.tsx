@@ -7,8 +7,8 @@ import type { DallianceApi } from '@dalliance/shared/ipc'
 import { actions, useNotebook } from '@/store/notebook-store'
 
 /**
- * Where Dalliance Cloud stands, in one line, with the next thing to do: sign in, pick a plan, or nothing. The
- * provider settings and the first-run setup show it in place of a key field. Settings > Account has the rest.
+ * Where Dalliance Cloud stands, in one line, with the next thing to do: sign in, pick a plan, or nothing. Model
+ * settings and the first-run setup show it. Settings > Account has the rest.
  */
 export function CloudStatus({ api }: { api: DallianceApi }) {
   const account = useNotebook((s) => s.account)

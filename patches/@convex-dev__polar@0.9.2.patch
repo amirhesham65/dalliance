@@ -1,0 +1,49 @@
+diff --git a/dist/client/index.js b/dist/client/index.js
+index de76da2..f004937 100644
+--- a/dist/client/index.js
++++ b/dist/client/index.js
+@@ -6,11 +6,35 @@ import { checkoutsCreate } from "@polar-sh/sdk/funcs/checkoutsCreate.js";
+ import { customerSessionsCreate } from "@polar-sh/sdk/funcs/customerSessionsCreate.js";
+ import { subscriptionsUpdate } from "@polar-sh/sdk/funcs/subscriptionsUpdate.js";
+ import { WebhookVerificationError, validateEvent, } from "@polar-sh/sdk/webhooks";
++import { Webhook as StandardWebhook } from "standardwebhooks";
+ import { actionGeneric, httpActionGeneric, queryGeneric, } from "convex/server";
+ import { v } from "convex/values";
+ import { mapValues } from "remeda";
+ import schema from "../component/schema.js";
+ import { convertToDatabaseProduct, convertToDatabaseSubscription, } from "../component/util.js";
++// Patched: Polar endpoints made from 8 September 2026 sign with the Standard Webhooks key, the base64 after
++// whsec_. @polar-sh/sdk 0.x only knows the older key, the UTF-8 bytes of the whole secret, and 1.x can't be used
++// here. So when the older check fails, the signature is checked with the Standard Webhooks key, and only then is
++// the same body signed again under the older key, so the SDK parses it as before.
++function validatePolarEvent(body, headers, secret) {
++    try {
++        return validateEvent(body, headers, secret);
++    }
++    catch (error) {
++        if (!(error instanceof WebhookVerificationError) || !secret.startsWith("whsec_"))
++            throw error;
++        try {
++            new StandardWebhook(secret).verify(body, headers);
++        }
++        catch {
++            throw error;
++        }
++        const id = headers["webhook-id"];
++        const timestamp = new Date(Number(headers["webhook-timestamp"]) * 1000);
++        const legacy = new StandardWebhook(Buffer.from(secret, "utf-8").toString("base64"));
++        return validateEvent(body, { ...headers, "webhook-signature": legacy.sign(id, timestamp, body) }, secret);
++    }
++}
+ export const subscriptionValidator = schema.tables.subscriptions.validator;
+ export class Polar {
+     component;
+@@ -319,7 +343,7 @@ export class Polar {
+                 const body = await request.text();
+                 const headers = Object.fromEntries(request.headers.entries());
+                 try {
+-                    const event = validateEvent(body, headers, this.webhookSecret);
++                    const event = validatePolarEvent(body, headers, this.webhookSecret);
+                     // Built-in handling: persist subscriptions and products
+                     switch (event.type) {
+                         case "subscription.created": {

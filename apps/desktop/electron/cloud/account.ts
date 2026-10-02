@@ -5,7 +5,8 @@ import { type BetterAuthClientPlugin, createAuthClient } from 'better-auth/clien
 import type { BrowserWindow } from 'electron'
 import type { AccountView } from '@dalliance/shared/ipc'
 import { writeFileAtomicSync } from '../atomic-write'
-import { DESKTOP_SCHEME, signInCode } from './config'
+import { DESKTOP_SCHEME } from '@dalliance/shared/cloud'
+import { signInCode } from './config'
 
 /**
  * A synchronous key-value file for the auth client. The client encrypts every value with safeStorage before it
