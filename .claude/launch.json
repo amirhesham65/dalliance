@@ -43,6 +43,16 @@
         "dev"
       ],
       "port": 3100
+    },
+    {
+      "name": "cloud-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@dalliance/cloud",
+        "dev"
+      ],
+      "port": 3200
     }
   ]
 }

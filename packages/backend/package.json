@@ -1,5 +1,5 @@
 {
-  "name": "@dalliance-cloud/backend",
+  "name": "@dalliance/backend",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,7 +9,7 @@
     "deploy": "convex deploy",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p convex",
-    "lint": "oxlint -c ../.oxlintrc.json"
+    "lint": "oxlint -c ../../.oxlintrc.json"
   },
   "dependencies": {
     "@better-auth/electron": "catalog:",
