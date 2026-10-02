@@ -10,17 +10,23 @@ cp apps/desktop/.env.example apps/desktop/.env
 pnpm dev
 ```
 
-Put `AI_GATEWAY_API_KEY` in `apps/desktop/.env`, or `ANTHROPIC_API_KEY` if you switch the provider in Settings. You can also skip the file and paste a key into Settings, where it's stored encrypted. The `.env` file is only read in development. Packaged builds also find either variable when your shell profile exports it.
+The app runs models only through Dalliance Cloud, so running a prompt needs a Dalliance account with a plan. Sign in from Settings > Account. A development build talks to `https://cloud.dalliance.io` unless `DALLIANCE_CLOUD_URL` in `apps/desktop/.env` points it somewhere else, such as the cloud site running locally on `http://localhost:3200`. `electron/main.ts` loads that file only in development, and packaged builds ignore it. See [cloud.md](cloud.md), and [accounts.md](accounts.md#running-it-locally) for running the backend and the cloud site yourself.
 
-`DALLIANCE_CLOUD_URL` in the same file points a development build at a Dalliance Cloud, such as a local copy of the service. Leave it out to work on the app without one. See [cloud.md](cloud.md).
+`AI_GATEWAY_API_KEY` in the same file is only for the paid end-to-end test, which calls the gateway directly, see [testing.md](testing.md). The app itself never reads it.
 
 `pnpm-workspace.yaml` allows only `electron` to run install scripts. If you add a dependency that needs a postinstall step, add it to `onlyBuiltDependencies`.
 
 ## Dependencies
 
-A dependency that more than one package uses gets one version, in the `catalog` in `pnpm-workspace.yaml`. Packages refer to it as `"catalog:"`. React, TypeScript, Tailwind, Vitest and the `@types` packages work this way. To bump one, change the catalog, not the package files.
+The repo is one pnpm workspace, `apps/*` and `packages/*`, with one lockfile. A dependency that more than one package uses gets one version, in the `catalog` in `pnpm-workspace.yaml`. Packages refer to it as `"catalog:"`. React, Next, Convex, TypeScript, Tailwind, Vitest, the `@types` packages, and Better Auth with its Electron plugin work this way. To bump one, change the catalog, not the package files.
 
-`oxlint` and `turbo` are installed once, at the root.
+Better Auth is pinned to an exact version, 1.6.33, with the plugin's exact peers `@better-auth/utils` and `@better-fetch/fetch`. Every package that uses the plugin lists those peers itself. See [accounts.md](accounts.md#the-patch) and rule 14 in [README.md](README.md#rules-that-break-things-when-ignored).
+
+Patches live in `patches/`, and `patchedDependencies` in `pnpm-workspace.yaml` applies them. `pnpm install` fails if one no longer applies.
+
+`oxlint` and `turbo` are installed once, at the root. One `.oxlintrc.json` at the root covers every package. `.node-version` says 24.
+
+Dependabot opens weekly grouped pull requests for npm packages and GitHub Actions, from `.github/dependabot.yml`. It skips minor and major bumps of Better Auth and major bumps of `@polar-sh/sdk`, which the Convex components pin. `.github/CODEOWNERS` assigns every path to the owner.
 
 ## Commands
 
@@ -28,23 +34,25 @@ The root scripts run through Turborepo, in dependency order, with caching. The t
 
 | Command | Does |
 | --- | --- |
-| `pnpm dev` | Vite and Electron with hot reload, plus the website on `:3100` |
+| `pnpm dev` | The desktop app: Vite and Electron with hot reload. The website (`pnpm --filter @dalliance/web dev`, `:3100`), the cloud site (`pnpm --filter @dalliance/cloud dev`, `:3200`) and the backend (`npx convex dev` in `packages/backend`) start on their own, since the last two need their deployment settings |
 | `pnpm test` | Every test suite. See [testing.md](testing.md) |
 | `pnpm typecheck` | `tsc` in every package |
 | `pnpm lint` | oxlint in every package, with the root `.oxlintrc.json` |
-| `pnpm build` | Renderer to `apps/desktop/dist/`, main and preload to `apps/desktop/dist-electron/`, site to `apps/web/.next/` |
+| `pnpm build` | Renderer to `apps/desktop/dist/`, main and preload to `apps/desktop/dist-electron/`, the sites to `apps/web/.next/` and `apps/cloud/.next/` |
 
 For one package, filter:
 
 ```bash
-pnpm --filter @dalliance/desktop dev
 pnpm --filter @dalliance/web dev
+pnpm --filter @dalliance/cloud dev
 pnpm turbo run test --filter @dalliance/shared
 ```
 
+`convex dev` in `packages/backend` needs a Convex deployment set up first, see [deploying.md](deploying.md#first-time-setup).
+
 ## CI
 
-`.github/workflows/ci.yml` runs on every pull request and every push to `main`. It runs the same job on Ubuntu and macOS, each with Node 24 and Python 3.12: it installs pandas, NumPy, matplotlib and IPython 8 or 9, then runs `pnpm turbo run lint typecheck test build`. One platform failing doesn't cancel the other. A newer push to the same branch cancels the runs in progress.
+`.github/workflows/ci.yml` runs on every pull request and every push to `main`. It runs the same job on Ubuntu and macOS, each with Node 24 and Python 3.12: it installs pandas, NumPy, matplotlib and IPython 8 or 9, then runs `pnpm turbo run lint typecheck test build`. One platform failing doesn't cancel the other. A newer push to the same branch cancels the runs in progress. It covers every package, so the backend's contract check runs in the same job as the app that depends on it.
 
 The real-Python kernel tests run in CI. The paid end-to-end test doesn't. Run the same checks locally before you push:
 
@@ -52,11 +60,11 @@ The real-Python kernel tests run in CI. The paid end-to-end test doesn't. Run th
 pnpm turbo run lint typecheck test build
 ```
 
-The website's `typecheck` runs `next typegen` first, so Next's route types exist before `tsc` reads them. `apps/web/turbo.json` makes the website's build wait for it: `next build` empties `.next` when it starts, and running both at once can delete the types `tsc` is about to read.
+The `typecheck` of each Next app, `apps/web` and `apps/cloud`, runs `next typegen` first, so Next's route types exist before `tsc` reads them. Each app's `turbo.json` makes its build wait for it: `next build` empties `.next` when it starts, and running both at once can delete the types `tsc` is about to read.
 
 ## How dev mode works
 
-`pnpm --filter @dalliance/desktop dev` runs `vite`. `vite-plugin-electron` builds `electron/main.ts` and `electron/preload.ts`, starts Electron, and sets `VITE_DEV_SERVER_URL`, which `main.ts` loads instead of `dist/index.html`.
+`pnpm dev` runs `vite` in the desktop app. `vite-plugin-electron` builds `electron/main.ts` and `electron/preload.ts`, starts Electron, and sets `VITE_DEV_SERVER_URL`, which `main.ts` loads instead of `dist/index.html`.
 
 - Renderer changes hot reload.
 - Main process changes restart Electron.
@@ -78,7 +86,7 @@ pnpm --filter @dalliance/desktop exec vite preview
 
 Open `http://localhost:4173/?demo`. `?demo&welcome` shows the start page and `?demo&setup` the first-run setup. `vite preview` serves the last build, so rebuild after changes. See [renderer.md](renderer.md#the-browser-preview).
 
-`.claude/launch.json` defines the same servers for tools that start them by name: `renderer-preview` on 4173, `desktop` for `pnpm dev`, `web` for the built site on 3100, and `web-dev` for the site in dev mode.
+`.claude/launch.json` defines the same servers for tools that start them by name: `renderer-preview` on 4173, `desktop` for `pnpm dev`, `web` for the built site on 3100, `web-dev` for the site in dev mode, and `cloud-dev` for the cloud site on 3200.
 
 ## Debugging
 
@@ -108,5 +116,5 @@ UI text, model prompts and docs use one voice: short sentences, plain words, sen
 - Imperative subject lines, like "Package the desktop app as a universal macOS .dmg".
 - A body that says what changed and why, wrapped at about 72 characters.
 - Work on a branch, open a pull request into `main`, and merge it with a merge commit.
-- Commits from outside contributors carry a `Signed-off-by` line, the Developer Certificate of Origin. See [CONTRIBUTING.md](../CONTRIBUTING.md).
+- A change that touches the app, the cloud site and the backend goes in one pull request. See [cloud.md](cloud.md#the-contract).
 - Never credit an AI assistant as author or co-author, in commits, PRs, comments or docs. See [AGENTS.md](../AGENTS.md).

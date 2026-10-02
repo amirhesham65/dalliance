@@ -2,16 +2,16 @@
 
 A signed-in user can subscribe to a plan. Polar is the merchant of record: it runs checkout, charges the card, handles sales tax and sends invoices. Convex keeps a copy of each subscription from Polar's webhooks, and the app reads it live. Signing in comes first, see [accounts.md](accounts.md).
 
-The plan is what runs the models. It includes a number of credits each billing period. Every hosted model call goes through a proxy on the cloud site that checks the plan, calls Vercel AI Gateway on Dalliance's key with zero data retention, and counts what the call cost against the plan's credits. See [Models](#models) and [Zero data retention](#zero-data-retention).
+The plan is what runs the models. It includes a number of credits each billing period. Every model call the app makes goes through a proxy on the cloud site that checks the plan, calls Vercel AI Gateway on Dalliance's key with zero data retention, and counts what the call cost against the plan's credits. See [Models](#models) and [Zero data retention](#zero-data-retention).
 
 | Piece | Code | Does |
 | --- | --- | --- |
-| Convex backend | `backend/convex/billing.ts` | The plans on offer, the user's subscription, checkout and the billing portal. Polar's webhooks land in `http.ts` |
-| Usage ledger | `backend/convex/usage.ts`, `schema.ts` | The credit check before each model call, what each call cost, and the credits of a run for the app |
-| Model proxy | `web/src/app/api/ai/[...path]/route.ts` | Checks the plan, calls the gateway on Dalliance's key, records the cost |
-| Zero data retention | `web/src/lib/zdr.ts` | Which models qualify, and the flag every call carries |
-| Desktop app | The Cloud client in [the app repo](https://github.com/amirhesham65/dalliance) | A Convex client in the main process that follows the plan, and opens checkout and the portal in the browser. Settings shows the plan and its credits, and with Show costs on the Activity pane shows each run's |
-| Cloud site | `web/src/app/billing/done/` | Where Polar sends the browser after checkout or the portal |
+| Convex backend | `packages/backend/convex/billing.ts` | The plans on offer, the user's subscription, checkout and the billing portal. Polar's webhooks land in `http.ts` |
+| Usage ledger | `packages/backend/convex/usage.ts`, `schema.ts` | The credit check before each model call, what each call cost, and the credits of a run for the app |
+| Model proxy | `apps/cloud/src/app/api/ai/[...path]/route.ts` | Checks the plan, calls the gateway on Dalliance's key, records the cost |
+| Zero data retention | `apps/cloud/src/lib/zdr.ts` | Which models qualify, and the flag every call carries |
+| Desktop app | The Cloud client in `apps/desktop/electron/cloud/`, see [cloud.md](cloud.md) | A Convex client in the main process that follows the plan, and opens checkout and the portal in the browser. Settings shows the plan and its credits, and with Show costs on the Activity pane shows each run's |
+| Cloud site | `apps/cloud/src/app/billing/done/` | Where Polar sends the browser after checkout or the portal |
 
 ## Subscribing
 
@@ -75,7 +75,7 @@ Refusals come back in the gateway's error shape with the type `dalliance_account
 
 ## Credits per run
 
-The app has a Show costs setting, off by default. On Dalliance Cloud it shows the credits each cell run used, never dollars, and a running total for the notebook.
+The app has a Show costs setting, off by default. It shows the credits each cell run used, never dollars, and a running total for the notebook.
 
 The app knows each call's generation id: the gateway puts it in the call's provider metadata, which the proxy passes through. It subscribes to `usage:credits` with a run's ids and stops once every id has a row, or after 90 seconds. That's longer than the proxy's 30 seconds of retries for the cost, so a row that never comes means the call wasn't billed.
 
@@ -83,9 +83,9 @@ The app knows each call's generation id: the gateway puts it in the call's provi
 
 ## Zero data retention
 
-Every model call on Dalliance Cloud runs with zero data retention. It isn't a setting, and the app can't turn it off: the proxy enforces it, whatever the app sends. The app's own-key routes, AI Gateway and Anthropic, are the user's own agreements with those providers, and nothing here applies to them.
+Every model call runs with zero data retention. The app has no other route to a model, so this covers all of them. It isn't a setting, and the app can't turn it off: the proxy enforces it, whatever the app sends.
 
-It holds because of two things the proxy does, in `web/src/lib/zdr.ts`:
+It holds because of two things the proxy does, in `apps/cloud/src/lib/zdr.ts`:
 
 1. **Only models with a zero-data-retention provider are offered.** The gateway's public `GET /v1/models` gives each model a `zdr` of `all`, `some` or `none`. The proxy keeps the ids with `all` or `some`, refreshed every ten minutes. `GET /api/ai/config` returns the gateway's model list filtered to those, and a call to any other model, or with a gateway fallback (`providerOptions.gateway.models`) to one, is refused with 403 before it reaches the gateway. The SDK's `getAvailableModels()` drops the `zdr` field, which is why the proxy reads `/v1/models` itself.
 2. **Every call carries the flag.** The proxy parses each `language-model` call and sets `providerOptions.gateway.zeroDataRetention` to `true`, overwriting what the app sent. The gateway then routes the call only to providers with a zero-data-retention agreement, so a `some` model runs on its qualifying providers only.
@@ -128,20 +128,20 @@ On the cloud site, besides `CONVEX_SITE_URL` and `AUTH_PROXY_SECRET`: `AI_GATEWA
 
 The webhook endpoint in Polar is `<CONVEX_SITE_URL>/polar/events`, in the Raw format, which Polar signs the Standard Webhooks way, with at least the `subscription.*` and `product.*` events. Polar must be able to reach it, so a local deployment on `127.0.0.1` can't receive webhooks. Use a cloud dev deployment for billing.
 
-Products reach Convex through `product.created` and `product.updated` webhooks. For products made before the webhook, copy them once:
+Products reach Convex through `product.created` and `product.updated` webhooks. For products made before the webhook, copy them once, from `packages/backend`:
 
 ```bash
 npx convex run billing:syncProducts
 ```
 
-The desktop app calls the backend through `anyApi`, without this repo's generated types. Its IPC types mirror what `billing:plans` and `billing:status` return, so a change to either shape needs a matching change in the app repo. See [the app contract](README.md#the-app-contract).
+The desktop app calls the backend through `cloudApi` in `packages/shared/src/cloud-api.ts`, typed with the shapes in `packages/shared/src/cloud.ts`, and the backend's handlers return those same types. `packages/backend/contract.ts` fails typecheck when a function the app calls no longer matches. See [the contract](cloud.md#the-contract).
 
 ## Trying it in the sandbox
 
 1. Create an organization on sandbox.polar.sh and a monthly recurring product.
 2. Create an organization access token, and a webhook to `<CONVEX_SITE_URL>/polar/events` with the subscription and product events.
 3. Set the variables above on a cloud dev deployment, including the plan's credits, and run `billing:syncProducts`.
-4. Put `AI_GATEWAY_API_KEY` in `web/.env.local`.
+4. Put `AI_GATEWAY_API_KEY` in `apps/cloud/.env.local`.
 5. Point the cloud site's `CONVEX_SITE_URL` and `CONVEX_URL` at that deployment, set `DALLIANCE_CLOUD_URL=http://localhost:3200` in the app's `apps/desktop/.env`, sign in, and subscribe from Settings > Plan with Polar's test card, `4242 4242 4242 4242`.
 6. Run a cell. The credits it used show under Settings > Plan a few seconds after it finishes.
 

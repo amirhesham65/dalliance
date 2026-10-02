@@ -133,7 +133,7 @@ export function provenance(overrides: Partial<Provenance> = {}): Provenance {
     madeAt: '2026-09-30T14:05:00.000Z',
     model: 'anthropic/claude-sonnet-5.5',
     effort: 'medium',
-    steps: [1, 2, 3].map((step) => ({ step, model: 'anthropic/claude-sonnet-5.5', fallback: false })),
+    steps: [1, 2, 3].map((step) => ({ step, model: 'anthropic/claude-sonnet-5.5' })),
     rationale: { from: 'summaries', text: ['The column is total, not amount.'] },
     attemptCount: 2,
     attempts: [

@@ -52,7 +52,7 @@ function sampleNotebook(): Notebook {
   survival.provenance = provenance({
     prompt: survival.prompt,
     madeAt: new Date(now - 3 * 60_000).toISOString(),
-    steps: [1, 2, 3, 4, 5].map((step) => ({ step, model: 'anthropic/claude-sonnet-5.5', fallback: false })),
+    steps: [1, 2, 3, 4, 5].map((step) => ({ step, model: 'anthropic/claude-sonnet-5.5' })),
     rationale: {
       from: 'summaries',
       text: [
@@ -82,7 +82,7 @@ function sampleNotebook(): Notebook {
   load.provenance = provenance({
     prompt: load.prompt,
     madeAt: new Date(now - 24 * 60_000).toISOString(),
-    steps: [1, 2].map((step) => ({ step, model: 'anthropic/claude-sonnet-5.5', fallback: false })),
+    steps: [1, 2].map((step) => ({ step, model: 'anthropic/claude-sonnet-5.5' })),
     rationale: { from: 'interpretation', text: [load.answer] },
     attemptCount: 1,
     attempts: [{ code: load.code, error: null, changed: null }],

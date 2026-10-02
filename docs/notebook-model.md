@@ -90,7 +90,7 @@ A few actions set these fields on purpose:
 `finish()` in `src/store/notebook-store.ts` applies a `CellRunResult`:
 
 - A result for a cell that was deleted while it ran, or whose notebook was replaced by another, is dropped. No cell changes, even one Undo brought back. See [renderer.md](renderer.md#the-run-queue).
-- If nothing ran at all, meaning no execution count, no outputs and not ok, the cell stays as it was and the error shows as a message. That's the path for a missing key, a missing Python, or Stop before any code ran.
+- If nothing ran at all, meaning no execution count, no outputs and not ok, the cell stays as it was and the error shows as a message. That's the path for a signed-out account, a missing Python, or Stop before any code ran.
 - Otherwise the cell takes the result's code, outputs, count and duration, and its state becomes `done` or `error`. After a generation, `generatedFrom` is the prompt that was sent, not whatever the prompt box holds when the run ends.
 - A generation also replaces `provenance` with the result's record, even when it failed, since the cell keeps the code it left. A plain run of saved code leaves `provenance` alone. See [How a cell was made](#how-a-cell-was-made).
 - The user can keep typing while the agent works. `finish()` compares the cell with the version that was sent. If the prompt or the code changed meanwhile, those edits are kept over the result, the cell ends `edited` instead of `done` or `error`, and an edited code sets `codeEdited`. The next run then regenerates for the new prompt or runs the user's code.
@@ -158,7 +158,7 @@ Every generation leaves a record on the cell, `PromptCell.provenance`. It's save
 | `prompt`, `corrections` | What the agent was given |
 | `madeAt` | When the run ended, ISO 8601 |
 | `model`, `effort` | What Settings chose |
-| `steps` | `{ step, model, fallback }` for every model call: the model that answered, and whether it was a fallback because the chosen model declined. The file writes `fallback` only when it is true |
+| `steps` | `{ step, model }` for every model call: the model that answered |
 | `rationale` | The agent's stated rationale, see below |
 | `attemptCount`, `attempts` | Each `run_cell`: its `code`, its `error` in one line (`KeyError: 'plan'`) or `null`, and `changed`, the lines that differ from the attempt before as `- ` and `+ ` lines, at most 12. `changed` is `null` for the first attempt and empty for the same code again |
 | `filesRead`, `filesReadTruncated` | Files inside the workspace, relative, `by: 'code'` when the final code read them and `by: 'agent'` for `read_file`, `explore` or an earlier attempt. At most 100 |

@@ -3,7 +3,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --filter=@dalliance/desktop",
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",

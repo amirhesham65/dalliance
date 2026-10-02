@@ -90,3 +90,11 @@ Rules like "never read this file" or "log this event" belong on the event bus, n
 1. Register a handler in `installExtensions()` in `electron/harness/extensions.ts`. `NotebookSession` calls it once for its bus.
 2. For a block, return `{ block: true, reason }` from a `tool_call` handler. The model sees `Blocked: <reason>` as the tool result.
 3. Test it in `run-cell.test.ts` the way "lets an extension block a tool call" does.
+
+## Call a new Convex function from the app
+
+1. Write the function in `packages/backend/convex/`, and annotate its arguments and return type with types from `packages/shared/src/cloud.ts`. Add a type there if it's new.
+2. Add a typed reference to `cloudApi` in `packages/shared/src/cloud-api.ts`, with `makeFunctionReference` and the function's `module:name`.
+3. Add a `Matches` line to `Contract` in `packages/backend/contract.ts`, and a name check to `contract.test.ts`.
+4. Call it from `electron/cloud/billing.ts` through `cloudApi`, never `anyApi`.
+5. Add it to the table in [cloud.md](cloud.md#the-contract), and deploy Convex before the cloud site and before an app release that calls it. See [deploying.md](deploying.md#shipping-a-change).

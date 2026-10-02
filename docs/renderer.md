@@ -108,7 +108,7 @@ The overview sits in its own outer group, so opening a side pane never changes i
 
 Below 1200 px wide, `NARROW_WINDOW` in `App.tsx`, there is no room for a side pane column without squeezing the notebook to its minimum. `PaneOverlay` then draws the side pane over the notebook's left edge, 400 px wide at most, with a light scrim over the rest. Esc closes it and puts focus back where it was. A click on the scrim closes it and leaves focus with the notebook. Esc inside a text field, menu or dialog stays with that control. `useMediaQuery()` in `hooks/use-media-query.ts` follows the width.
 
-A banner above the workspace asks for a key, a Python or missing packages when the settings or Python state say so. It has a cross on its right. Dismissing it hides that message for the session: it comes back if the message changes, or once the problem has been fixed and returns.
+A banner above the workspace asks for a sign-in, a Python or missing packages when the account or Python state say so. `signedIn()` in `lib/cloud.ts` decides the first, and an account not answered yet counts as signed in, so nothing flashes up. Its Open Settings goes to Account for a sign-in and Python otherwise. It has a cross on its right. Dismissing it hides that message for the session: it comes back if the message changes, or once the problem has been fixed and returns.
 
 Under it, `PinChangesBanner` in `components/notebook/` says what changed since the notebook was saved, from `pinChanges`: "Changed since this notebook was saved: pandas 2.1.0, now 2.2.3; data/visits.csv has changed." `describePinChange()` in `lib/pins.ts` words each change. It lists three and folds the rest behind an "and 2 more" button, and it isn't there at all when nothing changed. Its cross calls `dismissPinChanges()`, which hides it until the next check. `load()` starts a check for a notebook with pins without waiting for it, and `checkPins()` runs one on demand and returns the changes, which is what Verify should await before it restarts the kernel. A check for a notebook that another has replaced since is dropped. See [notebook-model.md](notebook-model.md#pins).
 
@@ -195,15 +195,15 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 
 ### Costs
 
-Show costs is off by default, and with it off the Activity pane shows nothing about cost, even for entries that have one. The main process prices every run anyway, so turning it on shows the runs made while it was off, see [agent-harness.md](agent-harness.md#costs). `finish()` puts the run's `RunCost` on its log entry and adds it to `spend` through `trackCost()`. A cell name's cost comes on the `title` event and goes to `spend` only.
+Show costs is off by default, and with it off the Activity pane shows nothing about cost, even for entries that have one. The main process counts every run anyway, so turning it on shows the runs made while it was off, see [agent-harness.md](agent-harness.md#costs). `finish()` puts the run's `RunCost` on its log entry and adds it to `spend` through `trackCost()`. A cell name's cost comes on the `title` event and goes to `spend` only.
 
-`lib/cost.ts` words them. On an own key it's dollars, "About $0.042, estimated", to three places under a dollar. Tokens with no known price show as "12,345 tokens, no price known", never as an amount. On Dalliance Cloud it's credits, never dollars: the entry says "Counting credits" until `countCredits()` answers, then "4.2 credits", or the tokens if none were counted. A notebook loaded while credits are counting drops them when they arrive, so they never reach the new notebook's total.
+`lib/cost.ts` words them, in credits, never dollars. The entry says "Counting credits" until `countCredits()` answers, then "4.2 credits", or the tokens if none were counted. A notebook loaded while credits are counting drops them when they arrive, so they never reach the new notebook's total. Tokens whose credits never came add up in `spend.uncountedTokens`, and the total says "12,345 tokens not counted".
 
 ## Notices and errors
 
 `actions.notify(text, { undo, tone })` puts one message at the bottom of the window for 6 seconds. `NoticeToast` in `App.tsx` draws it. With `undo` it shows an Undo button, without it a Dismiss button. A newer notice replaces the one showing, and loading a notebook clears it. D D and M use it to offer Undo, which goes through the notebook's undo stack, see [Undo and redo](#undo-and-redo).
 
-Opening the model picker loads the model list. On Dalliance Cloud, a saved model the list doesn't offer goes back to the default with a notice, since the service only offers models with zero data retention.
+Opening the model picker loads the model list. A saved model the list doesn't offer goes back to the default with a notice, since the service only offers models with zero data retention.
 
 A bridge call the user started should never fail silently. `actions.notifyFailure(what, err)` shows "Couldn't save the notebook." and the reason, with the `Error invoking remote method` wrapper stripped by `errorText()`. Saving, writing the brief, refreshing the variables and restarting Python all report failures this way. A new notebook the main process can't write gets a dialog with the reason from there instead, and the window stays as it was. Background calls, like the variables refresh after each run, stay quiet.
 
@@ -221,18 +221,18 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 
 | Section | Component | Holds |
 | --- | --- | --- |
-| Models | `ModelSettings` | Provider, key, model id, effort, Show costs. With Dalliance Cloud chosen, `CloudStatus` stands in for the key: sign in, choose a plan, or the credits left. The provider's line says what it means for data retention, see [cloud.md](cloud.md#zero-data-retention) |
+| Models | `ModelSettings` | `CloudStatus` for the account (sign in, choose a plan, or the credits left), with the zero data retention line from `CLOUD_RETENTION` in `lib/cloud.ts`, see [cloud.md](cloud.md#zero-data-retention). Then the model id, effort and Show costs |
 | Agent | `AgentSettings` | Approvals (package installs, shell and network code), cell names, suggested next prompts |
 | Python | `PythonSettings` | The managed environment and a Python path |
-| Account | `AccountSettings` | The Dalliance account, the plan and its credits. Only in builds with Dalliance Cloud, when `settings.cloud` is true. See [cloud.md](cloud.md) |
+| Account | `AccountSettings` | The Dalliance account, the plan and its credits. See [cloud.md](cloud.md) |
 
 It sits over the area under the top bar with the screen below still mounted and `inert`, so the setup's step, the notebook's scroll and the resizable columns come back as they were. Command mode and the Cmd+number keys stay off while it's up. Esc goes back, unless a select or menu is open, or a text field has focus, which it leaves instead.
 
-Changes save as they're made. Selects save on change. The model id and the Python path save on Enter or when the field loses focus. The API key has its own button, because it's checked with the provider first. `saveSettings()` in `settings/save.ts` sends an update and puts the new view in the store. `Group` and `Row` in `settings/parts.tsx` lay out a section: a bordered group of rows, each with its name and a line on the left and the control on the right, or under the text with `wide`.
+Changes save as they're made. Selects save on change. The model id and the Python path save on Enter or when the field loses focus. `saveSettings()` in `settings/save.ts` sends an update and puts the new view in the store. `Group` and `Row` in `settings/parts.tsx` lay out a section: a bordered group of rows, each with its name and a line on the left and the control on the right, or under the text with `wide`.
 
 ## First run and the start page
 
-`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a model key, a Python, and a first notebook. In builds with Dalliance Cloud the key step offers it first, and shows `CloudStatus` in place of the key field while it's chosen; the step counts as done once there's a plan. The key step links to each provider's keys page, switches provider to match a pasted key, and checks the key before saving it, see [storage.md](storage.md#settings-and-keys). Skipping any step still sets `onboarded`. The start page offers new, open, open folder, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New goes through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, and Open folder asks for a folder first, then does the same in it, so nothing the start page opens is unsaved. File > Open Folder and the notebook tab's menu do the same, and both name the folder in use with `folderName()`.
+`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a Dalliance account, a Python, and a first notebook. The account step shows `CloudStatus`, and counts as done once the account is on a plan, see [cloud.md](cloud.md#signing-in). Skipping any step still sets `onboarded`. The start page offers new, open, open folder, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New goes through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, and Open folder asks for a folder first, then does the same in it, so nothing the start page opens is unsaved. File > Open Folder and the notebook tab's menu do the same, and both name the folder in use with `folderName()`.
 
 ## Theming
 
@@ -274,7 +274,7 @@ Without Electron there's no `window.dalliance`. `main.tsx` then checks the URL:
 | --- | --- |
 | `/?demo` | A clinical trial notebook with results. The last cell asks a question when run. Verify finds the over-65 cell changed and the rest the same |
 | `/?demo&welcome` | The start page |
-| `/?demo&setup` | The first-run setup with no key and no Python. Any key saves, except one containing `bad` |
+| `/?demo&setup` | The first-run setup, signed out and with no Python. Sign in lands on the Pro plan after a moment |
 | anything else | The app with no bridge. Runs fail with "Running cells needs the desktop app." |
 
 `dev/demo.ts` builds the fake bridge from `test/fake-api.ts` and scripts the runs. It's how the website screenshots are made. See [website.md](website.md#screenshots).

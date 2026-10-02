@@ -1,6 +1,6 @@
 # The website
 
-`apps/web` is dalliance.io: a landing page, a privacy page, a 404, and a route that logs each download and redirects to the latest installer. It uses Next.js 16 with the App Router and Tailwind v4, and has no client data fetching.
+`apps/web` is dalliance.io: a landing page, a privacy page, a 404, and a route that logs each download and redirects to the latest installer. It uses Next.js 16 with the App Router and Tailwind v4, and has no client data fetching. Its palette, theme and shared class strings come from `@dalliance/brand`, which the cloud site uses too. See [Design](#design).
 
 ```bash
 pnpm --filter @dalliance/web dev     # http://localhost:3100
@@ -17,7 +17,7 @@ src/app/
   download/route.ts      logs the download, then redirects to the installer
   not-found.tsx          404
   layout.tsx             fonts, metadata, viewport colours
-  globals.css            palette, @theme, hatching and the hero's animations
+  globals.css            imports @dalliance/brand/theme.css, plus the hero's one rule of its own
   sitemap.ts, robots.ts, manifest.ts
   icon.svg, apple-icon.tsx, favicon.ico
   opengraph-image.tsx, twitter-image.tsx   both render socialCard()
@@ -26,10 +26,9 @@ src/components/
   LiveCell.tsx           the animated cell in the hero
   Reel.tsx               the scrolling screenshot strip with its ledger
   StickyBar.tsx          the top bar that sticks once it reaches the top
-  Wordmark.tsx           the pixel mark and the name
+  Wordmark.tsx           the mark and the name, from @dalliance/brand
 src/lib/
-  site.ts                name, copy, URLs, colours. Change copy here first
-  ui.ts                  shared class groups: sheet, gutter, label, button, headline
+  site.ts                copy, the site URL and the download URL, over brand.ts. Change copy here first
   card.tsx               the 1200 by 630 social card
 src/assets/shots/        light and dark captures of the app
 ```
@@ -39,12 +38,11 @@ src/assets/shots/        light and dark captures of the app
 | Variable | Default | Used for |
 | --- | --- | --- |
 | `NEXT_PUBLIC_SITE_URL` | `https://dalliance.io` | Canonical links, sitemap, robots, social cards |
-| `DALLIANCE_DOWNLOAD_URL` | The `Dalliance.dmg` on the latest GitHub release | Where `/download` redirects |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Unset | The Redis store for the download log. `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` work too |
 
-The first two are read at build time. `turbo.json` lists them in the build task's `env`, so changing one busts the cache. The Redis pair is only read when `/download` runs, so it stays out of `turbo.json`. `site.ts` and the route read them with `||` rather than `??`, because Vercel lets a variable be set but empty.
+`NEXT_PUBLIC_SITE_URL` is read at build time. `turbo.json` lists it in the build task's `env`, so changing it busts the cache. The Redis pair is only read when `/download` runs, so it stays out of `turbo.json`. `site.ts` and the route read them with `||` rather than `??`, because Vercel lets a variable be set but empty.
 
-Every download button links to `/download`, with `?from=` naming the button: `bar` for the top bar, `hero` and `end` for the two on the home page. `download/route.ts` answers it with a temporary redirect, not a permanent one, so moving the installer only means changing the variable. `robots.ts` disallows `/download`. The config also sets `nosniff`, `DENY` framing, a strict referrer policy and a permissions policy on every route.
+Every download button links to `/download`, with `?from=` naming the button: `bar` for the top bar, `hero` and `end` for the two on the home page. `download/route.ts` answers it with a temporary redirect to `downloadUrl` in `site.ts`, the blob URL of `Dalliance.dmg` in the Vercel Blob store `dalliance-downloads`. The release workflow overwrites that file on every release, so the URL never changes. See [releasing.md](releasing.md). The redirect is temporary, not permanent, so moving the installer only means changing `downloadUrl`. `robots.ts` disallows `/download`. The config also sets `nosniff`, `DENY` framing, a strict referrer policy and a permissions policy on every route.
 
 ## Analytics
 
@@ -60,7 +58,7 @@ The list keeps the newest 10,000 entries, `KEEP` in the route. `LPUSH` and `LTRI
 
 The website has no test runner, so the route has no test. The transaction was checked by pointing the Upstash client at a local server: it sends `[["lpush","downloads",...],["ltrim","downloads",0,9999]]` to `/multi-exec`.
 
-The store is `dalliance-downloads`, on Upstash's free plan. To read the log, use the Data Browser in the Upstash console, or pull the variables with the Vercel CLI and call the REST API with the read-only token:
+The Redis store is `dalliance-downloads`, on Upstash's free plan. It shares the name with the blob store that holds the installer, but it's a separate thing. To read the log, use the Data Browser in the Upstash console, or pull the variables with the Vercel CLI and call the REST API with the read-only token:
 
 ```bash
 vercel link --yes --project dalliance
@@ -70,13 +68,24 @@ vercel env pull .env.local --yes
 
 `.env.local` holds the store's tokens, so it must stay out of git.
 
-The log only sees clicks that go through the site. The download count on the GitHub release also includes direct links, so it will always be higher.
+The log only sees clicks that go through the site. Anyone with the blob URL can download the installer without it.
 
 ## Design
 
-The site shares its palette and type with the app, so the page and the screenshots match. `globals.css` copies the app's light and dark colours from `apps/desktop/src/index.css` into its own tokens: `--paper`, `--ink`, `--hairline`, `--brand` and the rest. Utilities read them through `@theme`, so they flip with the system theme without `dark:` on every class. When you change an app colour that the site shows, change it in both files.
+The site shares its palette and type with the app, so the page and the screenshots match. Both websites, dalliance.io and the cloud site in `apps/cloud`, take their brand from `packages/brand`, `@dalliance/brand`:
 
-Every page follows one grammar: a ruled sheet of warm paper, hairline bands, and short uppercase labels in a 200 px left margin. `Band` in `Chrome.tsx` draws one section. Keep band labels to one line. Shared class groups are in `lib/ui.ts`, so a change to the gutter or the button happens once.
+| File | Holds |
+| --- | --- |
+| `theme.css` | The palette, the Tailwind `@theme`, base styles, hatching and the keyframes. Each site's `globals.css` imports it first |
+| `ui.ts` | Class strings for the shared grammar: `sheet`, `gutter`, `label`, the buttons, `headline`, `wordmark` and the rest |
+| `brand.ts` | The name, the author, the website's URL and the paper colours for the browser chrome |
+| `mark.ts`, `Mark.tsx` | The mark's squares, and the component that draws it |
+
+The package has no build step. Both Next apps list it in `transpilePackages`, and `theme.css` has `@source "."` so Tailwind scans `ui.ts` for classes. A change there changes both sites, so check the cloud site's sign-in page too.
+
+`theme.css` copies the app's light and dark colours from `apps/desktop/src/index.css` into its own tokens: `--paper`, `--ink`, `--hairline`, `--brand` and the rest. Utilities read them through `@theme`, so they flip with the system theme without `dark:` on every class. When you change an app colour that the sites show, change it in both files.
+
+Every page follows one grammar: a ruled sheet of warm paper, hairline bands, and short uppercase labels in a 200 px left margin. `Band` in `Chrome.tsx` draws one section. Keep band labels to one line. Shared class groups are in `@dalliance/brand/ui`, so a change to the gutter or the button happens once.
 
 `LiveCell` plays once when it scrolls into view. The prompt types itself, the agent works, then the chart and answer land. With reduced motion it renders finished. The server renders it finished too, and CSS hides that state until hydration.
 
@@ -103,4 +112,6 @@ The demo notebook lives in `apps/desktop/src/dev/demo.ts`. Change it there if a 
 
 ## Privacy page
 
-The privacy page lists what the site counts through Vercel Web Analytics and what the download log records, and says the app sends no telemetry and keeps work on the user's Mac. Update it in the same change if any of that stops being true, for example if you add a field to the download log, custom analytics events, or telemetry in the app.
+The privacy page lists what the site counts through Vercel Web Analytics and what the download log records, what the app keeps on the user's Mac, and what goes with a model request, and says the app sends no telemetry. Update it in the same change if any of that stops being true, for example if you add a field to the download log, custom analytics events, or telemetry in the app. Model requests go through Dalliance Cloud with zero data retention, see [cloud.md](cloud.md#zero-data-retention).
+
+The site doesn't link to the source or call the app open source: the repo is private.

@@ -7,9 +7,9 @@ The agent lives in `apps/desktop/electron/harness/`. It follows Vercel's [Build 
 | `run-cell.ts` | The entry point. Runs saved code directly, or drives a `ToolLoopAgent` |
 | `tools.ts` | The eight tools and the `guarded()` wrapper |
 | `prompt.ts` | `buildSystemPrompt()` and `buildCellPrompt()` |
-| `model.ts` | Provider setup, effort options, the model list for the picker |
+| `model.ts` | The gateway provider on Dalliance Cloud, effort options, the model list for the picker |
 | `title.ts` | The small model that names cells |
-| `cost.ts` | What a run cost, for the Show costs setting |
+| `cost.ts` | The calls a run made and their tokens, for the Show costs setting |
 | `approval.ts` | Whether an install, or code that runs commands or uses the network, needs a person |
 | `events.ts` | The event bus extensions hook into |
 | `extensions.ts` | The built-in extensions: the `.env` block, the code policy and the run log |
@@ -79,7 +79,7 @@ Every tool's description follows the course's format: WHEN TO USE, WHEN NOT TO U
 
 `run_cell` has a time limit, `runTimeoutMs` in `HarnessDeps`, 10 minutes by default (`RUN_TIMEOUT_MS`). Past it the tool calls `kernel.interrupt()`, like `explore` does after 20 seconds. The kernel escalates to a kill if the interrupt doesn't land; if `execute()` then rejects, the tool still answers. The model gets a fixed, short result, `The cell timed out after 10 minutes and was stopped.` with advice to work on a sample, never the partial output. The run is recorded as `lastRun` with `ok: false`, so `finish` refuses it, and the activity shows "Stopped after 10 minutes". Plain runs of saved code have no limit; the user can stop those.
 
-A model can ask for several tools in one step, and the AI SDK runs them at the same time. Anthropic models are told not to (see [Models and providers](#models-and-providers)), but other makers may still send `run_cell` and `finish` together. So `finish` first waits for every `run_cell` still executing, and judges the run they leave behind, never the one before.
+A model can ask for several tools in one step, and the AI SDK runs them at the same time. Anthropic models are told not to (see [Models](#models)), but other makers may still send `run_cell` and `finish` together. So `finish` first waits for every `run_cell` still executing, and judges the run they leave behind, never the one before.
 
 ### Step labels
 
@@ -105,7 +105,7 @@ A new tool must use it. The `.env` block, the code policy and the run log all de
 
 ### Leaked tool markup
 
-Some models write the rest of a tool call into a text field, like `...the answer.</answer><parameter name="next">[...]`. `splitLeaked()` and `leakedList()` in `packages/shared/src/leaked.ts` cut that markup off and recover the parameters. `finish` runs both `interpretation` and `answer` through them. The renderer's `Answer` component does the same for answers saved before this existed.
+Some models write the rest of a tool call into a text field, like `...the answer.</answer><parameter name="next">[...]`. `splitLeaked()` and `leakedList()` in `packages/shared/src/leaked.ts` cut that markup off and recover the parameters. `finish` runs both `interpretation` and `answer` through them.
 
 ## Prompts
 
@@ -136,27 +136,21 @@ Some rules in the system prompt shape the product, so change them knowingly:
 
 Two constraints shape the loop.
 
-**History is append-only.** With adaptive thinking on, the Anthropic API rejects requests that change earlier turns. So there's no `pruneMessages` and no rewriting of past tool results. The 24-step cap and the output bounds keep a run small instead. `run-cell.test.ts` has a test that checks every request only appends to the one before it.
+**History is append-only.** With adaptive thinking on, Anthropic's API rejects requests that change earlier turns, also through the gateway. So there's no `pruneMessages` and no rewriting of past tool results. The 24-step cap and the output bounds keep a run small instead. `run-cell.test.ts` has a test that checks every request only appends to the one before it.
 
 **The system prompt is cached.** It carries `cacheControl: { type: 'ephemeral' }`, so repeated cells reuse the cached prefix. Anything in it that changes per cell breaks the cache. The Python version, tool names and model id are stable within a session. `AGENTS.md`, variables, files and earlier cells can change, so they go in the cell prompt.
 
-**The history is cached too.** For Anthropic models, `agentProviderOptions()` in `model.ts` adds a top-level `cacheControl`. The API then puts a breakpoint on the last block of every request, so each step reads the steps before it from the cache instead of paying for the whole tool history again. No message is marked, so the history stays append-only. Each step adds two blocks, well inside the API's 20-block lookback. `run-cell.test.ts` runs a cell through the real Anthropic provider with a fake `fetch` and checks that every request body has the top-level `cache_control` and the system breakpoint.
+**The history is cached too.** For `anthropic/*` models, `agentProviderOptions()` in `model.ts` adds a top-level `cacheControl`, which the gateway passes on to Anthropic. The API then puts a breakpoint on the last block of every request, so each step reads the steps before it from the cache instead of paying for the whole tool history again. No message is marked, so the history stays append-only. Each step adds two blocks, well inside the API's 20-block lookback. The `caching` block in `run-cell.test.ts` checks that every step asks for it and that no message but the system prompt is marked.
 
-## Models and providers
+## Models
 
-`model.ts` supports three providers. Dalliance Cloud is only offered in builds that have it, see [cloud.md](cloud.md).
+Every model runs through Dalliance Cloud, on the signed-in account's plan. There are no API keys and no provider to choose. See [cloud.md](cloud.md).
 
-| Provider | Setting | Default model | Key |
-| --- | --- | --- | --- |
-| Vercel AI Gateway | `gateway` | `anthropic/claude-sonnet-5.5` | `AI_GATEWAY_API_KEY` |
-| Anthropic API | `anthropic` | `claude-sonnet-5-5` | `ANTHROPIC_API_KEY` |
-| Dalliance Cloud | `cloud` | `anthropic/claude-sonnet-5.5` | None: the Dalliance account's Convex token |
+`ModelConfig` is `{ model, effort, cloud }`. `model` is a gateway id, and the default is `anthropic/claude-sonnet-5.5` (`DEFAULT_MODEL`). The default effort is `medium`. `cloud` is a `CloudAccess`: the proxy's URL, whether someone is signed in, and a token fetcher. `SettingsStore.modelConfig()` builds it.
 
-The default effort is `medium`. Settings from a version with another default move to this one, see [storage.md](storage.md#settings-and-keys).
+`resolveModel()` builds the AI Gateway provider on `<cloud>/api/ai` with `cloudGateway()`, whose `fetch` puts a fresh Convex JWT on every request, so a long run outlives any one token. Signed out, it throws a `ModelSetupError` before the run starts: "Sign in to Dalliance to run prompts on your plan. Settings > Account." The session shows its message as the run's error. Effort maps per maker in `agentProviderOptions({ model, effort })`:
 
-`resolveModel()` throws `MissingKeyError` without a key, and a `ModelSetupError` for Dalliance Cloud when signed out or not in this build. `MissingKeyError` is a `ModelSetupError` too, and the session shows either's message as the run's error. Effort maps per maker:
-
-- Anthropic models, direct or `anthropic/*` on the gateway, get the top-level `cacheControl` described in [Context and caching](#context-and-caching), and `thinking: { type: 'adaptive', display: 'summarized' }` and `effort` where the model takes them. `display: 'summarized'` makes the API send a summary of the model's thinking, which the run keeps per step (see [The event bus](#the-event-bus)). Adaptive thinking decides per step whether to think at all, so at `low` or `medium` an easy step often has none. `claudeReasoning()` decides from the model id, with gateway dots read as dashes:
+- `anthropic/*` models get the top-level `cacheControl` described in [Context and caching](#context-and-caching), and `thinking: { type: 'adaptive', display: 'summarized' }` and `effort` where the model takes them. `display: 'summarized'` makes the API send a summary of the model's thinking, which the run keeps per step (see [The event bus](#the-event-bus)). Adaptive thinking decides per step whether to think at all, so at `low` or `medium` an easy step often has none. `claudeReasoning()` decides from the model id, with gateway dots read as dashes:
 
   | Models | Thinking | Effort |
   | --- | --- | --- |
@@ -167,44 +161,31 @@ The default effort is `medium`. Settings from a version with another default mov
 
   An effort a model doesn't take steps down to the nearest level it does. Every Anthropic model also gets `disableParallelToolUse: true`, which the provider sends as `tool_choice: { type: 'auto', disable_parallel_tool_use: true }`: one tool call per step, so the loop stays a sequence of run, look, fix.
 
-  On the Anthropic API, the models in the first row also get `fallbacks: 'default'`. Their safety classifiers can decline a request; with this the API retries it on the model Anthropic recommends for that kind of refusal, inside the same call, instead of ending the step with a refusal. The provider adds the `server-side-fallback-2026-07-01` beta header. The option is the same on every step, so the prompt cache holds. It isn't sent through the gateway or Dalliance Cloud: the gateway drops it. A live call through the gateway with a fallback model that doesn't exist, or with a value that isn't a valid mode, was answered normally, where a bad `effort` is turned down. So on those routes a declined request still ends the step. A fallback shows in the run log, see [The event bus](#the-event-bus).
+  There's no refusal fallback. When a model's safety classifier declines a request, the step ends with the refusal. The gateway drops Anthropic's `fallbacks` option, and the model it would pick isn't published, so it couldn't be held to the models the proxy offers.
 - `openai/*` models get `reasoningEffort`, and `reasoningSummary: 'auto'` for the same per-step summaries. `high`, `xhigh` and `max` all map to `high`. OpenAI leaves out a summary when there was little reasoning, even with some reasoning tokens.
 - Every other maker runs with its defaults.
 
-`listModels()` feeds the model picker. On the gateway it calls `getAvailableModels()`, keeps language models, and turns per-token prices into per-million strings. Dalliance Cloud lists its models through its proxy, without prices, since its plan pays in credits. The proxy only lists models with zero data retention, see [cloud.md](cloud.md#zero-data-retention). On the Anthropic API it calls `/v1/models`. Results are cached for 10 minutes per provider and key. `MAKERS` maps gateway prefixes to display names. Logos come from `src/assets/makers/`, see [renderer.md](renderer.md#model-maker-logos).
+`listModels(cloud)` feeds the model picker. It calls `getAvailableModels()` through the proxy, keeps language models, and returns `{ models, error }`. There are no prices, since the plan pays in credits. The proxy only lists models with zero data retention, see [cloud.md](cloud.md#zero-data-retention). Signed out, the list is empty with the sign-in message as its `error`. A list is cached for 10 minutes. `MAKERS` maps gateway prefixes to display names. Logos come from `src/assets/makers/`, see [renderer.md](renderer.md#model-maker-logos).
 
-`checkKey()` tries a key before Settings saves it. On the gateway it asks for the credit balance, which also proves the key, and returns it as the detail. On the Anthropic API it lists one model. A 401 or 403 is `rejected`. Anything else that fails, like no network, is `unchecked`, and the renderer saves the key anyway with a note.
-
-`friendlyError()` in `run-cell.ts` rewrites auth, rate limit, unknown model, overload, server and network errors into short messages, pointing at Settings where the fix is there. Two cases come first: a Dalliance Cloud refusal (type `dalliance_account` in the proxy's response) is shown as written, and Anthropic's 400 for a model that needs data retention, on a direct key, says the organization has zero data retention. It goes by the HTTP status on the AI SDK's `APICallError` or the gateway's `GatewayError`, looking through `RetryError` to the last attempt. Without a status it only trusts one the message spells out, like `status code 401` or `429 Too Many Requests`, so a number like `40132 tokens` is never read as an auth error.
+`friendlyError()` in `run-cell.ts` rewrites auth, rate limit, unknown model, overload, server and network errors into short messages, pointing at Settings where the fix is there. A Dalliance Cloud refusal comes first: the proxy answers in the gateway's error shape with the type `dalliance_account` (`REFUSAL_TYPE`), and the message is shown as written. The gateway provider wraps that unknown type in a generic error, so `accountRefusal()` reads the proxy's response body from the error's causes. Any other 401 or 403 says "Dalliance Cloud didn't accept your sign-in. Sign in again in Settings > Account." It goes by the HTTP status on the AI SDK's `APICallError` or the gateway's `GatewayError`, looking through `RetryError` to the last attempt. Without a status it only trusts one the message spells out, like `status code 401` or `429 Too Many Requests`, so a number like `40132 tokens` is never read as an auth error.
 
 ## Titles
 
-`title.ts` names cells with a small model, whatever model writes the code.
-
-| Provider | Title model |
-| --- | --- |
-| Gateway, Dalliance Cloud | `openai/gpt-6-luna` with low reasoning effort |
-| Anthropic | `claude-haiku-4-5` |
+`title.ts` names cells with a small model, whatever model writes the code: `openai/gpt-6-luna` (`TITLE_MODEL`) with low reasoning effort, through Dalliance Cloud on the user's plan. `titleModel()` returns null when signed out, and the cell keeps showing its prompt.
 
 The call has a 10 second timeout, one retry and 1,024 output tokens, since reasoning counts toward output. `cleanTitle()` keeps the first line, strips quotes, prefixes like `Title:`, trailing punctuation and `@`, and caps it at 6 words. Any failure returns `null`, and the cell keeps showing its prompt. The session starts the title request alongside the run and never waits on it. Settings can turn titles off with `autoTitles`.
 
 ## Costs
 
-`NotebookSession` prices each run and each cell name, and hands the renderer a `RunCost`. The math is in `cost.ts`. It prices them whether or not Show costs (`showCosts` in Settings, off by default) is on, so turning the setting on shows the runs made while it was off; the renderer only shows costs with it on. A pricing failure never fails the run.
+Show costs (`showCosts` in Settings, off by default) shows the credits each run used on the user's plan, never dollars. The app doesn't price anything itself: Dalliance Cloud records each call's cost by the gateway's generation id, and the app asks for the credits afterwards.
 
-`stepUsage()` reads the AI SDK's usage. Its `inputTokens` already counts cache reads and writes, and `outputTokens` already counts reasoning, so `callCost()` charges the input left after the cache tokens at the input rate, cache reads and writes at their own rates, and the output at the output rate. Reasoning tokens are never added on top. On a real cache write call and a cache read call this matched the cost the gateway reported for each.
+`NotebookSession` hands the renderer a `RunCost` for each run and each cell name: `{ generationIds, tokens }`, built by `costOf()` in `cost.ts` from the run's calls. `generationIds` are the gateway's ids, which the proxy passes through in the provider metadata (`generationIdOf()`). `tokens` is the input and output tokens of those calls, shown when the credits never arrive. It builds one whether or not Show costs is on, so turning the setting on shows the runs made while it was off; the renderer only shows costs with it on.
 
-| Provider | Priced with | Shows |
-| --- | --- | --- |
-| AI Gateway key | The gateway's model list pricing: `input`, `output`, `cachedInputTokens` and `cacheCreationInputTokens`, per token. Read with `getAvailableModels()` and cached for ten minutes per key | Dollars, labelled an estimate |
-| Anthropic key | `ANTHROPIC_PRICES` in `cost.ts`, a small table of current Claude models with the date it was taken. Update it when prices change or a model comes out | Dollars, labelled an estimate |
-| Dalliance Cloud | Nothing in the app. The service records each call's cost by generation id | Credits, never dollars |
+`stepUsage()` reads the AI SDK's usage. Its `inputTokens` already counts cache reads and writes, and `outputTokens` already counts reasoning, so reasoning tokens are never added on top.
 
-A call is priced by the model the run asked for, or the title model, not the id the provider answered with, which can be a dated one the price list doesn't know. A step a refusal fallback answered, which only happens on the Anthropic API, is priced as the fallback model. A model with no known price, or a call that used the cache on a model with no cache rate, goes into `unpricedTokens` and shows as tokens, never as a guessed amount.
+The renderer calls `countCredits(generationIds)`, and `Billing.credits()` follows the service's `usage:credits` query live until every call has its row, or 90 seconds pass. Rows land a few seconds after each call, so the Activity pane shows the run as counting until then. Credits that never arrive show as the run's tokens. See [cloud.md](cloud.md#credits-per-run).
 
-On Dalliance Cloud the cost is `{ unit: 'credits', generationIds, tokens }`. The renderer calls `countCredits(generationIds)`, and `Billing.credits()` follows the service's `usage:credits` query live until every call has its row, or 90 seconds pass. Rows land a few seconds after each call, so the Activity pane shows the run as counting until then. Credits that never arrive show as the run's tokens. See [cloud.md](cloud.md#credits-per-run).
-
-`generateTitle()` reports the title call's tokens through `onCall`, and its cost rides on the `title` event. It counts toward the notebook's total rather than the run's, since it can land after the run ends.
+`generateTitle()` reports the title call through `onCall`, and its cost rides on the `title` event. It counts toward the notebook's total rather than the run's, since it can land after the run ends.
 
 ## Approvals
 
@@ -232,8 +213,7 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 | Field | Holds |
 | --- | --- |
 | `step` | Which model call of the run, from 1 |
-| `modelId` | The model that answered, as the provider reports it. After a refusal fallback, the fallback model |
-| `fallback` | Whether the chosen model declined the call and a fallback model answered it. `servedByFallback()` reads it from the `fallback_message` entries Anthropic puts in its usage iterations |
+| `modelId` | The model that answered, as the provider reports it |
 | `finishReason` | `tool-calls`, `stop`, `length` and so on |
 | `durationMs` | Wall time from the request to the end of the step's tool calls |
 | `reasoning` | The model's reasoning summary for the call, from the stream's `reasoning-delta` parts. `null` when it returned none, never left out, so a missing summary can't pass for lost data |
@@ -241,7 +221,7 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 
 `cacheReadTokens` is the quickest check that [caching](#context-and-caching) works: after the first step of a cell it should be most of `inputTokens`.
 
-`generateCell()` also returns every step's `{ step, modelId, fallback, reasoning, usage, generationId }` as `steps` on `CellRunResult`, and the cell's record takes the model of each step and its stated rationale from them. `usage` is the same counts as a `StepUsage`, with 0 where the provider doesn't say, and `generationId` is the gateway's id for the call, null from the Anthropic API. [Costs](#costs) prices them. A plain run of saved code has none. The request options, summaries included, are the same for every step of a run, so the prompt cache holds.
+`generateCell()` also returns every step's `{ step, modelId, reasoning, usage, generationId }` as `steps` on `CellRunResult`, and the cell's record takes the model of each step and its stated rationale from them. `usage` is the same counts as a `StepUsage`, with 0 where the provider doesn't say, and `generationId` is the gateway's id for the call, null when the gateway sent none. [Costs](#costs) names the calls by it. A plain run of saved code has none. The request options, summaries included, are the same for every step of a run, so the prompt cache holds.
 
 `installExtensions()` in `extensions.ts` registers the built-in ones. `NotebookSession` calls it once, on its own bus:
 
