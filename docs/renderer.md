@@ -48,6 +48,7 @@ Saved with the notebook: `notebook`. Everything else is session state:
 | `notice` | The message at the bottom of the window, with an Undo when the change can be taken back. See [Notices and errors](#notices-and-errors) |
 | `verify`, `verifyAsking` | The last Verify run's report, and whether its confirmation is showing. See [Verify](#verify) |
 | `pinChanges` | What differs from the notebook's pins, for the banner over the notebook. Empty when nothing does, or once dismissed. See [Layout](#layout) |
+| `update` | A newer release, once the main process has found one. See [releasing.md](releasing.md#update-notices) |
 
 `getApi()` and `setApi()` wrap `window.dalliance`, so tests and the demo can swap in a fake.
 
@@ -107,6 +108,8 @@ Stop is the usual `interrupt()`. It drops the cells still waiting, which the rep
 The overview sits in its own outer group, so opening a side pane never changes its width. Both groups use `preserve-pixel-size`. Widths persist through `useDefaultLayout` in `localStorage` under `dalliance-overview` and `dalliance-panes`. Whether the overview is open is `dalliance-sidebar`. Every column is a `Pane` from `components/panes/Pane.tsx`: a rounded card on the canvas.
 
 Below 1200 px wide, `NARROW_WINDOW` in `App.tsx`, there is no room for a side pane column without squeezing the notebook to its minimum. `PaneOverlay` then draws the side pane over the notebook's left edge, 400 px wide at most, with a light scrim over the rest. Esc closes it and puts focus back where it was. A click on the scrim closes it and leaves focus with the notebook. Esc inside a text field, menu or dialog stays with that control. `useMediaQuery()` in `hooks/use-media-query.ts` follows the width.
+
+`UpdateBanner` in `components/app/` sits above both screens, the start page and the notebook, when `update` holds a newer release: "Dalliance 0.4.0 is available." Its Download opens the website's download in the browser. Its cross hides that version for the session, and a later one shows it again.
 
 A banner above the workspace asks for a sign-in, a Python or missing packages when the account or Python state say so. `signedIn()` in `lib/cloud.ts` decides the first, and an account not answered yet counts as signed in, so nothing flashes up. Its Open Settings goes to Account for a sign-in and Python otherwise. It has a cross on its right. Dismissing it hides that message for the session: it comes back if the message changes, or once the problem has been fixed and returns.
 
@@ -276,6 +279,7 @@ Without Electron there's no `window.dalliance`. `main.tsx` then checks the URL:
 | `/?demo&welcome` | The start page |
 | `/?demo&hero` | The notebook the website's hero capture shows: Kaplan-Meier curves and an adjusted hazard ratio, with a clean run log |
 | `/?demo&setup` | The first-run setup, signed out and with no Python. Sign in lands on the Pro plan after a moment |
+| `&update` added to any of these | The same, with the banner a newer release shows |
 | anything else | The app with no bridge. Runs fail with "Running cells needs the desktop app." |
 
 `dev/demo.ts` builds the fake bridge from `test/fake-api.ts` and scripts the runs. It's how the website screenshots are made. See [website.md](website.md#screenshots).

@@ -221,6 +221,36 @@ describe('App', () => {
   })
 })
 
+describe('a newer release', () => {
+  it('offers the download, and hides that version once dismissed', async () => {
+    const user = userEvent.setup()
+    onTestFinished(() => useNotebook.setState({ update: null }))
+    const { api } = fakeApi(() => result({}))
+    const downloadUpdate = vi.fn(async () => {})
+    let found: ((update: { version: string }) => void) | undefined
+    setApi({
+      ...api,
+      downloadUpdate,
+      onUpdate: (listener) => {
+        found = listener
+        return () => {}
+      },
+    })
+    render(<App />)
+    expect(screen.queryByText(/is available/)).not.toBeInTheDocument()
+
+    act(() => found?.({ version: '0.4.0' }))
+    expect(await screen.findByText('Dalliance 0.4.0 is available.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Download' }))
+    expect(downloadUpdate).toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Dismiss update' }))
+    expect(screen.queryByText(/is available/)).not.toBeInTheDocument()
+    act(() => found?.({ version: '0.4.1' }))
+    expect(await screen.findByText('Dalliance 0.4.1 is available.')).toBeInTheDocument()
+  })
+})
+
 describe('result layout', () => {
   it('opens a large table on its column overview and folds printed text away', async () => {
     const user = userEvent.setup()

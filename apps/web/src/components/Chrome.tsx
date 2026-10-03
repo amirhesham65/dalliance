@@ -2,6 +2,7 @@ import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { site } from '@/lib/site'
 import { button, buttonLarge, gutter, label, sheet } from '@dalliance/brand/ui'
+import { InstallCommand } from './InstallCommand'
 import { StickyBar } from './StickyBar'
 import { Wordmark } from './Wordmark'
 
@@ -45,13 +46,16 @@ export function Band({ title, labelId, id, children }: { title: string; labelId:
 /** `from` tells the download log which button was pressed */
 export function Act({ from, centred = false }: { from: string; centred?: boolean }) {
   return (
-    <div className={`mt-6 flex flex-wrap items-center gap-x-4 gap-y-3 ${centred ? 'justify-center' : ''}`}>
-      <a className={buttonLarge} href={`/download?from=${from}`}>
-        <AppleLogo />
-        Download for macOS
-      </a>
-      <span className="text-[13px] text-ink-subtle">{site.status}</span>
-    </div>
+    <>
+      <div className={`mt-6 flex flex-wrap items-center gap-x-4 gap-y-3 ${centred ? 'justify-center' : ''}`}>
+        <a className={buttonLarge} href={`/download?from=${from}`}>
+          <AppleLogo />
+          Download for macOS
+        </a>
+        <span className="text-[13px] text-ink-subtle">{site.status}</span>
+      </div>
+      <InstallCommand centred={centred} />
+    </>
   )
 }
 

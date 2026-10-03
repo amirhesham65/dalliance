@@ -4,6 +4,7 @@ import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { IconButton } from '@/components/app/IconButton'
 import { Sidebar } from '@/components/app/Sidebar'
 import { TopBar } from '@/components/app/TopBar'
+import { UpdateBanner } from '@/components/app/UpdateBanner'
 import { NotebookView } from '@/components/notebook/NotebookView'
 import { PinChangesBanner } from '@/components/notebook/PinChangesBanner'
 import { SidePane } from '@/components/panes/SidePanes'
@@ -127,10 +128,13 @@ export default function App() {
     void api.kernelState().then((kernel) => useNotebook.setState({ kernel }))
     void api.getAccount().then((account) => useNotebook.setState({ account }))
     void api.getBilling().then((billing) => useNotebook.setState({ billing }))
+    // Null only means none found yet, so it never replaces one the event below brought in first
+    void api.getUpdate().then((update) => update && useNotebook.setState({ update }))
     void actions.loadBrief()
     const offs = [
       api.onAccount((account) => useNotebook.setState({ account })),
       api.onBilling((billing) => useNotebook.setState({ billing })),
+      api.onUpdate((update) => useNotebook.setState({ update })),
       api.onRunEvent((cellId, event) => actions.applyRunEvent(cellId, event)),
       api.onKernelState((kernel) => useNotebook.setState({ kernel })),
       api.onMenu((action) => void handleMenu(action)),
@@ -185,6 +189,7 @@ export default function App() {
         {/* Settings covers this area without unmounting it, so the notebook or the setup keeps its state */}
         <div className="relative flex min-h-0 flex-1 flex-col">
           <div inert={settingsPage != null} className="flex min-h-0 flex-1 flex-col">
+            <UpdateBanner />
             {screen === 'welcome' ? (
               <WelcomeScreen />
             ) : (

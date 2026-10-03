@@ -212,7 +212,7 @@ function heroNotebook(): Notebook {
 }
 
 /** `welcome` opens on the start page. `setup` is a first launch: no key, no Python, nothing recent. `hero` is the website's hero notebook. */
-export function installDemo(mode: 'notebook' | 'welcome' | 'setup' | 'hero' = 'notebook') {
+export function installDemo(mode: 'notebook' | 'welcome' | 'setup' | 'hero' = 'notebook', update = false) {
   // Questions the agent is waiting on, answered from the card in the cell
   const pending = new Map<string, (answer: string | boolean | null) => void>()
   const sample = mode === 'hero' ? heroNotebook() : sampleNotebook()
@@ -326,6 +326,8 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' | 'hero' = 'n
           { name: 'patients', type: 'DataFrame', shape: '412 × 9', detail: 'id, arm, age, stage, months, died, stopped_early, reason, switched' },
           { name: 'summary', type: 'DataFrame', shape: '2 × 5', detail: 'arm, patients, deaths, median_months, survival_24m' },
         ]
+  // A newer release, for the banner over both screens
+  if (update) api.getUpdate = async () => ({ version: '0.4.0' })
   let settings = fakeSettings()
   if (mode === 'setup') settings = { ...settings, onboarded: false }
   api.getSettings = async () => settings

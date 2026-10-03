@@ -62,6 +62,12 @@
   "build": {
     "appId": "app.dalliance.desktop",
     "productName": "Dalliance",
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/amirhesham65/dalliance-releases/releases/latest/download"
+      }
+    ],
     "copyright": "Copyright © 2026 Amir Hesham Ibrahim",
     "directories": {
       "output": "release",
@@ -93,6 +99,12 @@
       "target": [
         {
           "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
           "arch": [
             "universal"
           ]

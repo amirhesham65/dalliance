@@ -36,11 +36,14 @@ jobs:
       - run: pnpm turbo run lint typecheck test
       - run: pnpm --filter @dalliance/desktop dist:mac --publish never
       # This repo is private, so downloads come from the public amirhesham65/dalliance-releases, which holds only
-      # installers. The website's /download points at its latest release. See docs/releasing.md
+      # installers. The website's /download points at its latest release, and the app reads latest-mac.yml there to
+      # tell a newer version is out. The zip and its blockmap are what electron-updater will download once releases
+      # are signed. See docs/releasing.md
       - name: Publish the installer
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" apps/desktop/release/Dalliance.dmg --repo amirhesham65/dalliance-releases --title "Dalliance ${GITHUB_REF_NAME#v}" --notes-file .github/release-notes.md
+        working-directory: apps/desktop/release
+        run: gh release create "$GITHUB_REF_NAME" Dalliance.dmg Dalliance.zip Dalliance.zip.blockmap latest-mac.yml --repo amirhesham65/dalliance-releases --title "Dalliance ${GITHUB_REF_NAME#v}" --notes-file "$GITHUB_WORKSPACE/.github/release-notes.md"
       - name: Record the release here
         env:
           GH_TOKEN: ${{ github.token }}

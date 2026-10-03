@@ -18,6 +18,8 @@ src/app/
   not-found.tsx          404
   layout.tsx             fonts, metadata, viewport colours
   globals.css            imports @dalliance/brand/theme.css, plus the live demo's palette and animations
+public/
+  install.sh             the Terminal installer, served at /install.sh. See releasing.md
   sitemap.ts, robots.ts, manifest.ts
   icon.svg, apple-icon.tsx, favicon.ico
   opengraph-image.tsx, twitter-image.tsx   both render socialCard()
@@ -43,7 +45,9 @@ scripts/demo-data.py     computes demo/data.json
 
 `NEXT_PUBLIC_SITE_URL` is read at build time. `turbo.json` lists it in the build task's `env`, so changing it busts the cache. The Redis pair is only read when `/download` runs, so it stays out of `turbo.json`. `site.ts` and the route read them with `||` rather than `??`, because Vercel lets a variable be set but empty.
 
-Every download button links to `/download`, with `?from=` naming the button: `bar` for the top bar, `hero` and `end` for the two on the home page, and `demo` for the link the live demo shows when a visitor types a prompt it can't run. `download/route.ts` answers it with a temporary redirect to `downloadUrl` in `site.ts`, `Dalliance.dmg` on the latest release of the public `amirhesham65/dalliance-releases`, so the URL always serves the newest version. See [releasing.md](releasing.md). The redirect is temporary, not permanent, so moving the installer only means changing `downloadUrl`. `robots.ts` disallows `/download`. The config also sets `nosniff`, `DENY` framing, a strict referrer policy and a permissions policy on every route.
+Every download button links to `/download`, with `?from=` naming the button: `bar` for the top bar, `hero` and `end` for the two on the home page, and `demo` for the link the live demo shows when a visitor types a prompt it can't run. Two come from outside the site: `update` from the app's update banner, and `install` from the installer script.
+
+Under each download button, `InstallCommand` shows the Terminal command, `installCommand` in `site.ts`, with a button that copies it. Where the browser won't allow copying, the button selects the command instead. The command runs `public/install.sh`, see [releasing.md](releasing.md#the-terminal-installer). `download/route.ts` answers it with a temporary redirect to `downloadUrl` in `site.ts`, `Dalliance.dmg` on the latest release of the public `amirhesham65/dalliance-releases`, so the URL always serves the newest version. See [releasing.md](releasing.md). The redirect is temporary, not permanent, so moving the installer only means changing `downloadUrl`. `robots.ts` disallows `/download`. The config also sets `nosniff`, `DENY` framing, a strict referrer policy and a permissions policy on every route.
 
 ## Analytics
 

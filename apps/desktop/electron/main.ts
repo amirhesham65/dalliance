@@ -29,6 +29,7 @@ import { folderForNewNotebook, newNotebookPath, notebookPathIn, renameNotebookFi
 import { OpenQueue, notebookFromArgv } from './open-files'
 import { NotebookSession } from './session'
 import { SettingsStore } from './settings'
+import { Updates } from './updates'
 
 const isMac = process.platform === 'darwin'
 const TITLE_BAR_HEIGHT = 48
@@ -70,6 +71,8 @@ const settings = new SettingsStore(app.getPath('userData'), {
   token: () => account.convexToken(),
 })
 const drafts = new DraftStore(app.getPath('userData'))
+// Newer releases, offered as a download. See docs/releasing.md
+const updates = new Updates({ version: app.getVersion(), open: (url) => shell.openExternal(url) })
 // Unsaved notebooks run in their own folder, never in all of Documents
 const defaultWorkspace = path.join(app.getPath('documents'), 'Dalliance Notebooks')
 mkdirSync(defaultWorkspace, { recursive: true })
@@ -482,6 +485,9 @@ function registerIpc() {
     const generationIds = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []
     return billing.credits(generationIds)
   })
+
+  handle(IPC.getUpdate, () => updates.current)
+  handle(IPC.downloadUpdate, () => updates.download())
 }
 
 /** Sends account and plan changes to the page, and keeps the plan following the account. */
@@ -496,6 +502,14 @@ function watchCloud() {
   billing.onChange((view) => send(IPC.billingChanged, view))
   void account.refresh()
   void billing.connect()
+}
+
+/** Sends a newer release to the page. Only a packaged build checks: in development the version means nothing. */
+function watchUpdates() {
+  updates.onChange((update) => {
+    if (win && !win.isDestroyed()) win.webContents.send(IPC.updateFound, update)
+  })
+  if (app.isPackaged) updates.start()
 }
 
 /** Makes the OS send links on the app's scheme here. Packaged builds also list it in electron-builder's protocols. */
@@ -538,6 +552,7 @@ if (primary) {
     buildMenu(sendMenu)
     createWindow()
     watchCloud()
+    watchUpdates()
     session.warmUp()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -556,6 +571,7 @@ if (primary) {
   app.on('will-quit', () => {
     drafts.flush()
     billing.close()
+    updates.stop()
     void session.shutdown()
   })
 }

@@ -306,6 +306,11 @@ export interface BillingView {
   error: string | null
 }
 
+/** A newer release than the one running. See docs/releasing.md. */
+export interface UpdateView {
+  version: string
+}
+
 /** Everything the preload script exposes as window.dalliance. */
 export interface DallianceApi {
   platform: string
@@ -370,6 +375,11 @@ export interface DallianceApi {
    * Null when none were counted, or in builds without Dalliance Cloud.
    */
   countCredits(generationIds: string[]): Promise<number | null>
+  /** A newer release, once a check has found one. Null until then, and always in development. */
+  getUpdate(): Promise<UpdateView | null>
+  /** Opens the website's download in the browser, which serves the newest release. */
+  downloadUpdate(): Promise<void>
+  onUpdate(listener: (update: UpdateView) => void): () => void
 }
 
 export const IPC = {
@@ -416,4 +426,7 @@ export const IPC = {
   openBillingPortal: 'open-billing-portal',
   billingChanged: 'billing-changed',
   countCredits: 'count-credits',
+  getUpdate: 'get-update',
+  downloadUpdate: 'download-update',
+  updateFound: 'update-found',
 } as const

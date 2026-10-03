@@ -20,7 +20,7 @@ const sections = [
     label: 'This website',
     rows: [
       { k: 'Page views.', v: 'Counted with Vercel Web Analytics: the page, the site that sent you, your country, browser, operating system and device type.' },
-      { k: 'Downloads.', v: 'Each click on a download button is logged with the time, the button, the page it was on, your country, region and city, browser, operating system and device type. Not your IP address. Only the latest 10,000 downloads are kept.' },
+      { k: 'Downloads.', v: 'Each download is logged with the time, the button or link it came from, the page it was on, your country, region and city, browser, operating system and device type. Not your IP address. Only the latest 10,000 downloads are kept.' },
       { k: 'No cookies.', v: 'Nothing is stored on your device, and visits are not linked across days or other sites.' },
     ],
   },
@@ -56,7 +56,10 @@ const sections = [
   {
     id: 'telemetry',
     label: 'Telemetry',
-    rows: [{ k: 'None.', v: 'The app sends no analytics, crash reports or usage data.' }],
+    rows: [
+      { k: 'None.', v: 'The app sends no analytics, crash reports or usage data.' },
+      { k: 'Update checks.', v: 'When it starts, and every six hours while it runs, the app reads the latest version number from GitHub, where releases are published. Nothing about you or your work is sent.' },
+    ],
   },
 ]
 
@@ -66,7 +69,7 @@ export default function Privacy() {
       <SiteHeader />
       <div className={sheet}>
         <div className={mastheadRuled}>
-          <p className={`${labelMono} mb-4`}>Updated 2 October 2026</p>
+          <p className={`${labelMono} mb-4`}>Updated 3 October 2026</p>
           <h1 className={headline}>Privacy</h1>
           <p className={support}>This site counts visits without cookies. The app keeps your work on your Mac and sends nothing about how you use it.</p>
         </div>
