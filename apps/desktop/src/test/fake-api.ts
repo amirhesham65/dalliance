@@ -77,6 +77,9 @@ export function fakeApi(onRun: RunHandler) {
     openBillingPortal: async () => ON_PLAN,
     onBilling: () => () => {},
     countCredits: async () => null,
+    getUpdate: async () => null,
+    downloadUpdate: async () => {},
+    onUpdate: () => () => {},
   }
   return { api, requests, responses }
 }

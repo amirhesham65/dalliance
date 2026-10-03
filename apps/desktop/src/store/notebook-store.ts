@@ -17,6 +17,7 @@ import type {
   RunCost,
   RunEvent,
   SettingsView,
+  UpdateView,
   VariableView,
 } from '@dalliance/shared/ipc'
 import {
@@ -161,6 +162,8 @@ export interface NotebookState {
   /** The Dalliance account and its plan. Null until the main process answers. */
   account: AccountView | null
   billing: BillingView | null
+  /** A newer release, once the main process has found one. */
+  update: UpdateView | null
   /** The Settings section on screen, or null when Settings is closed. It covers whatever screen is under it. */
   settingsPage: SettingsSection | null
   python: PythonState | null
@@ -235,6 +238,7 @@ export const useNotebook = create<NotebookState>(() => ({
   settings: null,
   account: null,
   billing: null,
+  update: null,
   settingsPage: null,
   python: null,
   focusId: null,

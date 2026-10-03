@@ -28,3 +28,6 @@ export const site = {
   // The latest release in the public releases repo, which the release workflow publishes to. See docs/releasing.md
   downloadUrl: 'https://github.com/amirhesham65/dalliance-releases/releases/latest/download/Dalliance.dmg',
 } as const
+
+/** Installs the latest release from Terminal with public/install.sh. See docs/releasing.md */
+export const installCommand = `curl -fsSL ${site.url}/install.sh | sh`

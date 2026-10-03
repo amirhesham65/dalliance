@@ -51,6 +51,8 @@ Every handler goes through `handle()` or `on()` in `main.ts`, never `ipcMain` di
 | `startCheckout(plan)` | invoke | `billing.checkout` | Opens checkout for the plan in the browser. Only takes `pro` |
 | `openBillingPortal()` | invoke | `billing.portal` | Opens the billing portal in the browser |
 | `countCredits(generationIds)` | invoke | `billing.credits` | The credits Dalliance Cloud counted for a run's calls, once they've all landed or after 90 seconds. Null when none were, or when signed out. See [agent-harness.md](agent-harness.md#costs) |
+| `getUpdate()` | invoke | `updates.current` | A newer release as an `UpdateView`, or null when none has been found. See [releasing.md](releasing.md#update-notices) |
+| `downloadUpdate()` | invoke | `updates.download` | Opens the website's download in the browser |
 | `setDocumentState({ path, dirty })` | send | `updateTitle` | Window title and the macOS edited dot |
 
 ## Events from main
@@ -65,6 +67,7 @@ Each `on*` method subscribes and returns an unsubscribe function.
 | `onMenu` | `menu` | A `MenuAction` from the app menu |
 | `onAccount` | `account-changed` | `AccountView`, after sign-in, sign-out or a session check |
 | `onBilling` | `billing-changed` | `BillingView`, whenever the plan or its credits change |
+| `onUpdate` | `update-found` | `UpdateView`, when a check finds a newer release |
 
 `RunEvent` is a union:
 

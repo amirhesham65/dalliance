@@ -1,6 +1,6 @@
 # Architecture
 
-Dalliance runs as three processes on the user's machine. The only server it talks to is Dalliance Cloud, which holds the account and the plan and passes model calls on to Vercel AI Gateway. See [cloud.md](cloud.md).
+Dalliance runs as three processes on the user's machine. The only server it talks to is Dalliance Cloud, which holds the account and the plan and passes model calls on to Vercel AI Gateway. See [cloud.md](cloud.md). The one other request is the update check, which reads the latest version number from the public releases repo on GitHub. See [releasing.md](releasing.md#update-notices).
 
 ```mermaid
 flowchart LR
