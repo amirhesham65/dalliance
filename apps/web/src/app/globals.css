@@ -1,3 +1,71 @@
 @import "@dalliance/brand/theme.css";
 
 /* The Dalliance site. The palette, theme and base styles come from @dalliance/brand */
+
+/* The live demo in the hero draws the app itself, so it takes the app's palette from apps/desktop/src/index.css,
+   light and dark, rather than the site's. Change both together. */
+.demo {
+  --a-canvas: #efeeeb;
+  --a-bg: #ffffff;
+  --a-fg: #1d1d1b;
+  --a-muted: #6b6a65;
+  --a-faint: #72716b;
+  --a-border: #e7e6e2;
+  --a-ring: #b9b8b2;
+  --a-hover: #f3f2ef;
+  --a-raised: #f7f6f3;
+  --a-popover: #ffffff;
+  --a-ref: #7b3aa8;
+  --a-go: #2f8a4c;
+  --a-warn: #a86a12;
+  --a-ink: #1f3b2d;
+  --a-hatch: #c9c8c2;
+  --a-code-k: #8a3fb8;
+  --a-code-s: #3f7f3a;
+  --a-code-n: #b35a12;
+  --a-code-f: #2b64b3;
+  --a-shadow: 0 1px 2px rgb(20 20 15 / 0.04), 0 0 0 0.5px rgb(20 20 15 / 0.06);
+  --a-pop-shadow: 0 0 0 1px rgb(20 20 15 / 0.08), 0 8px 24px -6px rgb(20 20 15 / 0.18);
+}
+@media (prefers-color-scheme: dark) {
+  .demo {
+    --a-canvas: #111110;
+    --a-bg: #1a1a19;
+    --a-fg: #ecebe7;
+    --a-muted: #a3a29c;
+    --a-faint: #8a8983;
+    --a-border: #2b2b29;
+    --a-ring: #55554f;
+    --a-hover: #252523;
+    --a-raised: #21211f;
+    --a-popover: #21211f;
+    --a-ref: #d7a2f0;
+    --a-go: #5cc47a;
+    --a-warn: #e0a84a;
+    --a-ink: #7fbf93;
+    --a-hatch: #3a3a37;
+    --a-code-k: #c792ea;
+    --a-code-s: #9fd39b;
+    --a-code-n: #e8a26b;
+    --a-code-f: #7ab8f5;
+    --a-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.5);
+    --a-pop-shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 10px 28px -6px rgb(0 0 0 / 0.6);
+  }
+}
+
+.demo-hatch { background-image: repeating-linear-gradient(-45deg, var(--a-hatch) 0 1px, transparent 1px 4px); }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Paths use pathLength="1", so a dash of 1 is the whole line */
+  .demo-draw { stroke-dasharray: 1; animation: demo-draw 900ms cubic-bezier(0.33, 1, 0.68, 1) backwards; }
+  .demo-fade { animation: demo-fade 300ms 250ms ease-out backwards; }
+  .demo-grow { transform-box: fill-box; transform-origin: bottom; animation: demo-grow 500ms cubic-bezier(0.33, 1, 0.68, 1) backwards; }
+  .demo-rise { animation: demo-rise 200ms cubic-bezier(0.33, 1, 0.68, 1); }
+  /* The first guess, until the visitor does something: a soft wash that says it can be clicked */
+  .demo-glow { animation: demo-glow 2.4s 1.2s ease-in-out 3; border-radius: 3px; }
+}
+@keyframes demo-draw { from { stroke-dashoffset: 1; } }
+@keyframes demo-fade { from { opacity: 0; } }
+@keyframes demo-grow { from { transform: scaleY(0); } }
+@keyframes demo-rise { from { opacity: 0; transform: translateY(2px); } }
+@keyframes demo-glow { 50% { background: color-mix(in srgb, var(--a-ink) 16%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--a-ink) 16%, transparent); } }

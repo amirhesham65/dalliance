@@ -1,6 +1,7 @@
 import type { StaticImageData } from 'next/image'
 import { getImageProps } from 'next/image'
 import { Act, Band, SiteFooter, SiteHeader } from '@/components/Chrome'
+import { Demo } from '@/components/demo/Demo'
 import { type Frame, Reel } from '@/components/Reel'
 import { site } from '@/lib/site'
 import { gutter, headline, label, sheet, support } from '@dalliance/brand/ui'
@@ -12,7 +13,6 @@ import codeDark from '@/assets/shots/code-dark.png'
 import codeLight from '@/assets/shots/code-light.png'
 import guessDark from '@/assets/shots/guess-dark.png'
 import guessLight from '@/assets/shots/guess-light.png'
-import heroDark from '@/assets/shots/hero-dark.png'
 import heroLight from '@/assets/shots/hero-light.png'
 import historyDark from '@/assets/shots/history-dark.png'
 import historyLight from '@/assets/shots/history-light.png'
@@ -29,16 +29,6 @@ function frame(label: string, alt: string, light: StaticImageData, dark: StaticI
   return { label, dark: darkProps.srcSet ?? '', img: props }
 }
 
-// The hero capture is the page's largest paint, so it loads first. Made from the desktop app's ?demo&hero
-const hero = (() => {
-  const common = {
-    alt: 'A Dalliance notebook. The cell "Survival by treatment arm from patients.csv, with a log-rank test" answers in a sentence, median survival 31.1 months on the new regimen against 21.6 on standard care, above the Kaplan-Meier curves it plotted.',
-    sizes: '(min-width: 1200px) 1088px, (min-width: 1000px) calc(100vw - 112px), calc(100vw - 32px)',
-  }
-  const { props: dark } = getImageProps({ ...common, src: heroDark, loading: 'eager' })
-  const { props } = getImageProps({ ...common, src: heroLight, loading: 'eager', fetchPriority: 'high' })
-  return { dark: dark.srcSet ?? '', img: props }
-})()
 
 // In the order someone meets the features: ask, get asked back, correct, check the code, go back, switch models
 const frames = [
@@ -120,7 +110,7 @@ export default function Home() {
 
       <SiteHeader />
       <div className={sheet}>
-        {/* Centred type over the app itself. The capture runs off the bottom of the masthead and fades into the paper */}
+        {/* Centred type over a working miniature of the app */}
         <div className={`${gutter} pt-16 lg:pt-24`}>
           <div className="mx-auto flex max-w-[760px] flex-col items-center text-center">
             <p className={label}>A notebook for macOS</p>
@@ -131,12 +121,9 @@ export default function Home() {
             <p className={`${support} mx-auto`}>{site.tagline}</p>
             <Act from="hero" centred />
           </div>
-          {/* Cropped just below the chart, at the same point on every width */}
-          <div className="mt-12 aspect-[1088/660] overflow-hidden [mask-image:linear-gradient(to_bottom,#000_88%,transparent)] lg:mt-16">
-            <picture>
-              <source media="(prefers-color-scheme: dark)" srcSet={hero.dark} sizes={hero.img.sizes} />
-              <img {...hero.img} alt={hero.img.alt} className="block h-auto w-full rounded-t-lg shadow-frame lg:rounded-t-xl" />
-            </picture>
+          {/* The app itself, working: correct a guess, read the code, run the next prompt */}
+          <div className="mt-12 pb-14 lg:mt-16 lg:pb-20">
+            <Demo />
           </div>
         </div>
       </div>

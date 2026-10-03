@@ -12,17 +12,18 @@ pnpm --filter @dalliance/web start   # serve the build on 3100
 
 ```
 src/app/
-  page.tsx               the home page: masthead with the hero capture, reel, bands
+  page.tsx               the home page: masthead with the live demo, reel, bands
   privacy/page.tsx       the privacy page
   download/route.ts      logs the download, then redirects to the installer
   not-found.tsx          404
   layout.tsx             fonts, metadata, viewport colours
-  globals.css            imports @dalliance/brand/theme.css
+  globals.css            imports @dalliance/brand/theme.css, plus the live demo's palette and animations
   sitemap.ts, robots.ts, manifest.ts
   icon.svg, apple-icon.tsx, favicon.ico
   opengraph-image.tsx, twitter-image.tsx   both render socialCard()
 src/components/
   Chrome.tsx             SiteHeader, Band, Act (the download button), SiteFooter
+  demo/                  the live demo in the hero: Demo.tsx, its charts, its Python highlighting, and data.json
   Reel.tsx               the scrolling screenshot strip with its ledger
   StickyBar.tsx          the top bar that sticks once it reaches the top
   Wordmark.tsx           the mark and the name, from @dalliance/brand
@@ -30,6 +31,7 @@ src/lib/
   site.ts                copy, the site URL and the download URL, over brand.ts. Change copy here first
   card.tsx               the 1200 by 630 social card
 src/assets/shots/        light and dark captures of the app
+scripts/demo-data.py     computes demo/data.json
 ```
 
 ## Configuration
@@ -41,7 +43,7 @@ src/assets/shots/        light and dark captures of the app
 
 `NEXT_PUBLIC_SITE_URL` is read at build time. `turbo.json` lists it in the build task's `env`, so changing it busts the cache. The Redis pair is only read when `/download` runs, so it stays out of `turbo.json`. `site.ts` and the route read them with `||` rather than `??`, because Vercel lets a variable be set but empty.
 
-Every download button links to `/download`, with `?from=` naming the button: `bar` for the top bar, `hero` and `end` for the two on the home page. `download/route.ts` answers it with a temporary redirect to `downloadUrl` in `site.ts`, `Dalliance.dmg` on the latest release of the public `amirhesham65/dalliance-releases`, so the URL always serves the newest version. See [releasing.md](releasing.md). The redirect is temporary, not permanent, so moving the installer only means changing `downloadUrl`. `robots.ts` disallows `/download`. The config also sets `nosniff`, `DENY` framing, a strict referrer policy and a permissions policy on every route.
+Every download button links to `/download`, with `?from=` naming the button: `bar` for the top bar, `hero` and `end` for the two on the home page, and `demo` for the link the live demo shows when a visitor types a prompt it can't run. `download/route.ts` answers it with a temporary redirect to `downloadUrl` in `site.ts`, `Dalliance.dmg` on the latest release of the public `amirhesham65/dalliance-releases`, so the URL always serves the newest version. See [releasing.md](releasing.md). The redirect is temporary, not permanent, so moving the installer only means changing `downloadUrl`. `robots.ts` disallows `/download`. The config also sets `nosniff`, `DENY` framing, a strict referrer policy and a permissions policy on every route.
 
 ## Analytics
 
@@ -86,11 +88,18 @@ The package has no build step. Both Next apps list it in `transpilePackages`, an
 
 Every page follows one grammar: a ruled sheet of warm paper, hairline bands, and short uppercase labels in a 200 px left margin. `Band` in `Chrome.tsx` draws one section. Keep band labels to one line. Shared class groups are in `@dalliance/brand/ui`, so a change to the gutter or the button happens once.
 
-The masthead centres the headline over `hero-light.png` or `hero-dark.png`, cropped to a fixed aspect ratio just below the chart and faded into the paper. It is the page's largest paint, so it loads eagerly with high fetch priority, and the reel's frames all load lazily.
+The masthead centres the headline over a live demo: a working miniature of the app, `Demo` in `src/components/demo/`. It draws the app's window, sidebar and notebook in the app's own palette, light and dark, which `globals.css` copies from `apps/desktop/src/index.css` under `.demo`, so change both together. It opens on a finished survival cell, rendered on the server, so the page shows the product before any script runs. A visitor can:
+
+- Click an underlined guess and pick another reading: survival measured from randomisation or first dose, in all patients, those over 65 or stage III, compared with a log-rank or Wilcoxon test. The cell reruns with its steps, and the answer, chart and code change. The popover says that in the app you type any correction.
+- Switch a cell to its Code tab.
+- Run a suggested next prompt: an adjusted hazard ratio, or early stops by reason, where the agent first asks whether to count the patients who switched arms by intention to treat or per protocol, and the answer changes with the reply.
+- Type a prompt in the empty cell at the end. The demo runs its three prompts when the words match one; anything else gets a line saying the demo only runs those, with a download link, `?from=demo`.
+
+Nothing calls a model. Runs are scripted, and every number comes from `src/components/demo/data.json`, which `scripts/demo-data.py` computes with pandas and lifelines from the same generated trial as the desktop app's `?demo&hero` notebook, plus dose dates, early stops and arm switches from its own seed. Change the data there and rerun it: its docstring says how. Charts are SVG drawn in the kernel's dark matplotlib style, so they match the app's output, and they switch to a narrower drawing under 520 px so their text stays readable on a phone. The window has a fixed height, and its notebook only scrolls once the visitor clicks or tabs into it, so a wheel passing over the hero scrolls the page. A mouse leaving the window, a click or tap outside it, or Escape hands the wheel back; on touch screens leaving doesn't count, since a finger lifting fires it. A wheel over the window before that shows a short "Click to scroll the notebook" note, and the window gets a ring while it scrolls. A new cell still scrolls into view in the notebook either way. With reduced motion, steps still play but quickly, and nothing animates. There are no analytics events, as the privacy page says.
 
 ## Screenshots
 
-`src/assets/shots/` holds seven scenes, each as `<scene>-light.png` and `<scene>-dark.png`, at 3200 by 2000. The masthead shows `hero`. The reel on the home page and the repo README use the other six.
+`src/assets/shots/` holds seven scenes, each as `<scene>-light.png` and `<scene>-dark.png`, at 3200 by 2000. `hero` is the screenshot in the page's structured data. The reel on the home page and the repo README use the other six.
 
 To recapture:
 
