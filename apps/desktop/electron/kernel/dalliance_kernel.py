@@ -71,6 +71,7 @@ MAX_CELL_TEXT = 1_000  # one table cell or header
 MAX_DISPLAYS = 100  # values shown by display() and the last expression
 MAX_IMAGES = 20
 MAX_FIGURE_SIDE = 4_000  # pixels; a bigger figure is drawn at a lower dpi
+FIGURE_SCALE = 2  # figures are drawn at twice their dpi and shown at their own size, so they stay sharp on Retina screens
 MIN_FIGURE_DPI = 10  # a figure that would need less than this to fit is skipped
 
 # Stream text is coalesced: sent once this much has built up, or this long after the first unsent write.
@@ -562,7 +563,7 @@ def rich_outputs(value):
     if is_matplotlib(value):
         return []  # figures are collected separately
     if shell is not None:
-        return bundle_outputs(shell.display_formatter.format(value)[0])
+        return bundle_outputs(*shell.display_formatter.format(value))
     return [text_output(repr(value))]
 
 
@@ -653,20 +654,33 @@ def png_size(data):
 
 
 def render_figure(figure):
-    """PNG bytes at most MAX_FIGURE_SIDE on a side, or None when the figure can't fit legibly."""
+    """An image output at most MAX_FIGURE_SIDE on a side, or None when the figure can't fit legibly.
+
+    The PNG is drawn at FIGURE_SCALE times the figure's dpi, and width and height give the size to show
+    it at: the figure's own size at its dpi, as it would be drawn at 1x.
+    """
     width, height = figure.get_size_inches()
-    dpi = min(float(figure.dpi), MAX_FIGURE_SIDE / max(width, height, 1e-6))
+    dpi = min(float(figure.dpi) * FIGURE_SCALE, MAX_FIGURE_SIDE / max(width, height, 1e-6))
     for _ in range(2):  # the tight bounding box can grow past the figure, so check and try once more
         if dpi < MIN_FIGURE_DPI:
             return None
         buffer = io.BytesIO()
         figure.savefig(buffer, format="png", bbox_inches="tight", dpi=dpi)
         data = buffer.getvalue()
-        side = max(png_size(data))
-        if side <= MAX_FIGURE_SIDE:
-            return data
-        dpi *= MAX_FIGURE_SIDE / side * 0.98
+        size = png_size(data)
+        if max(size) <= MAX_FIGURE_SIDE:
+            shown = float(figure.dpi) / dpi
+            return image_output(data, *(max(1, round(side * shown)) for side in size))
+        dpi *= MAX_FIGURE_SIDE / max(size) * 0.98
     return None
+
+
+def image_output(data, width=None, height=None):
+    """An image output for PNG bytes. width and height, when given, are the size to show it at."""
+    output = {"type": "image", "mime": "image/png", "data": base64.b64encode(data).decode("ascii")}
+    if width and height:
+        output.update(width=width, height=height)
+    return output
 
 
 def collect_figures():
@@ -680,13 +694,13 @@ def collect_figures():
             over += 1
             continue
         figure = plt.figure(number)
-        data = render_figure(figure)
-        if data is None:
+        image = render_figure(figure)
+        if image is None:
             width, height = figure.get_size_inches() * figure.dpi
             emit(note(f"Figure {number} is {int(width):,} × {int(height):,} pixels, too big to show. Make it smaller."))
             continue
         budget.images += 1
-        emit({"type": "image", "mime": "image/png", "data": base64.b64encode(data).decode("ascii")})
+        emit(image)
     plt.close("all")
     if over:
         emit(note(f"{over:,} more figures not shown (limit {MAX_IMAGES} per run)."))
@@ -745,13 +759,13 @@ def is_table(value):
     return pd is not None and isinstance(value, (pd.DataFrame, pd.Series))
 
 
-def bundle_outputs(data):
+def bundle_outputs(data, metadata=None):
     """Outputs for an IPython display bundle: a PNG as an image, anything else as text."""
     if not isinstance(data, dict):
         return []
     if OBJECT in data:
         return rich_outputs(data[OBJECT])
-    image = png_output(data.get("image/png"))
+    image = png_output(data.get("image/png"), (metadata or {}).get("image/png") if isinstance(metadata, dict) else None)
     if image is not None:
         return [image]
     text = data.get("text/plain")
@@ -763,8 +777,12 @@ def bundle_outputs(data):
     return [text_output(text)] if isinstance(text, str) else []
 
 
-def png_output(png):
-    """An image output for PNG data from a display bundle, a note if it is too big, or None if it isn't a PNG."""
+def png_output(png, metadata=None):
+    """An image output for PNG data from a display bundle, a note if it is too big, or None if it isn't a PNG.
+
+    metadata is the bundle's for image/png. Its width and height, as IPython's Image(retina=True) sets,
+    are the size to show the image at.
+    """
     try:
         data = png if isinstance(png, bytes) else base64.b64decode(png, validate=False) if isinstance(png, str) else b""
     except ValueError:
@@ -774,7 +792,25 @@ def png_output(png):
     width, height = png_size(data)
     if max(width, height) > MAX_FIGURE_SIDE:
         return note(f"An image is {width:,} × {height:,} pixels, too big to show. Make it smaller.")
-    return {"type": "image", "mime": "image/png", "data": base64.b64encode(data).decode("ascii")}
+    # Either side alone keeps the image's proportions, as a browser would
+    shown_width, shown_height = (size_hint(metadata, key) for key in ("width", "height"))
+    if shown_width and not shown_height:
+        shown_height = shown_width * height / width
+    elif shown_height and not shown_width:
+        shown_width = shown_height * width / height
+    if shown_width and shown_height:
+        return image_output(data, max(1, round(shown_width)), max(1, round(shown_height)))
+    return image_output(data)
+
+
+def size_hint(metadata, key):
+    """A display size from image metadata, in pixels, or None when it is missing or not a sane number."""
+    value = metadata.get(key) if isinstance(metadata, dict) else None
+    if isinstance(value, str) and value.strip().removesuffix("px").strip().isdigit():
+        value = int(value.strip().removesuffix("px"))
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 < value <= MAX_FIGURE_SIDE:
+        return value
+    return None
 
 
 def html_text(markup):
@@ -971,7 +1007,7 @@ def start_ipython():
         """Sends display() and IPython.display output as Dalliance outputs instead of printing it."""
 
         def publish(self, data, metadata=None, source=None, *, transient=None, update=False, **kwargs):
-            emit_display(bundle_outputs(data))
+            emit_display(bundle_outputs(data, metadata))
 
         def clear_output(self, wait=False):
             pass  # outputs are never taken back

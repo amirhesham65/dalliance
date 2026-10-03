@@ -343,6 +343,18 @@ for (const { name, env, skip } of PATHS) {
       expect(r.outputs[1]).toEqual({ type: 'stream', name: 'stderr', text: 'Showing the first 50 of 120 columns.\n' })
     })
 
+    it.skipIf(!hasData)('draws figures at twice the size they show at, for Retina screens', async () => {
+      const r = await kernel.execute('import matplotlib.pyplot as plt\nplt.figure(figsize=(4, 3))\nplt.plot([1, 2])', { store: false })
+      const image = r.outputs[0]
+      if (image.type !== 'image' || !image.width || !image.height) throw new Error('expected an image with a display size')
+      const png = Buffer.from(image.data, 'base64')
+      // 4 by 3 inches at the kernel's 110 dpi, less what the tight bounding box trims
+      expect(image.width).toBeGreaterThan(350)
+      expect(image.width).toBeLessThanOrEqual(440)
+      expect(Math.abs(png.readUInt32BE(16) - 2 * image.width)).toBeLessThanOrEqual(1)
+      expect(Math.abs(png.readUInt32BE(20) - 2 * image.height)).toBeLessThanOrEqual(1)
+    })
+
     it.skipIf(!hasData)('caps figures per run and their size', async () => {
       const many = await kernel.execute('import matplotlib.pyplot as plt\nfor i in range(25):\n    plt.figure(figsize=(1, 1))', { store: false })
       expect(many.outputs.filter((o) => o.type === 'image')).toHaveLength(20)
@@ -354,6 +366,9 @@ for (const { name, env, skip } of PATHS) {
       const [width, height] = [images[0].readUInt32BE(16), images[0].readUInt32BE(20)]
       expect(Math.max(width, height)).toBeLessThanOrEqual(4000)
       expect(width).toBeGreaterThan(3000)
+      // Drawn smaller than 2x to fit, it still shows at the figure's own size
+      expect(big.outputs[0]).toMatchObject({ type: 'image', width: expect.any(Number), height: expect.any(Number) })
+      if (big.outputs[0].type === 'image') expect(big.outputs[0].width).toBeGreaterThan(width)
       expect(big.outputs.at(-1)).toMatchObject({
         type: 'stream',
         name: 'stderr',
@@ -504,8 +519,21 @@ describe.skipIf(!python || !hasIPython)('PythonKernel with IPython', () => {
     if (image.type !== 'image') throw new Error('expected an image')
     const png = Buffer.from(image.data, 'base64')
     expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([2, 3])
+    // Without a size in its metadata, a PNG shows at one pixel per pixel
+    expect(image).not.toHaveProperty('width')
     const huge = await kernel.execute('Pic(5000, 1)', { store: false })
     expect(huge.outputs).toEqual([{ type: 'stream', name: 'stderr', text: expect.stringContaining('5,000 × 1 pixels, too big to show') }])
+  })
+
+  it("shows a PNG at the size its metadata gives, as IPython's Image(retina=True) sets", async () => {
+    await kernel.execute(PNG_CLASS, { store: false })
+    const retina = await kernel.execute('from IPython.display import Image\nImage(Pic(4, 6)._repr_png_(), retina=True)', { store: false })
+    expect(retina.outputs).toEqual([expect.objectContaining({ type: 'image', width: 2, height: 3 })])
+    // One side alone keeps the proportions; a size that isn't a sane number is ignored
+    await kernel.execute("class Sized(Pic):\n    def __init__(self, size):\n        super().__init__()\n        self.size = size\n    def _repr_png_(self):\n        return super()._repr_png_(), self.size", { store: false })
+    const wide = await kernel.execute("display(Sized({'width': 10}))\ndisplay(Sized({'width': -1}))\ndisplay(Sized({'height': True}))", { store: false })
+    expect(wide.outputs[0]).toMatchObject({ type: 'image', width: 10, height: 15 })
+    expect(wide.outputs.slice(1).map((o) => 'width' in o)).toEqual([false, false])
   })
 
   it('caps displayed images per run', async () => {
