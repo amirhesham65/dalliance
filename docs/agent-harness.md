@@ -171,7 +171,7 @@ Two constraints shape the loop.
 
 Every model runs through Dalliance Cloud, on the signed-in account's plan. There are no API keys and no provider to choose. See [cloud.md](cloud.md).
 
-`ModelConfig` is `{ model, effort, cloud }`. `model` is a gateway id, and the default is `anthropic/claude-sonnet-5.5` (`DEFAULT_MODEL`). The default effort is `medium`. `cloud` is a `CloudAccess`: the proxy's URL, whether someone is signed in, and a token fetcher. `SettingsStore.modelConfig()` builds it.
+`ModelConfig` is `{ model, effort, cloud }`. `model` is a gateway id, and the default is `anthropic/claude-sonnet-5.5` (`DEFAULT_MODEL`). The default effort is `medium`. For now the app offers only `low`, `medium` and `high`, `OFFERED_EFFORTS` in `packages/shared/src/ipc.ts`: both pickers list those three, and `SettingsStore` reads a saved `xhigh` or `max` as `high` through `offeredEffort()`. The per-maker mapping below still covers all five levels, so bringing the others back only means widening that list. `cloud` is a `CloudAccess`: the proxy's URL, whether someone is signed in, and a token fetcher. `SettingsStore.modelConfig()` builds it.
 
 `resolveModel()` builds the AI Gateway provider on `<cloud>/api/ai` with `cloudGateway()`, whose `fetch` puts a fresh Convex JWT on every request, so a long run outlives any one token. Signed out, it throws a `ModelSetupError` before the run starts: "Sign in to Dalliance to run prompts on your plan. Settings > Account." The session shows its message as the run's error. Effort maps per maker in `agentProviderOptions({ model, effort })`:
 
