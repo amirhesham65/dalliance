@@ -1,10 +1,9 @@
 import type { StaticImageData } from 'next/image'
 import { getImageProps } from 'next/image'
 import { Act, Band, SiteFooter, SiteHeader } from '@/components/Chrome'
-import { LiveCell } from '@/components/LiveCell'
 import { type Frame, Reel } from '@/components/Reel'
 import { site } from '@/lib/site'
-import { gutter, headline, sheet, support } from '@dalliance/brand/ui'
+import { gutter, headline, label, sheet, support } from '@dalliance/brand/ui'
 import answerDark from '@/assets/shots/answer-dark.png'
 import answerLight from '@/assets/shots/answer-light.png'
 import askDark from '@/assets/shots/ask-dark.png'
@@ -13,6 +12,8 @@ import codeDark from '@/assets/shots/code-dark.png'
 import codeLight from '@/assets/shots/code-light.png'
 import guessDark from '@/assets/shots/guess-dark.png'
 import guessLight from '@/assets/shots/guess-light.png'
+import heroDark from '@/assets/shots/hero-dark.png'
+import heroLight from '@/assets/shots/hero-light.png'
 import historyDark from '@/assets/shots/history-dark.png'
 import historyLight from '@/assets/shots/history-light.png'
 import modelsDark from '@/assets/shots/models-dark.png'
@@ -21,12 +22,23 @@ import modelsLight from '@/assets/shots/models-light.png'
 const sizes = '(min-width: 1000px) 980px, 86vw'
 
 /** A light and a dark capture of the same screen, resolved to one <picture> by the reel. */
-function frame(label: string, alt: string, light: StaticImageData, dark: StaticImageData, first = false): Frame {
-  const common = { alt, sizes, loading: first ? ('eager' as const) : ('lazy' as const) }
+function frame(label: string, alt: string, light: StaticImageData, dark: StaticImageData): Frame {
+  const common = { alt, sizes, loading: 'lazy' as const }
   const { props: darkProps } = getImageProps({ ...common, src: dark })
-  const { props } = getImageProps({ ...common, src: light, fetchPriority: first ? 'high' : undefined })
+  const { props } = getImageProps({ ...common, src: light })
   return { label, dark: darkProps.srcSet ?? '', img: props }
 }
+
+// The hero capture is the page's largest paint, so it loads first. Made from the desktop app's ?demo&hero
+const hero = (() => {
+  const common = {
+    alt: 'A Dalliance notebook. The cell "Survival by treatment arm from patients.csv, with a log-rank test" answers in a sentence, median survival 31.1 months on the new regimen against 21.6 on standard care, above the Kaplan-Meier curves it plotted.',
+    sizes: '(min-width: 1200px) 1088px, (min-width: 1000px) calc(100vw - 112px), calc(100vw - 32px)',
+  }
+  const { props: dark } = getImageProps({ ...common, src: heroDark, loading: 'eager' })
+  const { props } = getImageProps({ ...common, src: heroLight, loading: 'eager', fetchPriority: 'high' })
+  return { dark: dark.srcSet ?? '', img: props }
+})()
 
 // In the order someone meets the features: ask, get asked back, correct, check the code, go back, switch models
 const frames = [
@@ -35,7 +47,6 @@ const frames = [
     'A trial readout notebook. The cell "Median survival and 2-year survival by arm" shows the agent\'s reading of the prompt underlined, a one-line answer, the survival table and three suggested next prompts.',
     answerLight,
     answerDark,
-    true,
   ),
   frame(
     'It asks first',
@@ -94,7 +105,7 @@ const jsonLd = {
       applicationSubCategory: 'Data analysis notebook',
       operatingSystem: 'macOS',
       downloadUrl: `${site.url}/download`,
-      screenshot: `${site.url}${answerLight.src}`,
+      screenshot: `${site.url}${heroLight.src}`,
       author: { '@type': 'Person', name: site.author },
       featureList: facts.map((f) => f.lead.replace(/\.$/, '')),
       fileFormat: 'application/x-ipynb+json',
@@ -109,16 +120,24 @@ export default function Home() {
 
       <SiteHeader />
       <div className={sheet}>
-        <div className={`${gutter} grid gap-12 pt-16 pb-14 lg:grid-cols-[minmax(0,1fr)_500px] lg:items-center lg:gap-18 lg:pt-26 lg:pb-22`}>
-          <div>
+        {/* Centred type over the app itself. The capture runs off the bottom of the masthead and fades into the paper */}
+        <div className={`${gutter} pt-16 lg:pt-24`}>
+          <div className="mx-auto flex max-w-[760px] flex-col items-center text-center">
+            <p className={label}>A notebook for macOS</p>
             {/* Hyphenated words stay whole: a line ending in "Open-" reads like a typo */}
-            <h1 className={headline}>
+            <h1 className={`${headline} mx-auto mt-5 lg:text-[62px]`}>
               {site.headline.split(/(\S+-\S+)/).map((part, i) => (i % 2 ? <span key={i} className="whitespace-nowrap">{part}</span> : part))}
             </h1>
-            <p className={support}>{site.tagline}</p>
-            <Act from="hero" />
+            <p className={`${support} mx-auto`}>{site.tagline}</p>
+            <Act from="hero" centred />
           </div>
-          <LiveCell />
+          {/* Cropped just below the chart, at the same point on every width */}
+          <div className="mt-12 aspect-[1088/660] overflow-hidden [mask-image:linear-gradient(to_bottom,#000_88%,transparent)] lg:mt-16">
+            <picture>
+              <source media="(prefers-color-scheme: dark)" srcSet={hero.dark} sizes={hero.img.sizes} />
+              <img {...hero.img} alt={hero.img.alt} className="block h-auto w-full rounded-t-lg shadow-frame lg:rounded-t-xl" />
+            </picture>
+          </div>
         </div>
       </div>
 

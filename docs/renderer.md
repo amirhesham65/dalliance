@@ -274,6 +274,7 @@ Without Electron there's no `window.dalliance`. `main.tsx` then checks the URL:
 | --- | --- |
 | `/?demo` | A clinical trial notebook with results. The last cell asks a question when run. Verify finds the over-65 cell changed and the rest the same |
 | `/?demo&welcome` | The start page |
+| `/?demo&hero` | The notebook the website's hero capture shows: Kaplan-Meier curves and an adjusted hazard ratio, with a clean run log |
 | `/?demo&setup` | The first-run setup, signed out and with no Python. Sign in lands on the Pro plan after a moment |
 | anything else | The app with no bridge. Runs fail with "Running cells needs the desktop app." |
 

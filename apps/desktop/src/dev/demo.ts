@@ -6,6 +6,8 @@ import { ON_PLAN, SIGNED_IN, SIGNED_OUT, fakeApi, fakeSettings, provenance, resu
 import type { AccountView, BillingView, PythonState, RunEvent } from '@dalliance/shared/ipc'
 import { type Notebook, type Output, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
+// Rendered by the real kernel from heroNotebook()'s first cell, at 2x like every figure
+import heroChart from './hero-chart.png?inline'
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -132,11 +134,90 @@ function sampleNotebook(): Notebook {
   }
 }
 
-/** `welcome` opens on the start page. `setup` is a first launch: no key, no Python, nothing recent. */
-export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook') {
+/**
+ * The website's hero capture: survival curves and an adjusted hazard ratio. Every number, the chart and
+ * both tables came from running these cells on the kernel against a generated patients.csv.
+ */
+function heroNotebook(): Notebook {
+  const now = Date.now()
+  const curves = {
+    ...newPromptCell(
+      'Survival by treatment arm from patients.csv, with a log-rank test',
+      "import matplotlib.pyplot as plt\nimport pandas as pd\nfrom lifelines import KaplanMeierFitter\nfrom lifelines.statistics import logrank_test\n\npatients = pd.read_csv('patients.csv')\nfig, ax = plt.subplots(figsize=(7.4, 3.4))\nfor arm, g in patients.groupby('arm'):\n    km = KaplanMeierFitter(label=arm).fit(g.months, g.died)\n    km.plot_survival_function(ax=ax, lw=1.8, ci_alpha=0.12, show_censors=True, censor_styles={'marker': '|', 'ms': 4, 'mew': 1})\nax.axhline(0.5, ls=':', lw=1, color='#555')\nax.set(title='Overall survival by arm', xlabel='Months since randomisation', ylabel='Survival probability', xlim=(0, 48), ylim=(0, 1.02))\nax.set_xticks(range(0, 49, 12))\n\nnew, std = (patients[patients.arm == a] for a in ('New regimen', 'Standard care'))\nlogrank_test(new.months, std.months, new.died, std.died).summary",
+    ),
+    state: 'done' as const,
+    executionCount: 1,
+    durationMs: 5_870,
+    interpretation: 'Survival is [[time to death, censored at last visit]], measured from [[randomisation]], compared with a [[log-rank test]].',
+    answer: 'Median survival was **31.1 months** on the new regimen and **21.6** on standard care. The gap is significant, log-rank **p = .004**.',
+    outputs: [
+      { type: 'image', mime: 'image/png', data: heroChart.slice(heroChart.indexOf(',') + 1), width: 720, height: 380 },
+      { type: 'table', columns: ['test_statistic', 'p', '-log2(p)'], index: ['0'], rows: [[8.482, 0.0036, 8.123]], totalRows: 1 },
+    ] as Output[],
+    suggestions: ['Survival curves by stage', 'Restricted mean survival at 36 months', 'Same curves for patients over 65'],
+    variables: [{ name: 'patients', type: 'DataFrame', shape: '412 × 6' }],
+  }
+  const hazards = {
+    ...newPromptCell(
+      'Hazard ratio for the new regimen, adjusted for age and stage',
+      "from lifelines import CoxPHFitter\n\nmodel = patients.assign(\n    new_regimen=(patients.arm == 'New regimen').astype(int),\n    stage_II=(patients.stage == 'II').astype(int),\n    stage_III=(patients.stage == 'III').astype(int),\n)[['months', 'died', 'new_regimen', 'age', 'stage_II', 'stage_III']]\ncph = CoxPHFitter().fit(model, 'months', 'died')\nhazards = cph.summary[['exp(coef)', 'exp(coef) lower 95%', 'exp(coef) upper 95%', 'p']]\nhazards.columns = ['hazard_ratio', 'ci_lower', 'ci_upper', 'p']\nhazards.round(3)",
+    ),
+    state: 'done' as const,
+    executionCount: 2,
+    durationMs: 4_120,
+    interpretation: 'A [[Cox proportional hazards]] model, with [[standard care]] and [[stage I]] as the reference groups.',
+    answer: 'After adjusting for age and stage, the new regimen cut the hazard of death by **28%** (HR **0.72**, 95% CI 0.56 to 0.93).',
+    outputs: [
+      {
+        type: 'table',
+        columns: ['hazard_ratio', 'ci_lower', 'ci_upper', 'p'],
+        index: ['new_regimen', 'age', 'stage_II', 'stage_III'],
+        rows: [
+          [0.72, 0.557, 0.931, 0.012],
+          [1.024, 1.01, 1.039, 0.001],
+          [1.492, 1.055, 2.109, 0.024],
+          [2.373, 1.646, 3.42, 0.0],
+        ],
+        totalRows: 4,
+      },
+    ] as Output[],
+    showTables: true,
+    variables: [
+      { name: 'cph', type: 'CoxPHFitter', shape: '' },
+      { name: 'hazards', type: 'DataFrame', shape: '4 × 4' },
+    ],
+  }
+  for (const [cell, minutes] of [[curves, 6], [hazards, 2]] as const) {
+    cell.provenance = provenance({
+      prompt: cell.prompt,
+      madeAt: new Date(now - minutes * 60_000).toISOString(),
+      steps: [1, 2, 3].map((step) => ({ step, model: 'anthropic/claude-opus-5' })),
+      rationale: { from: 'interpretation', text: [cell.answer] },
+      attemptCount: 1,
+      attempts: [{ code: cell.code, error: null, changed: null }],
+      filesRead: [{ path: 'patients.csv', by: 'code' }],
+      approvals: [],
+      codeHash: 'sha256:3b6e1f0c9a2d47e58c1f0a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7',
+      outputsHash: 'sha256:c41d9e2a7f3b60581f2e3d4c5b6a79880f1e2d3c4b5a69788796a5b4c3d2e1f0',
+    })
+  }
+  return {
+    cells: [
+      newNoteCell('# Overall survival\nDoes the **new regimen** extend survival over standard care once age and stage are accounted for?'),
+      curves,
+      hazards,
+      newPromptCell('Check the proportional hazards assumption'),
+    ],
+  }
+}
+
+/** `welcome` opens on the start page. `setup` is a first launch: no key, no Python, nothing recent. `hero` is the website's hero notebook. */
+export function installDemo(mode: 'notebook' | 'welcome' | 'setup' | 'hero' = 'notebook') {
   // Questions the agent is waiting on, answered from the card in the cell
   const pending = new Map<string, (answer: string | boolean | null) => void>()
-  const sample = sampleNotebook()
+  const sample = mode === 'hero' ? heroNotebook() : sampleNotebook()
+  const folder = mode === 'hero' ? '/Users/demo/Research/REGIMEN-2 Trial' : '/Users/demo/REGIMEN-2'
+  const file = `${folder}/${mode === 'hero' ? 'Survival analysis' : 'readout'}.ipynb`
   const rerunOutputs = new Map<string, Output[]>(sample.cells.flatMap((c) => (c.kind === 'prompt' && c.code ? [[c.code, c.outputs] as [string, Output[]]] : [])))
   const older = sample.cells.find((c) => c.kind === 'prompt' && c.code.startsWith('older'))
   if (older?.kind === 'prompt') rerunOutputs.set(older.code, [{ type: 'text', text: 'arm\nNew regimen      28.4\nStandard care    21.0' }])
@@ -203,7 +284,7 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
     pending.get(id)?.(answer)
     pending.delete(id)
   }
-  const brief = { path: '/Users/demo/REGIMEN-2/AGENTS.md', text: null as string | null }
+  const brief = { path: `${folder}/AGENTS.md`, text: null as string | null }
   api.platform = 'darwin'
   api.readBrief = async () => ({ ...brief })
   api.writeBrief = async (text) => {
@@ -216,7 +297,7 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
     { path: 'protocol/statistical_analysis_plan.pdf', size: '812.0 KB' },
   ]
   api.recentNotebooks = async () => [
-    { path: '/Users/demo/REGIMEN-2/readout.ipynb', name: 'readout', folder: 'REGIMEN-2', openedAt: Date.now() - 60_000 },
+    { path: file, name: file.slice(folder.length + 1, -'.ipynb'.length), folder: folder.split('/').at(-1)!, openedAt: Date.now() - 60_000 },
     { path: '/Users/demo/Registry/cohorts.ipynb', name: 'cohorts', folder: 'Registry', openedAt: Date.now() - 3 * 3600_000 },
   ]
   api.listPackages = async () => {
@@ -235,10 +316,16 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
     }
   }
   api.openFolder = async (notebook) => ({ path: '/Users/demo/Trials/Untitled.ipynb', notebook })
-  api.listVariables = async () => [
-    { name: 'patients', type: 'DataFrame', shape: '412 × 9', detail: 'id, arm, age, stage, months, died, stopped_early, reason, switched' },
-    { name: 'summary', type: 'DataFrame', shape: '2 × 5', detail: 'arm, patients, deaths, median_months, survival_24m' },
-  ]
+  api.listVariables = async () =>
+    mode === 'hero'
+      ? [
+          { name: 'patients', type: 'DataFrame', shape: '412 × 6', detail: 'id, arm, age, stage, months, died' },
+          { name: 'hazards', type: 'DataFrame', shape: '4 × 4', detail: 'hazard_ratio, ci_lower, ci_upper, p' },
+        ]
+      : [
+          { name: 'patients', type: 'DataFrame', shape: '412 × 9', detail: 'id, arm, age, stage, months, died, stopped_early, reason, switched' },
+          { name: 'summary', type: 'DataFrame', shape: '2 × 5', detail: 'arm, patients, deaths, median_months, survival_24m' },
+        ]
   let settings = fakeSettings()
   if (mode === 'setup') settings = { ...settings, onboarded: false }
   api.getSettings = async () => settings
@@ -308,10 +395,18 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' = 'notebook')
     ],
   })
   setApi(api)
-  actions.load(sample, '/Users/demo/REGIMEN-2/readout.ipynb')
-  useNotebook.setState({ kernel: { status: 'idle', python: '3.12.4', cwd: '/Users/demo/REGIMEN-2', error: null } })
+  actions.load(sample, file)
+  useNotebook.setState({ kernel: { status: 'idle', python: '3.12.4', cwd: folder, error: null } })
   const cells = useNotebook.getState().notebook.cells
-  useNotebook.setState({ selectedId: cells[2].id, lastFinishedId: cells[2].id })
+  const selected = cells[mode === 'hero' ? 1 : 2]
+  useNotebook.setState({ selectedId: selected.id, lastFinishedId: selected.id })
+  // The hero's log is clean: a capture for the website shows no failed run
+  if (mode === 'hero') {
+    const wrote = (i: number, minutes: number) => ({ kind: 'wrote' as const, text: `Wrote “${cells[i].kind === 'prompt' ? cells[i].prompt : ''}”`, cellId: cells[i].id, at: Date.now() - minutes * 60_000 })
+    useNotebook.setState({ log: [wrote(2, 2), wrote(1, 6)].map((e, i) => ({ ...e, id: -i - 1 })) })
+    void actions.refreshVariables()
+    return
+  }
   // A little history for the run log
   const log = [
     { kind: 'wrote' as const, text: 'Wrote “Median survival and 2-year survival by arm”', cellId: cells[2].id, at: Date.now() - 3 * 60_000 },
