@@ -167,7 +167,7 @@ A new magic that runs commands needs either a policy rule or a place on those li
 | Anything else, plain path | `text` from `repr()`, clipped at 20,000 characters |
 | Anything else, with IPython | IPython's display bundle, through `bundle_outputs()`: `image/png` becomes an `image`, otherwise `text/plain` becomes `text`, clipped at 20,000 characters |
 
-With IPython, `text/plain` is IPython's pretty repr. When that is only a bare object repr, like `<__main__.Card at 0x10f3>` or `<IPython.core.display.HTML object>`, the text of the bundle's `text/markdown` or `text/html` is used instead, with the tags, scripts and styles stripped. Other types, such as SVG, JPEG, LaTeX and JavaScript, are ignored: the `Output` type has no place for them. A displayed PNG counts against the same 20 image limit as figures, and one over 4,000 pixels on a side is replaced by a note.
+With IPython, `text/plain` is IPython's pretty repr. When that is only a bare object repr, like `<__main__.Card at 0x10f3>` or `<IPython.core.display.HTML object>`, the text of the bundle's `text/markdown` or `text/html` is used instead, with the tags, scripts and styles stripped. Other types, such as SVG, JPEG, LaTeX and JavaScript, are ignored: the `Output` type has no place for them. A displayed PNG counts against the same 20 image limit as figures, and one over 4,000 pixels on a side is replaced by a note. When the bundle's `image/png` metadata gives a `width` or `height`, as IPython's `Image(retina=True)` or `Image(width=...)` does, the output carries it as the size to show the image at. One side alone keeps the image's proportions. A size that isn't a positive number up to 4,000, such as `True` or `-1`, is ignored, and the PNG shows one pixel per pixel.
 
 The renderer never sees HTML. Showing it would need a new `Output` variant in `packages/shared` and a sandboxed view in the renderer.
 
@@ -183,7 +183,9 @@ The renderer opens tables with more than 20 rows on the column overview, and sma
 
 `MPLBACKEND=Agg` is set in the environment. After each run, `collect_figures()` saves every open figure as a PNG, emits it as base64, and closes them all.
 
-`render_figure()` keeps a PNG within 4,000 pixels on a side. A bigger figure is saved at a lower dpi, and checked again after saving, since the tight bounding box can grow past the figure. One that would need less than 10 dpi to fit, such as a 500-inch-wide figure, is skipped with a note giving its size.
+Figures are drawn at twice their dpi, `FIGURE_SCALE`, so they stay sharp on a Retina screen. `render_figure()` returns the `image` output with `width` and `height` set to the size to show it at: the figure's own size at its dpi, as if drawn at 1x, which is about half the PNG's pixels. The renderer shows it at that size, so a chart takes the same space it did at 1x. With the kernel's 110 dpi, a 6.4 by 4.8 inch figure is a PNG of about 1,400 by 1,050 pixels, shown at 700 by 525.
+
+`render_figure()` keeps a PNG within 4,000 pixels on a side. A bigger figure is saved at a lower dpi, and still shows at its own size, and checked again after saving, since the tight bounding box can grow past the figure. One that would need less than 10 dpi to fit, such as a 500-inch-wide figure, is skipped with a note giving its size.
 
 `style_matplotlib()` sets a dark theme with a `#161616` background at startup, whatever the app's theme. Charts look the same in light and dark mode. Change the rcParams there if that ever needs to follow the app.
 

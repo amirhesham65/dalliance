@@ -45,9 +45,9 @@ async function restore(api: NonNullable<typeof window.dalliance>) {
 }
 
 // In a plain browser, ?demo fills the app with sample data so the UI can be looked at without Electron.
-// ?demo&welcome opens on the start page, ?demo&setup on the first-run setup.
+// ?demo&welcome opens on the start page, ?demo&setup on the first-run setup, ?demo&hero on the website's hero notebook.
 const params = new URLSearchParams(location.search)
 if (window.dalliance) void restore(window.dalliance).finally(render)
 else if (params.has('demo'))
-  void import('./dev/demo').then((m) => (m.installDemo(params.has('setup') ? 'setup' : params.has('welcome') ? 'welcome' : 'notebook'), render()))
+  void import('./dev/demo').then((m) => (m.installDemo(params.has('setup') ? 'setup' : params.has('welcome') ? 'welcome' : params.has('hero') ? 'hero' : 'notebook'), render()))
 else render()

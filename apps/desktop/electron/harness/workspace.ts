@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
+import { IMAGE_TYPES } from './images'
 
 const SKIP = new Set(['node_modules', '.git', '__pycache__', '.venv', 'venv', '.ipynb_checkpoints', '.DS_Store'])
 const MAX_LINES = 500
@@ -63,6 +64,32 @@ function formatBytes(n: number) {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
+/** An image file bigger than this isn't read: the agent should look at a smaller copy or load it in Python. */
+export const MAX_IMAGE_FILE_BYTES = 30 * 1024 * 1024
+
+// The first bytes of each format, so a renamed file isn't sent as something it isn't
+const MAGIC: [string, (b: Buffer) => boolean][] = [
+  ['image/png', (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))],
+  ['image/jpeg', (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff],
+  ['image/gif', (b) => b.subarray(0, 4).toString('latin1') === 'GIF8'],
+  ['image/webp', (b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP'],
+]
+
+/** An image file in the notebook's folder, or a sentence saying why it can't be looked at. */
+export async function readImage(root: string, relative: string): Promise<{ data: Buffer; mediaType: string } | string> {
+  const abs = resolveInside(root, relative)
+  if (!abs) return `Refused: ${relative} is outside the notebook's folder.`
+  if (!existsSync(abs)) return `Not found: ${relative}. Use list_files to see what exists.`
+  const info = await stat(abs)
+  if (info.isDirectory()) return `${relative} is a folder. Use list_files instead.`
+  if (!IMAGE_TYPES[path.extname(abs).toLowerCase()]) return `${relative} isn't a PNG, JPEG, GIF or WebP image. Use read_file for text, or load it in Python.`
+  if (info.size > MAX_IMAGE_FILE_BYTES) return `${relative} is ${formatBytes(info.size)}, too big to look at. Make a smaller copy in Python first.`
+  const data = await readFile(abs)
+  const mediaType = MAGIC.find(([, test]) => test(data))?.[0]
+  if (!mediaType) return `${relative} isn't a readable PNG, JPEG, GIF or WebP image.`
+  return { data, mediaType }
 }
 
 /** Numbered lines with a 500-line cap, as in the course's read tool, and 20,000 characters in all. */

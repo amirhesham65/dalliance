@@ -4,10 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // Billing runs after the response; these tests only look at what goes to the gateway and back
 vi.mock('next/server', () => ({ after: () => {} }))
 
+const sees = { modalities: { input: ['text', 'image'], output: ['text'] } }
 const MODELS = [
-  { id: 'anthropic/claude-sonnet-5.5', zdr: 'all' },
-  { id: 'openai/gpt-6-luna', zdr: 'some' },
-  { id: 'anthropic/claude-fable-5.1', zdr: 'none' },
+  { id: 'anthropic/claude-sonnet-5.5', zdr: 'all', ...sees },
+  { id: 'openai/gpt-6-luna', zdr: 'some', ...sees },
+  { id: 'anthropic/claude-fable-5.1', zdr: 'none', ...sees },
+  { id: 'zai/glm-5', zdr: 'all', modalities: { input: ['text'], output: ['text'] } },
 ]
 
 /** What reached the gateway's language-model endpoint. */
@@ -76,6 +78,18 @@ describe('model calls through the proxy', () => {
     expect(res.status).toBe(403)
     expect((await res.json()).error.type).toBe('dalliance_account')
     expect(sent).toEqual([])
+  })
+
+  it("refuse a model that can't read images, and leave it out of the list", async () => {
+    const { GET, POST } = await route()
+    const glm = call('language-model', { model: 'zai/glm-5' })
+    const res = await POST(glm.request, glm.context)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error.message).toMatch(/read images/)
+    expect(sent).toEqual([])
+    const list = call('config')
+    const ids = ((await (await GET(list.request, list.context)).json()) as { models: { id: string }[] }).models.map((m) => m.id)
+    expect(ids).toEqual(['anthropic/claude-sonnet-5.5', 'openai/gpt-6-luna'])
   })
 
   it('refuse a gateway fallback to such a model', async () => {

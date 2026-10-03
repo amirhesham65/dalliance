@@ -13,6 +13,7 @@ const TABLE_PREVIEW_ROWS = 15
 
 export function outputsToText(outputs: Output[], max = 6000): string {
   if (!outputs.length) return '(no output)'
+  let charts = 0
   const parts = outputs.map((o) => {
     switch (o.type) {
       case 'stream':
@@ -20,7 +21,8 @@ export function outputsToText(outputs: Output[], max = 6000): string {
       case 'text':
         return o.text
       case 'image':
-        return '[a chart image, shown to the user in the notebook]'
+        // Numbered, so the note about which charts are attached can say "in order"
+        return `[chart ${++charts}, shown to the user in the notebook]`
       case 'error':
         return `${o.ename}: ${o.evalue}\n${clip(o.traceback.join(''), 3000, 'end')}`
       case 'table': {

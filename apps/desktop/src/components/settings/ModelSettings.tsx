@@ -7,12 +7,11 @@ import type { DallianceApi, Effort, SettingsView } from '@dalliance/shared/ipc'
 import { Group, Row, SectionHeading } from './parts'
 import { saveSettings } from './save'
 
+// Only these three for now, OFFERED_EFFORTS in the shared package
 const EFFORTS: { value: Effort; label: string }[] = [
   { value: 'low', label: 'Low: fastest' },
   { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'Extra high' },
-  { value: 'max', label: 'Max: slowest' },
+  { value: 'high', label: 'High: slowest' },
 ]
 
 /** The model that writes each cell's code, and the account it runs on. */

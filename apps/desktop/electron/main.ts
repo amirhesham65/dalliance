@@ -22,6 +22,7 @@ import { Billing } from './cloud/billing'
 import { type CloudConfig, cloudUrl, deepLinkFromArgv, fetchCloudConfig } from './cloud/config'
 import { listModels } from './harness/model'
 import { DraftStore } from './draft'
+import { prepareImage } from './images'
 import { type AppPage, isTrustedSender } from './ipc-sender'
 import { buildMenu } from './menu'
 import { folderForNewNotebook, newNotebookPath, notebookPathIn, renameNotebookFile } from './notebook-files'
@@ -80,6 +81,7 @@ const session = new NotebookSession({
   send: (channel, ...args) => {
     if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
   },
+  prepareImage,
 })
 
 /** Paths from the renderer are only trusted to name a notebook file. Anything else goes through the Save dialog. */

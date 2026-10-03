@@ -120,6 +120,15 @@ export interface KernelState {
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
+/** The efforts the app offers for now. The harness still maps all five per model, so the others can come back here. */
+export const OFFERED_EFFORTS = ['low', 'medium', 'high'] as const satisfies readonly Effort[]
+
+/** An offered effort: the one given, `high` for one above it, and the default `medium` for anything else. */
+export function offeredEffort(effort: unknown): Effort {
+  if ((OFFERED_EFFORTS as readonly unknown[]).includes(effort)) return effort as Effort
+  return effort === 'xhigh' || effort === 'max' ? 'high' : 'medium'
+}
+
 export interface SettingsView {
   /** A gateway id like `anthropic/claude-sonnet-5.5`. Models run on Dalliance Cloud. See docs/cloud.md. */
   model: string

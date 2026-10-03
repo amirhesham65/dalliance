@@ -46,6 +46,8 @@ const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null 
 const asObject = (v: unknown): Json => (isObject(v) ? v : {})
 const asString = (v: unknown): string | null => (typeof v === 'string' ? v : null)
 const asNumber = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+/** A PNG's display width or height from output metadata: a positive whole number of pixels, or null */
+const displaySize = (v: unknown): number | null => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : null)
 const asStrings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
 const isTableValue = (v: unknown): v is TableValue => v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
 const present = <T>(x: T | null): x is T => x != null
@@ -242,7 +244,12 @@ function outputToNb(o: Output, executionCount: number | null): Json {
         },
       }
     case 'image':
-      return { output_type: 'display_data', metadata: {}, data: { 'image/png': o.data, 'text/plain': ['<image>'] } }
+      return {
+        output_type: 'display_data',
+        // Jupyter's own way to give a PNG a display size, so a sharp figure shows at its size there too
+        metadata: o.width && o.height ? { 'image/png': { width: o.width, height: o.height } } : {},
+        data: { 'image/png': o.data, 'text/plain': ['<image>'] },
+      }
     case 'error':
       return { output_type: 'error', ename: o.ename, evalue: o.evalue, traceback: o.traceback }
   }
@@ -278,7 +285,11 @@ function outputFromNb(o: unknown): Output | null {
           : {}),
       }
     }
-    if (typeof data['image/png'] === 'string') return { type: 'image', mime: 'image/png', data: data['image/png'] }
+    if (typeof data['image/png'] === 'string') {
+      const size = asObject(asObject(o.metadata)['image/png'])
+      const [width, height] = [displaySize(size.width), displaySize(size.height)]
+      return { type: 'image', mime: 'image/png', data: data['image/png'], ...(width && height ? { width, height } : {}) }
+    }
     if (data['text/plain'] != null) return { type: 'text', text: joinSource(data['text/plain']) }
   }
   return null

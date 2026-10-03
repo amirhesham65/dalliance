@@ -203,7 +203,7 @@ Show costs is off by default, and with it off the Activity pane shows nothing ab
 
 `actions.notify(text, { undo, tone })` puts one message at the bottom of the window for 6 seconds. `NoticeToast` in `App.tsx` draws it. With `undo` it shows an Undo button, without it a Dismiss button. A newer notice replaces the one showing, and loading a notebook clears it. D D and M use it to offer Undo, which goes through the notebook's undo stack, see [Undo and redo](#undo-and-redo).
 
-Opening the model picker loads the model list. A saved model the list doesn't offer goes back to the default with a notice, since the service only offers models with zero data retention.
+Opening the model picker loads the model list. A saved model the list doesn't offer goes back to the default with a notice, since the service only offers models with zero data retention that read images.
 
 A bridge call the user started should never fail silently. `actions.notifyFailure(what, err)` shows "Couldn't save the notebook." and the reason, with the `Error invoking remote method` wrapper stripped by `errorText()`. Saving, writing the brief, refreshing the variables and restarting Python all report failures this way. A new notebook the main process can't write gets a dialog with the reason from there instead, and the window stays as it was. Background calls, like the variables refresh after each run, stay quiet.
 
@@ -274,6 +274,7 @@ Without Electron there's no `window.dalliance`. `main.tsx` then checks the URL:
 | --- | --- |
 | `/?demo` | A clinical trial notebook with results. The last cell asks a question when run. Verify finds the over-65 cell changed and the rest the same |
 | `/?demo&welcome` | The start page |
+| `/?demo&hero` | The notebook the website's hero capture shows: Kaplan-Meier curves and an adjusted hazard ratio, with a clean run log |
 | `/?demo&setup` | The first-run setup, signed out and with no Python. Sign in lands on the Pro plan after a moment |
 | anything else | The app with no bridge. Runs fail with "Running cells needs the desktop app." |
 

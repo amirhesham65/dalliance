@@ -98,7 +98,17 @@ function OutputView({ output }: { output: Output }) {
     case 'text':
       return <pre className="scrollbar-thin max-h-80 overflow-auto font-mono text-[12.5px] leading-[1.6] whitespace-pre-wrap">{output.text}</pre>
     case 'image':
-      return <img src={`data:${output.mime};base64,${output.data}`} alt="Chart produced by the cell" className="max-w-full rounded-md" />
+      // Figures carry the size to show them at, half their pixels, so they are sharp on a Retina screen.
+      // h-auto keeps the proportions once max-w-full narrows one.
+      return (
+        <img
+          src={`data:${output.mime};base64,${output.data}`}
+          alt="Chart produced by the cell"
+          width={output.width}
+          height={output.height}
+          className="h-auto max-w-full rounded-md"
+        />
+      )
     case 'error':
       return (
         <div className="rounded-lg bg-destructive/10 p-3" role="alert">

@@ -7,7 +7,8 @@ export type Output =
   | { type: 'stream'; name: 'stdout' | 'stderr'; text: string }
   | { type: 'text'; text: string }
   | { type: 'table'; columns: string[]; index: string[]; rows: TableValue[][]; totalRows: number; profile?: ColumnProfile[] }
-  | { type: 'image'; mime: 'image/png'; data: string }
+  // width and height are the size to show it at, in CSS pixels. Figures come at twice that, for Retina screens
+  | { type: 'image'; mime: 'image/png'; data: string; width?: number; height?: number }
   | { type: 'error'; ename: string; evalue: string; traceback: string[] }
 
 export type TableValue = string | number | boolean | null

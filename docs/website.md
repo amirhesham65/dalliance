@@ -12,18 +12,17 @@ pnpm --filter @dalliance/web start   # serve the build on 3100
 
 ```
 src/app/
-  page.tsx               the home page: masthead, live cell, reel, bands
+  page.tsx               the home page: masthead with the hero capture, reel, bands
   privacy/page.tsx       the privacy page
   download/route.ts      logs the download, then redirects to the installer
   not-found.tsx          404
   layout.tsx             fonts, metadata, viewport colours
-  globals.css            imports @dalliance/brand/theme.css, plus the hero's one rule of its own
+  globals.css            imports @dalliance/brand/theme.css
   sitemap.ts, robots.ts, manifest.ts
   icon.svg, apple-icon.tsx, favicon.ico
   opengraph-image.tsx, twitter-image.tsx   both render socialCard()
 src/components/
   Chrome.tsx             SiteHeader, Band, Act (the download button), SiteFooter
-  LiveCell.tsx           the animated cell in the hero
   Reel.tsx               the scrolling screenshot strip with its ledger
   StickyBar.tsx          the top bar that sticks once it reaches the top
   Wordmark.tsx           the mark and the name, from @dalliance/brand
@@ -76,7 +75,7 @@ The site shares its palette and type with the app, so the page and the screensho
 
 | File | Holds |
 | --- | --- |
-| `theme.css` | The palette, the Tailwind `@theme`, base styles, hatching and the keyframes. Each site's `globals.css` imports it first |
+| `theme.css` | The palette, the Tailwind `@theme`, base styles and hatching. Each site's `globals.css` imports it first |
 | `ui.ts` | Class strings for the shared grammar: `sheet`, `gutter`, `label`, the buttons, `headline`, `wordmark` and the rest |
 | `brand.ts` | The name, the author, the website's URL and the paper colours for the browser chrome |
 | `mark.ts`, `Mark.tsx` | The mark's squares, and the component that draws it |
@@ -87,20 +86,21 @@ The package has no build step. Both Next apps list it in `transpilePackages`, an
 
 Every page follows one grammar: a ruled sheet of warm paper, hairline bands, and short uppercase labels in a 200 px left margin. `Band` in `Chrome.tsx` draws one section. Keep band labels to one line. Shared class groups are in `@dalliance/brand/ui`, so a change to the gutter or the button happens once.
 
-`LiveCell` plays once when it scrolls into view. The prompt types itself, the agent works, then the chart and answer land. With reduced motion it renders finished. The server renders it finished too, and CSS hides that state until hydration.
+The masthead centres the headline over `hero-light.png` or `hero-dark.png`, cropped to a fixed aspect ratio just below the chart and faded into the paper. It is the page's largest paint, so it loads eagerly with high fetch priority, and the reel's frames all load lazily.
 
 ## Screenshots
 
-The reel on the home page and the repo README use the same twelve files in `src/assets/shots/`: six scenes, each as `<scene>-light.png` and `<scene>-dark.png`, at 3200 by 2000.
+`src/assets/shots/` holds seven scenes, each as `<scene>-light.png` and `<scene>-dark.png`, at 3200 by 2000. The masthead shows `hero`. The reel on the home page and the repo README use the other six.
 
 To recapture:
 
 1. Build the renderer and serve it with `vite preview`. See [development.md](development.md#looking-at-the-ui-without-electron).
-2. Open `/?demo` in a 1600 by 1000 window at 2x, once in light mode and once in dark.
+2. Open `/?demo` in a 1600 by 1000 window at 2x, once in light mode and once in dark. For `hero`, open `/?demo&hero` instead.
 3. Capture each scene:
 
 | Scene | What's on screen |
 | --- | --- |
+| `hero` | `Survival analysis.ipynb` in `REGIMEN-2 Trial`, opened on the Kaplan-Meier cell with its chart |
 | `answer` | The "Median survival and 2-year survival by arm" cell |
 | `ask` | The last cell after pressing Run, with the agent asking how to count patients who switched arms |
 | `guess` | An underlined assumption being corrected |
@@ -108,7 +108,7 @@ To recapture:
 | `history` | The History pane, Cmd+3 |
 | `models` | The model picker open |
 
-The demo notebook lives in `apps/desktop/src/dev/demo.ts`. Change it there if a scene needs different data.
+The demo notebooks live in `apps/desktop/src/dev/demo.ts`: `sampleNotebook()` for the reel, `heroNotebook()` for the hero. Change them there if a scene needs different data. The hero's numbers, tables and chart came from running its cells on the real kernel against a generated `patients.csv`. The chart is saved as `src/dev/hero-chart.png`, so if you change that cell's code, rerun it and replace the file, and the cell's `width` and `height` with the ones the kernel sent.
 
 ## Privacy page
 

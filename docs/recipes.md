@@ -13,6 +13,7 @@ Checklists for the changes that touch several files. Each one ends with the test
 3. Add a label to `describeCall()`, and an outcome to `describeResult()` if the default is wrong. These are what the user sees in the cell's activity list. Write them in plain words, never code. A tool that runs code takes a `summary` first in its schema, like `explore` and `run_cell`, and goes in `SUMMARIZED` so the label streams in early (see [Step labels](agent-harness.md#step-labels)).
 4. If the tool needs something from Electron, add it to `ToolDeps` and `HarnessDeps` and pass it in from `NotebookSession.runCell()`. Don't import Electron into the harness.
 5. Mention the tool in the system prompt only if the model needs a rule about it. The tool list is already there.
+   A tool that shows the model an image returns a `SeenOutput`, `{ text, images }`, takes its images from the run's `imageBudget()` so they stay within the limits, and sets `toModelOutput` from `images.ts`. See [Images](agent-harness.md#images).
 6. Test it in `run-cell.test.ts` with a scripted model that calls it.
 
 ## Change the system prompt

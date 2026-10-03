@@ -38,6 +38,17 @@ describe('SettingsStore', () => {
     expect(settings.update({ model: '' }).model).toBe('anthropic/claude-sonnet-5.5')
   })
 
+  it('offers only low, medium and high effort for now, reading a saved higher one as high', () => {
+    const folder = dir()
+    writeFileSync(path.join(folder, 'settings.json'), JSON.stringify({ effort: 'max' }))
+    const settings = store(folder)
+    expect(settings.modelConfig().effort).toBe('high')
+    expect(settings.update({ effort: 'xhigh' }).effort).toBe('high')
+    expect(settings.update({ effort: 'low' }).effort).toBe('low')
+    writeFileSync(path.join(folder, 'settings.json'), JSON.stringify({ effort: 'turbo' }))
+    expect(store(folder).modelConfig().effort).toBe('medium')
+  })
+
   it.skipIf(process.platform === 'win32')('keeps settings.json private', () => {
     const folder = dir()
     store(folder).update({ autoTitles: false })

@@ -18,6 +18,7 @@ import { clip, formatVariables } from './format'
 import { buildCellPrompt, buildSystemPrompt } from './prompt'
 import { buildProvenance, newTrail } from './provenance'
 import { type CellTools, type RunState, createCellTools } from './tools'
+import { type PrepareImage, outputText } from './images'
 import { listFiles } from './workspace'
 
 export interface HarnessDeps {
@@ -40,6 +41,8 @@ export interface HarnessDeps {
   /** The approval policy, from createApproval(). */
   needsApproval: (keys: string[]) => boolean
   installPackages: (packages: string[]) => Promise<string>
+  /** Shrinks an image before the model sees it. The session's uses Electron's nativeImage. */
+  prepareImage?: PrepareImage
   signal: AbortSignal
   exploreTimeoutMs?: number
   /** How long one run_cell may take before the kernel is interrupted. Defaults to 10 minutes. */
@@ -48,7 +51,7 @@ export interface HarnessDeps {
   maxSteps?: number
 }
 
-const TOOL_NAMES = ['list_variables', 'explore', 'list_files', 'read_file', 'run_cell', 'install_packages', 'ask_user', 'finish'] as const
+const TOOL_NAMES = ['list_variables', 'explore', 'list_files', 'read_file', 'view_image', 'run_cell', 'install_packages', 'ask_user', 'finish'] as const
 /** Tools whose input starts with a summary for the user, which becomes the step's label. */
 const SUMMARIZED = new Set(['explore', 'run_cell'])
 /** How much of a call's code an activity item keeps. The Code tab has the whole cell. */
@@ -106,6 +109,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     requestApproval: deps.requestApproval,
     needsApproval: deps.needsApproval,
     installPackages: deps.installPackages,
+    prepareImage: deps.prepareImage,
     exploreTimeoutMs: deps.exploreTimeoutMs,
     runTimeoutMs: deps.runTimeoutMs,
   })
@@ -318,6 +322,8 @@ export function describeCall(toolName: string, input: unknown): string {
       return 'Listing files'
     case 'read_file':
       return `Reading ${String(i.path ?? 'a file')}`
+    case 'view_image':
+      return `Looking at ${String(i.path ?? 'an image')}`
     case 'run_cell':
       return summaryOf(i) ?? 'Running the cell'
     case 'install_packages':
@@ -336,7 +342,7 @@ export function describeCall(toolName: string, input: unknown): string {
  * A detail is a duration or the one line of an error, never a line of code or traceback.
  */
 export function describeResult(toolName: string, output: unknown, input?: unknown): { label?: string; detail?: string; failed?: boolean; warning?: boolean } {
-  const text = typeof output === 'string' ? output : JSON.stringify(output)
+  const text = outputText(output)
   if (text.startsWith('Blocked:')) return { detail: text, failed: true }
   const summarized = summaryOf((input ?? {}) as Record<string, unknown>) != null
   switch (toolName) {
@@ -344,6 +350,10 @@ export function describeResult(toolName: string, output: unknown, input?: unknow
       return { label: 'Checked variables' }
     case 'list_files':
       return { label: 'Listed files' }
+    case 'view_image': {
+      const path = String(((input ?? {}) as Record<string, unknown>).path ?? 'the image')
+      return text.endsWith('is attached as an image.') ? { label: `Looked at ${path}` } : { label: `Couldn't look at ${path}`, detail: firstLine(text), failed: true }
+    }
     case 'run_cell': {
       const label = summarized ? undefined : 'Ran the cell'
       if (text.startsWith('The cell timed out')) return { label, detail: `Stopped after ${text.match(/after ([^.]+) and/)?.[1] ?? 'too long'}`, failed: true }

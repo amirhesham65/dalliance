@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
-import type { Effort, SettingsUpdate, SettingsView } from '@dalliance/shared/ipc'
+import { type Effort, type SettingsUpdate, type SettingsView, offeredEffort } from '@dalliance/shared/ipc'
 import { writeFileAtomicSync } from './atomic-write'
 import { type CloudAccess, DEFAULT_MODEL, type ModelConfig } from './harness/model'
 
@@ -58,6 +58,8 @@ export class SettingsStore {
       }
       // A setting the file doesn't have takes its default
       this.data = { ...structuredClone(DEFAULTS), ...stored }
+      // Extra high and Max aren't offered for now, so a saved one reads as High
+      this.data.effort = offeredEffort(this.data.effort)
     }
   }
 
@@ -144,7 +146,7 @@ export class SettingsStore {
 
   update(update: SettingsUpdate): SettingsView {
     if (update.model !== undefined) this.data.model = update.model.trim() || DEFAULT_MODEL
-    if (update.effort) this.data.effort = update.effort
+    if (update.effort) this.data.effort = offeredEffort(update.effort)
     if (update.pythonPath !== undefined) this.data.pythonPath = update.pythonPath?.trim().replace(/^~(?=$|\/)/, homedir()) || null
     if (update.approvalMode) this.data.approvalMode = update.approvalMode
     if (update.autoTitles !== undefined) this.data.autoTitles = update.autoTitles

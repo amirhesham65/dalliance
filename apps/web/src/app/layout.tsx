@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter, JetBrains_Mono, Source_Serif_4 } from 'next/font/google'
-import Script from 'next/script'
 import { Analytics } from '@vercel/analytics/next'
 import { site } from '@/lib/site'
 import './globals.css'
@@ -46,13 +45,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    // The motion script below sets data-motion on <html> before hydration. This only quiets that element's attributes
-    <html lang="en" className={`${sans.variable} ${serif.variable} ${mono.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${sans.variable} ${serif.variable} ${mono.variable}`}>
       <body>
-        {/* Marks the page as animating before first paint, so the hero cell does not flash its finished state */}
-        <Script id="motion" strategy="beforeInteractive">
-          {"if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.dataset.motion = ''"}
-        </Script>
         <a className="absolute -top-12 left-3 z-10 rounded-lg bg-brand px-3 py-1.5 text-on-brand no-underline focus:top-3" href="#main">
           Skip to content
         </a>

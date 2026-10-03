@@ -130,12 +130,11 @@ function MenuButton({ icon, label, detail, onClick }: { icon: React.ReactNode; l
   )
 }
 
+// Only these three for now, OFFERED_EFFORTS in the shared package
 const EFFORTS: { value: Effort; label: string }[] = [
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Med' },
   { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'XHigh' },
-  { value: 'max', label: 'Max' },
 ]
 
 /** Which model writes the cells, and how hard it thinks. Searches every model Dalliance Cloud offers. */

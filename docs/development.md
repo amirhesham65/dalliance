@@ -84,7 +84,7 @@ pnpm --filter @dalliance/desktop build
 pnpm --filter @dalliance/desktop exec vite preview
 ```
 
-Open `http://localhost:4173/?demo`. `?demo&welcome` shows the start page and `?demo&setup` the first-run setup. `vite preview` serves the last build, so rebuild after changes. See [renderer.md](renderer.md#the-browser-preview).
+Open `http://localhost:4173/?demo`. `?demo&welcome` shows the start page, `?demo&setup` the first-run setup and `?demo&hero` the notebook in the website's hero. `vite preview` serves the last build, so rebuild after changes. See [renderer.md](renderer.md#the-browser-preview).
 
 `.claude/launch.json` defines the same servers for tools that start them by name: `renderer-preview` on 4173, `desktop` for `pnpm dev`, `web` for the built site on 3100, `web-dev` for the site in dev mode, and `cloud-dev` for the cloud site on 3200.
 

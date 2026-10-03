@@ -1,6 +1,3 @@
 @import "@dalliance/brand/theme.css";
 
 /* The Dalliance site. The palette, theme and base styles come from @dalliance/brand */
-
-/* Until the script takes over, the hero cell hides the finished state it is about to rewind */
-html[data-motion] figure:not([data-ready]) [data-rewind] { visibility: hidden; }

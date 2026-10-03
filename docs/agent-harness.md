@@ -5,7 +5,8 @@ The agent lives in `apps/desktop/electron/harness/`. It follows Vercel's [Build 
 | File | Does |
 | --- | --- |
 | `run-cell.ts` | The entry point. Runs saved code directly, or drives a `ToolLoopAgent` |
-| `tools.ts` | The eight tools and the `guarded()` wrapper |
+| `tools.ts` | The nine tools and the `guarded()` wrapper |
+| `images.ts` | What the model is shown: the image budget, `toModelOutput()` and the note on which charts it sees |
 | `prompt.ts` | `buildSystemPrompt()` and `buildCellPrompt()` |
 | `model.ts` | The gateway provider on Dalliance Cloud, effort options, the model list for the picker |
 | `title.ts` | The small model that names cells |
@@ -16,7 +17,7 @@ The agent lives in `apps/desktop/electron/harness/`. It follows Vercel's [Build 
 | `code-policy.ts` | `inspectCode()`, which finds secret files, shell commands and network use in Python |
 | `provenance.ts` | `buildProvenance()`, the record of how a cell was made, and the `RunTrail` the tools fill for it |
 | `format.ts` | `clip()`, `outputsToText()`, `formatVariables()` |
-| `workspace.ts` | File listing and reading inside the notebook's folder |
+| `workspace.ts` | File listing and reading inside the notebook's folder, and `readImage()` for `view_image` |
 
 `NotebookSession` in `electron/session.ts` builds the dependencies and calls `runCell()`. The harness never imports Electron, so tests can run it with a fake kernel and a scripted model.
 
@@ -70,6 +71,7 @@ Every tool's description follows the course's format: WHEN TO USE, WHEN NOT TO U
 | `explore` | Runs a snippet with `store: false`. No execution count, no `_`. Takes a `summary` and the `code` | 4,000 characters. Interrupted after 20 s |
 | `list_files` | Lists the workspace, 4 folders deep, skipping dotfiles and `node_modules`, `.venv` and similar | 200 files |
 | `read_file` | Numbered lines of a text file in the workspace | 500 lines, 500 characters a line, 20,000 characters in all. Refuses binaries |
+| `view_image` | A PNG, JPEG, GIF or WebP in the workspace, attached for the model to look at | 30 MB on disk. The file's first bytes must match an image format. See [Images](#images) |
 | `run_cell` | Runs the complete cell with `store: true` and records it as `lastRun`. Takes a `summary` and the `code` | 5,000 characters. Tables show 15 rows to the model. Interrupted after 10 minutes |
 | `install_packages` | `pip install` into the kernel's interpreter | 1 to 5 packages. Last 1,500 characters of the log |
 | `ask_user` | A multiple-choice question in the cell | 2 to 4 options |
@@ -92,6 +94,28 @@ Each tool call is a line in the cell's activity list, and its label doubles as t
 3. `tool-call`: the whole input confirms the label, and the call's code, clipped to 4,000 characters, goes on the item as `code`. The user opens the step to see it.
 
 An empty summary falls back to the generic label, and to "Explored the data" or "Ran the cell" when the call ends. A call without one fails the schema and goes back to the model; its step says the call was malformed, since the SDK's error quotes the whole input. A step's detail is the run's duration, "Ran in 84 ms", or the error's `Name: message` line, never the traceback around it. A step still running when the stream ends, cut off by a stop or an error, is marked failed. An exploration that raised isn't a failed step, since it still did its job of looking, but it carries `warning: true`, so the list doesn't show a check beside an error.
+
+### Images
+
+The agent sees what it makes. When `run_cell` or `explore` draws figures, the tool's result carries them as images as well as text, and `view_image` attaches an image file from the workspace. `toModelOutput()` in `images.ts` turns such a result, a `SeenOutput` of `{ text, images }`, into the AI SDK's content parts: the text, then one `file` part per image. A result without images stays plain text. Every maker the proxy offers reads images (see [cloud.md](cloud.md#zero-data-retention)). Images inside a tool result were checked through the gateway with Anthropic, OpenAI, Google, xAI, Mistral, Moonshot, DeepSeek, Alibaba and Meta models.
+
+The text numbers the figures, `[chart 1, shown to the user in the notebook]`, and a line from `attachNote()` says which are attached: "The chart is attached as an image.", or how many were left out and why. After a successful run with charts, the reply asks the model to check each one before finishing. The system prompt says the same, and that a chart is only described from what the model sees in it.
+
+Images stay in the history, which is append-only and resent on every step, and each step goes through the Dalliance Cloud proxy, whose request body Vercel caps at about 4.5 MB. So `imageBudget()` bounds them, fresh for each run:
+
+| Limit | Value |
+| --- | --- |
+| `MAX_IMAGE_SIDE` | 1,568 pixels on the longer side, the most Anthropic's models see without scaling again |
+| `MAX_IMAGE_BYTES` | 600,000 base64 characters for one image, once shrunk |
+| `MAX_IMAGES_PER_RESULT` | 4 |
+| `MAX_IMAGES_PER_RUN` | 10 |
+| `MAX_RUN_IMAGE_BYTES` | 2,500,000 base64 characters for all of a run's images |
+
+An image past a limit isn't attached, and the note says so. One that can't be decoded or made small enough counts as unreadable. Shrinking is the `prepareImage` dependency, a `PrepareImage`, so the harness never imports Electron. `electron/images.ts` implements it with `nativeImage`: a PNG when that fits, which keeps a chart's lines and text crisp, and JPEG at quality 85, 70 then 55 when it doesn't. An image already small enough is sent as it is. nativeImage only decodes PNG and JPEG, so a GIF or WebP goes unchanged when it's small enough, and a PNG or JPEG it can't decode is refused as damaged. `main.ts` passes it to `NotebookSession`, which passes it to `runCell()`. Without one, as in tests, `passThrough` sends an image only when it is already under the per-image limit. A kernel figure is drawn at 2x (see [kernel.md](kernel.md#figures)), so a default 6.4 by 4.8 inch chart, about 1,400 by 1,050 pixels, goes unscaled.
+
+`view_image` checks the path is inside the workspace, the extension is `.png`, `.jpg`, `.jpeg`, `.gif` or `.webp`, the file is at most 30 MB, and its first bytes match one of those formats, so a renamed file isn't sent as something it isn't. A file it looked at counts as read by the agent in the cell's record. `blockSecretFiles()` guards it like `read_file`. Its step reads "Looking at chart.png", then "Looked at chart.png", or "Couldn't look at chart.png" with the reason.
+
+The run log writes an image as `{ mediaType, chars }`, never its bytes.
 
 ### guarded()
 
@@ -130,6 +154,7 @@ Some rules in the system prompt shape the product, so change them knowingly:
 - End with exactly one value to show. Don't `print()` summaries.
 - Never call `plt.show()`. The kernel captures figures.
 - Base every number in the answer on output the model saw.
+- Look at each chart before finishing, fix one that doesn't show what was asked, and describe a chart only from what it shows.
 - Ask only when a wrong guess would make the cell useless. Otherwise state the assumption in `[[brackets]]`.
 
 ## Context and caching
@@ -146,7 +171,7 @@ Two constraints shape the loop.
 
 Every model runs through Dalliance Cloud, on the signed-in account's plan. There are no API keys and no provider to choose. See [cloud.md](cloud.md).
 
-`ModelConfig` is `{ model, effort, cloud }`. `model` is a gateway id, and the default is `anthropic/claude-sonnet-5.5` (`DEFAULT_MODEL`). The default effort is `medium`. `cloud` is a `CloudAccess`: the proxy's URL, whether someone is signed in, and a token fetcher. `SettingsStore.modelConfig()` builds it.
+`ModelConfig` is `{ model, effort, cloud }`. `model` is a gateway id, and the default is `anthropic/claude-sonnet-5.5` (`DEFAULT_MODEL`). The default effort is `medium`. For now the app offers only `low`, `medium` and `high`, `OFFERED_EFFORTS` in `packages/shared/src/ipc.ts`: both pickers list those three, and `SettingsStore` reads a saved `xhigh` or `max` as `high` through `offeredEffort()`. The per-maker mapping below still covers all five levels, so bringing the others back only means widening that list. `cloud` is a `CloudAccess`: the proxy's URL, whether someone is signed in, and a token fetcher. `SettingsStore.modelConfig()` builds it.
 
 `resolveModel()` builds the AI Gateway provider on `<cloud>/api/ai` with `cloudGateway()`, whose `fetch` puts a fresh Convex JWT on every request, so a long run outlives any one token. Signed out, it throws a `ModelSetupError` before the run starts: "Sign in to Dalliance to run prompts on your plan. Settings > Account." The session shows its message as the run's error. Effort maps per maker in `agentProviderOptions({ model, effort })`:
 
@@ -165,7 +190,7 @@ Every model runs through Dalliance Cloud, on the signed-in account's plan. There
 - `openai/*` models get `reasoningEffort`, and `reasoningSummary: 'auto'` for the same per-step summaries. `high`, `xhigh` and `max` all map to `high`. OpenAI leaves out a summary when there was little reasoning, even with some reasoning tokens.
 - Every other maker runs with its defaults.
 
-`listModels(cloud)` feeds the model picker. It calls `getAvailableModels()` through the proxy, keeps language models, and returns `{ models, error }`. There are no prices, since the plan pays in credits. The proxy only lists models with zero data retention, see [cloud.md](cloud.md#zero-data-retention). Signed out, the list is empty with the sign-in message as its `error`. A list is cached for 10 minutes. `MAKERS` maps gateway prefixes to display names. Logos come from `src/assets/makers/`, see [renderer.md](renderer.md#model-maker-logos).
+`listModels(cloud)` feeds the model picker. It calls `getAvailableModels()` through the proxy, keeps language models, and returns `{ models, error }`. There are no prices, since the plan pays in credits. The proxy only lists models with zero data retention that read images, see [cloud.md](cloud.md#zero-data-retention). Signed out, the list is empty with the sign-in message as its `error`. A list is cached for 10 minutes. `MAKERS` maps gateway prefixes to display names. Logos come from `src/assets/makers/`, see [renderer.md](renderer.md#model-maker-logos).
 
 `friendlyError()` in `run-cell.ts` rewrites auth, rate limit, unknown model, overload, server and network errors into short messages, pointing at Settings where the fix is there. A Dalliance Cloud refusal comes first: the proxy answers in the gateway's error shape with the type `dalliance_account` (`REFUSAL_TYPE`), and the message is shown as written. The gateway provider wraps that unknown type in a generic error, so `accountRefusal()` reads the proxy's response body from the error's causes. Any other 401 or 403 says "Dalliance Cloud didn't accept your sign-in. Sign in again in Settings > Account." It goes by the HTTP status on the AI SDK's `APICallError` or the gateway's `GatewayError`, looking through `RetryError` to the last attempt. Without a status it only trusts one the message spells out, like `status code 401` or `429 Too Many Requests`, so a number like `40132 tokens` is never read as an auth error.
 

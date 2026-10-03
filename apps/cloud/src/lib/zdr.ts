@@ -1,15 +1,22 @@
 // Every model call on Dalliance Cloud runs with zero data retention. The proxy sets the gateway's flag on each call,
-// whatever the app sent, and only offers models with at least one zero-data-retention provider. See docs/billing.md
+// whatever the app sent, and only offers models with at least one zero-data-retention provider. They must also
+// read images, since the agent looks at the charts it draws. See docs/billing.md
 
-/** The gateway's public model list. It says per model whether all, some or none of its providers qualify. */
+/** The gateway's public model list. It says per model whether all, some or none of its providers qualify, and what it reads. */
 const MODELS_URL = 'https://ai-gateway.vercel.sh/v1/models'
 const TTL_MS = 10 * 60_000
 
 let cached: { at: number; ids: ReadonlySet<string> } | null = null
 
+/** Whether a model in the gateway's list reads images: `image` among its input modalities, or the `vision` tag. */
+function readsImages(model: { modalities?: unknown; tags?: unknown }): boolean {
+  const input = (model.modalities as { input?: unknown } | null | undefined)?.input
+  return (Array.isArray(input) && input.includes('image')) || (Array.isArray(model.tags) && model.tags.includes('vision'))
+}
+
 /**
- * The ids of models with a zero-data-retention provider, `zdr` of `all` or `some`. The flag routes a `some` model
- * to its qualifying providers only. Refreshed every ten minutes; a failed refresh keeps the last list, since the
+ * The ids of the models Dalliance Cloud offers: ones with a zero-data-retention provider, `zdr` of `all` or
+ * `some`, that read images. The flag routes a `some` model to its qualifying providers only. Refreshed every ten minutes; a failed refresh keeps the last list, since the
  * flag still holds either way. Null when the list has never loaded.
  */
 export async function qualifyingModels(now = Date.now()): Promise<ReadonlySet<string> | null> {
@@ -18,9 +25,9 @@ export async function qualifyingModels(now = Date.now()): Promise<ReadonlySet<st
   const body = res?.ok ? ((await res.json().catch(() => null)) as { data?: unknown } | null) : null
   if (!Array.isArray(body?.data)) return cached?.ids ?? null
   const ids = new Set<string>()
-  for (const m of body.data as { id?: unknown; zdr?: unknown }[]) {
+  for (const m of body.data as { id?: unknown; zdr?: unknown; modalities?: unknown; tags?: unknown }[]) {
     // Anything but a known qualifying value counts as not qualifying
-    if (typeof m?.id === 'string' && (m.zdr === 'all' || m.zdr === 'some')) ids.add(m.id)
+    if (typeof m?.id === 'string' && (m.zdr === 'all' || m.zdr === 'some') && readsImages(m)) ids.add(m.id)
   }
   cached = { at: now, ids }
   return ids

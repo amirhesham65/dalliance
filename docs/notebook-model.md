@@ -40,7 +40,7 @@ type Output =
   | { type: 'stream'; name: 'stdout' | 'stderr'; text }
   | { type: 'text'; text }                      // repr() of the last expression
   | { type: 'table'; columns; index; rows; totalRows; profile? }
-  | { type: 'image'; mime: 'image/png'; data }  // base64
+  | { type: 'image'; mime: 'image/png'; data; width?; height? }  // base64; the size to show it at, in CSS pixels
   | { type: 'error'; ename; evalue; traceback }
 ```
 
@@ -120,7 +120,7 @@ Long prompts get a 2 to 5 word title for the overview. The store asks for one wh
 
 - `markdown` and `raw` cells become notes. A raw cell shows as a note and remembers it was raw.
 - `code` cells become prompt cells. A plain Jupyter cell has no prompt and keeps its code, so it runs without the agent.
-- Outputs map back by MIME type in this order: the Dalliance table type, `image/png`, `text/plain`. A pandas HTML table from Jupyter shows as its `text/plain` fallback. An output with none of the three isn't shown, but it isn't lost either: see [Passthrough](#passthrough).
+- Outputs map back by MIME type in this order: the Dalliance table type, `image/png`, `text/plain`. An image's `width` and `height` are saved as Jupyter's output metadata, `{ "image/png": { width, height } }`, so Jupyter shows a 2x figure at its size too. Reading, both must be positive whole numbers or neither is read, and an output with metadata Dalliance doesn't read is kept as found (see [Passthrough](#passthrough)). A pandas HTML table from Jupyter shows as its `text/plain` fallback. An output with none of the three isn't shown, but it isn't lost either: see [Passthrough](#passthrough).
 - `corrections` are not saved. They only live until the next run.
 - `state` is not read back. A cell opens as `stale` or `idle`, as described above.
 - Every field under `metadata.dalliance` is type-checked. A field with the wrong type reads as its default: `null`, `[]` or `false`. A mistyped `generatedFrom` reads as missing, so the saved code counts as written for its prompt.

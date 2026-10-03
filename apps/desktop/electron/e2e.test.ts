@@ -90,6 +90,15 @@ describe.skipIf(!enabled)('end to end', () => {
     expect(events.some((e) => e.type === 'activity')).toBe(true)
   }, 240_000)
 
+  it('looks at an image file to answer', async () => {
+    // A picture of a number only seeing it can read: no text file or variable holds it
+    await kernel.execute("import matplotlib.pyplot as plt\nfig = plt.figure(figsize=(4, 2))\nfig.text(0.5, 0.5, '7319', fontsize=60, ha='center', va='center')\nfig.savefig('sign.png')\nplt.close('all')", { store: false })
+    const { result } = await run('What number is written on sign.png?')
+    expect(result.ok).toBe(true)
+    expect(result.activity.some((a) => a.label === 'Looked at sign.png')).toBe(true)
+    expect(result.answer).toContain('7319')
+  }, 240_000)
+
   it('reruns the saved code directly, without the model', async () => {
     const code = previous[0].code!
     const { result } = await run('Load orders.csv', code, false)

@@ -48,8 +48,13 @@ Tools: ${ctx.toolNames.join(', ')}`)
 - End with exactly one value to show, like Jupyter: a DataFrame, a Series, a number, or a chart. Tables get a column overview automatically (types, missing values, ranges, top values), so for "what's in this data" end with the DataFrame itself.
 - Don't print() summaries, shapes, dtypes or intermediate results. If the prompt needs several numbers, put them in one small DataFrame and end with it.
 - For charts use matplotlib and do not call plt.show(). Figures are captured automatically. Give each chart a title and axis labels.
+- You see the charts run_cell and explore draw, attached to their result. Look at each one before you finish, and fix the code when a chart doesn't show what the prompt asked: unreadable or overlapping labels, an empty or cut-off plot, a misleading axis. Describe a chart only from what you see in it.
 - Don't print what the last expression already shows.
 - Read files with paths relative to the notebook's folder, which is the kernel's working directory.`)
+
+  sections.push(`# Images
+- To look at an image file in the notebook's folder, such as a photo, a scan or a saved chart, call view_image. Say what you see; don't guess at details too small or blurry to read.
+- A run can show you a limited number of images. When it says an image wasn't attached, work from the numbers instead.`)
 
   sections.push(`# Guardrails
 - explore is for looking only (df.head(), df.dtypes, value counts). Never change or delete existing variables with it.

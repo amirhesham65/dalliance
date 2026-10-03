@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { FORMAT_VERSION, TABLE_MIME, fromIpynb, toIpynb } from './ipynb'
-import { type PromptCell, type Provenance, needsGeneration, newNoteCell, newPromptCell, parseInterpretation } from './notebook'
+import { type Output, type PromptCell, type Provenance, needsGeneration, newNoteCell, newPromptCell, parseInterpretation } from './notebook'
 
 describe('ipynb', () => {
   it('round-trips prompts, code and every output type', () => {
@@ -28,6 +28,31 @@ describe('ipynb', () => {
     expect(back.cells[0]).toMatchObject({ kind: 'note', markdown: '# Title\nIntro' })
     // Saved outputs are shown but marked out of date: the kernel that made them is gone
     expect(back.cells[1]).toEqual({ ...cell, state: 'stale' })
+  })
+
+  it("saves a figure's display size where Jupyter looks for it, and reads it back", () => {
+    const image: Output = { type: 'image', mime: 'image/png', data: 'iVBORw0KGgo=', width: 440, height: 330 }
+    const json = toIpynb({ cells: [{ ...newPromptCell('Plot it', 'plt.plot([1, 2])'), outputs: [image] }] }) as { cells: { outputs: { metadata: unknown }[] }[] }
+    expect(json.cells[0].outputs[0].metadata).toEqual({ 'image/png': { width: 440, height: 330 } })
+    const back = fromIpynb(JSON.parse(JSON.stringify(json))).cells[0] as PromptCell
+    expect(back.outputs).toEqual([image])
+    expect(back).not.toHaveProperty('jupyter')
+  })
+
+  it("reads a Jupyter PNG's display size, and keeps one it can't use as found", () => {
+    const png = (metadata: unknown) => ({ output_type: 'display_data', metadata, data: { 'image/png': 'iVBORw0KGgo=', 'text/plain': ['<image>'] } })
+    const nb = fromIpynb({
+      nbformat: 4,
+      cells: [
+        { cell_type: 'code', execution_count: 1, source: [], metadata: {}, outputs: [png({ 'image/png': { width: 300, height: 200 } })] },
+        { cell_type: 'code', execution_count: 2, source: [], metadata: {}, outputs: [png({ 'image/png': { width: 300.5, height: 200 } })] },
+      ],
+    })
+    const [sized, odd] = nb.cells as PromptCell[]
+    expect(sized.outputs).toEqual([{ type: 'image', mime: 'image/png', data: 'iVBORw0KGgo=', width: 300, height: 200 }])
+    expect(sized).not.toHaveProperty('jupyter')
+    expect(odd.outputs).toEqual([{ type: 'image', mime: 'image/png', data: 'iVBORw0KGgo=' }])
+    expect(odd.jupyter?.outputs).toEqual([png({ 'image/png': { width: 300.5, height: 200 } })])
   })
 
   it('writes a notebook Jupyter can open', () => {

@@ -653,7 +653,7 @@ export const actions = {
     const cached = !force && models && !models.error
     const list = cached ? models : await api.listModels().catch((err: unknown) => ({ models: [], error: String(err) }))
     if (!cached) set({ models: list })
-    // Dalliance Cloud only offers models with zero data retention. A saved model it doesn't offer goes back to the
+    // Dalliance Cloud only offers models with zero data retention that read images. A saved model it doesn't offer goes back to the
     // default (an empty model resets it), rather than failing every run
     const current = get().settings
     if (current && !list.error && list.models.length && !list.models.some((m) => m.id === current.model)) {
