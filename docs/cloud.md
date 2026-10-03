@@ -67,7 +67,7 @@ The proxy checks the plan before each call and records its cost afterwards. Refu
 
 ### Zero data retention
 
-Every model call runs with zero data retention. The proxy enforces it, not the app: it sets the gateway's `zeroDataRetention` flag on every call, overwriting whatever the app sent, and only offers models with a zero-data-retention provider. Its model list leaves the others out, and a call to one is refused with 403. So the app sends no flag of its own, and there's no setting for it. How the proxy does it is in [billing.md](billing.md#zero-data-retention).
+Every model call runs with zero data retention. The proxy enforces it, not the app: it sets the gateway's `zeroDataRetention` flag on every call, overwriting whatever the app sent, and only offers models with a zero-data-retention provider. They must also read images, since the agent looks at the charts it draws and the images in the notebook's folder. Its model list leaves the others out, and a call to one is refused with 403. So the app sends no flag of its own, and there's no setting for it. How the proxy does it is in [billing.md](billing.md#zero-data-retention).
 
 - `loadModels()` in the store moves a saved model the list doesn't offer, typed in or saved before the list changed, back to the default, and says so in a notice.
 - The agent sends no refusal fallback. The gateway drops the option today, and the model Anthropic picks for `fallbacks: 'default'` isn't published, so it couldn't be held to the list. A fallback would need an explicit list of models the proxy offers.

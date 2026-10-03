@@ -33,7 +33,7 @@ function refuse(status: number, message: string) {
 const ZDR_PLAN = /ZdrUnauthorizedError|Zero Data Retention \(ZDR\) is only available/
 const UNAVAILABLE = "Hosted models aren't available right now. We're on it. Try again later."
 
-const NOT_OFFERED = "This model doesn't run with zero data retention, so Dalliance Cloud doesn't offer it. Choose another model in Settings."
+const NOT_OFFERED = "Dalliance Cloud only offers models that run with zero data retention and can read images, and this one doesn't. Choose another model in Settings."
 
 type Authorized = { ok: true; userId: string } | { ok: false; status: number; message: string }
 

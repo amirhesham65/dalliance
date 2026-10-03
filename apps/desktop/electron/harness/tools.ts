@@ -6,8 +6,9 @@ import type { ExecuteResult, Kernel } from '../kernel/kernel'
 import { approver } from './approval'
 import type { ApprovalRequest, EventBus } from './events'
 import { clip, formatVariables, outputsToText } from './format'
+import { type PrepareImage, type SeenOutput, attachNote, imageBudget, toModelOutput } from './images'
 import { type RunTrail, approvalKind, attemptError, noteApproval, noteReads, readPath } from './provenance'
-import { listFiles, readFileBounded } from './workspace'
+import { listFiles, readFileBounded, readImage } from './workspace'
 
 /** What the tools learn during a run. The harness reads it after the loop ends. */
 export interface RunState {
@@ -36,6 +37,8 @@ export interface ToolDeps {
   /** The approval policy: whether allowing these keys needs a person. */
   needsApproval: (keys: string[]) => boolean
   installPackages: (packages: string[]) => Promise<string>
+  /** Shrinks an image before the model sees it. Without one, only images already small enough are shown. */
+  prepareImage?: PrepareImage
   exploreTimeoutMs?: number
   /** How long run_cell may take before the kernel is interrupted. Defaults to RUN_TIMEOUT_MS. */
   runTimeoutMs?: number
@@ -75,6 +78,14 @@ export function createCellTools(deps: ToolDeps) {
     const allowed = await ask(request)
     noteApproval(state.trail, approvalKind(request.keys), request.detail, allowed ? (asked ? 'approved' : 'trusted') : 'declined')
     return allowed
+  }
+  const images = imageBudget(deps.prepareImage)
+  /** The figures a run drew, attached for the model to look at, and a line saying what it can see. */
+  const figuresOf = async (outputs: Output[]): Promise<{ note: string; images: SeenOutput['images'] }> => {
+    const figures = outputs.flatMap((o) => (o.type === 'image' ? [{ data: Buffer.from(o.data, 'base64'), mediaType: o.mime }] : []))
+    if (!figures.length) return { note: '', images: [] }
+    const attached = await images.attach(figures)
+    return { note: attachNote(figures.length, attached), images: attached.images }
   }
   /** run_cell calls still executing. finish waits for them, so it never judges a run that is about to change. */
   const running = new Set<Promise<unknown>>()
@@ -133,11 +144,14 @@ EXAMPLES: subs.head(3) | subs.plan.value_counts() | sorted(events.type.unique())
             noteReads(state.trail, result.filesRead)
             if (timedOut)
               return `Stopped after ${Math.round((deps.exploreTimeoutMs ?? EXPLORE_TIMEOUT_MS) / 1000)} seconds. Exploration must be quick: don't scan folders or large data. Look at a sample instead.`
-            return clip(outputsToText(result.outputs, MAX_EXPLORE_CHARS), MAX_EXPLORE_CHARS)
+            const text = clip(outputsToText(result.outputs, MAX_EXPLORE_CHARS), MAX_EXPLORE_CHARS)
+            const seen = await figuresOf(result.outputs)
+            return seen.images.length || seen.note ? { text: [text, seen.note].filter(Boolean).join('\n'), images: seen.images } : text
           } finally {
             clearTimeout(timer)
           }
         }),
+      toModelOutput,
     }),
 
     list_files: tool({
@@ -209,10 +223,37 @@ USAGE: pass the whole cell, not a diff. Only the last successful run is kept. Af
           }
           state.lastRun = { code, result }
           const text = outputsToText(result.outputs, MAX_RUN_CHARS)
-          return result.ok
-            ? `Ran successfully in ${result.durationMs} ms.\nOutputs:\n${text}\nIf this answers the prompt, call finish. Otherwise fix the code and call run_cell again.`
-            : `The cell failed.\n${text}\nFix the code and call run_cell again.`
+          const seen = await figuresOf(result.outputs)
+          const outputs = seen.note ? `${text}\n${seen.note}` : text
+          const reply = result.ok
+            ? `Ran successfully in ${result.durationMs} ms.\nOutputs:\n${outputs}\n${seen.images.length ? 'Look at each chart: check it shows what the prompt asked, with readable labels and nothing empty, cut off or overlapping. ' : ''}If this answers the prompt, call finish. Otherwise fix the code and call run_cell again.`
+            : `The cell failed.\n${outputs}\nFix the code and call run_cell again.`
+          return seen.images.length ? { text: reply, images: seen.images } : reply
         })),
+      toModelOutput,
+    }),
+
+    view_image: tool({
+      description: `Look at an image file in the notebook's folder: a PNG, JPEG, GIF or WebP.
+WHEN TO USE: the prompt is about a picture, a scan, a photo or a chart saved as a file, or you need to see one to answer.
+WHEN NOT TO USE: charts the cell draws. run_cell and explore already show you those.
+DO NOT USE FOR: files outside the notebook's folder, or text and data files (use read_file).`,
+      inputSchema: z.object({ path: z.string().describe("Path relative to the notebook's folder") }),
+      execute: ({ path }) =>
+        guarded('view_image', { path }, async () => {
+          const file = await readImage(deps.workspaceDir, path)
+          if (typeof file === 'string') return file
+          const read = readPath(deps.workspaceDir, path)
+          if (read) noteReads(state.trail, { paths: [read], truncated: false })
+          const attached = await images.attach([file])
+          if (!attached.images.length) {
+            return attached.overBudget
+              ? `${path} wasn't attached: this run has shown you as many images as it can. Describe what you need from it in finish, or ask the user.`
+              : `${path} couldn't be prepared to show you. It may be damaged, or too large: make a smaller copy in Python first.`
+          }
+          return { text: `${path} is attached as an image.`, images: attached.images }
+        }),
+      toModelOutput,
     }),
 
     install_packages: tool({

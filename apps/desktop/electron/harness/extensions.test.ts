@@ -28,13 +28,26 @@ describe('the .env guard', () => {
     expect(await bus.emit('tool_call', { cellId: 'c1', toolName: 'read_file', input: { path: p } })).toEqual({ blocked: false })
   })
 
-  it('only guards read_file', async () => {
+  it('guards view_image the same way', async () => {
+    const { bus } = setup()
+    expect(await bus.emit('tool_call', { cellId: 'c1', toolName: 'view_image', input: { path: 'config/.env' } })).toMatchObject({ blocked: true, secret: 'config/.env' })
+  })
+
+  it('only guards read_file and view_image', async () => {
     const { bus } = setup()
     expect(await bus.emit('tool_call', { cellId: 'c1', toolName: 'list_files', input: { path: '.env' } })).toEqual({ blocked: false })
   })
 })
 
 describe('the run log', () => {
+  it('logs an image the agent saw by its size, not its bytes', async () => {
+    const { bus, lines, log } = setup()
+    const output = { text: 'chart.png is attached as an image.', images: [{ mediaType: 'image/png', data: 'A'.repeat(50_000) }] }
+    await bus.emit('tool_result', { cellId: 'c1', toolName: 'view_image', input: { path: 'chart.png' }, output, ok: true })
+    await log.idle()
+    expect(lines()[0].output).toEqual({ text: 'chart.png is attached as an image.', images: [{ mediaType: 'image/png', chars: 50_000 }] })
+  })
+
   it('appends every event to agent.jsonl with long strings clipped', async () => {
     const { bus, lines, log } = setup()
     await bus.emit('run_start', { cellId: 'c1', input: 'Average order value' })

@@ -20,6 +20,7 @@ import { EventBus } from './harness/events'
 import { installExtensions } from './harness/extensions'
 import { type ModelCall, costOf } from './harness/cost'
 import { ModelSetupError, resolveModel } from './harness/model'
+import type { PrepareImage } from './harness/images'
 import { friendlyError, runCell } from './harness/run-cell'
 import { generateTitle, titleModel } from './harness/title'
 import type { Kernel, KernelEnvironment, KernelInfo } from './kernel/kernel'
@@ -42,6 +43,8 @@ interface SessionOptions {
   listPackages?: typeof installedPackages
   /** Hashes data files for the pins. Tests pass one with a small size limit. */
   hasher?: FileHasher
+  /** Shrinks an image before the agent sees it. main.ts passes one on Electron's nativeImage; tests leave it out. */
+  prepareImage?: PrepareImage
 }
 
 /** How long a save waits for the kernel to say what it imported before it keeps the pins it has. */
@@ -324,6 +327,7 @@ export class NotebookSession {
           await installPackages(kernel.info().executable ?? 'python3', packages, (line) => lines.push(line))
           return lines.slice(-10).join('\n')
         },
+        prepareImage: this.options.prepareImage,
         signal: controller.signal,
       })
       // Counted whether or not Show costs is on, so turning it on shows the runs made while it was off

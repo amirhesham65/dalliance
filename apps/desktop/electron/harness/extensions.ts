@@ -5,11 +5,11 @@ import type { EventBus, HarnessEvent } from './events'
 
 export { isSecretPath }
 
-/** Keeps .env files private: read_file refuses them, and the reason goes back to the model. */
+/** Keeps .env files private: read_file and view_image refuse them, and the reason goes back to the model. */
 export function blockSecretFiles(bus: EventBus) {
   bus.on('tool_call', ({ toolName, input }) => {
     const p = String((input as { path?: string } | undefined)?.path ?? '')
-    if (toolName === 'read_file' && isSecretPath(p)) return { block: true, reason: `${p} may hold secrets, so it is off limits.`, secret: p }
+    if ((toolName === 'read_file' || toolName === 'view_image') && isSecretPath(p)) return { block: true, reason: `${p} may hold secrets, so it is off limits.`, secret: p }
   })
 }
 
@@ -100,7 +100,11 @@ export function createRunLog(logDir: string, options: { maxBytes?: number } = {}
     write(event, data) {
       // Serialized now, so the timestamp and the data are those of the moment the event happened
       // Reasoning summaries stay whole: they're the record of why a cell was made, see docs/agent-harness.md
-      const line = `${JSON.stringify({ at: new Date().toISOString(), event, ...data }, (k, v) => (k !== 'reasoning' && typeof v === 'string' && v.length > MAX_LOG_STRING ? `${v.slice(0, MAX_LOG_STRING)}…` : v))}\n`
+      const line = `${JSON.stringify({ at: new Date().toISOString(), event, ...data }, (k, v) => {
+        // An image the agent was shown is logged by size only: its bytes would be noise
+        if (k === 'images' && Array.isArray(v)) return v.map((image: { mediaType?: string; data?: string }) => ({ mediaType: image?.mediaType, chars: image?.data?.length ?? 0 }))
+        return k !== 'reasoning' && typeof v === 'string' && v.length > MAX_LOG_STRING ? `${v.slice(0, MAX_LOG_STRING)}…` : v
+      })}\n`
       queue = queue
         .then(() => append(line))
         .catch(() => {

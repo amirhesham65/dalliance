@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+const sees = { modalities: { input: ['text', 'image'], output: ['text'] } }
 const MODELS = [
-  { id: 'anthropic/claude-sonnet-5.5', zdr: 'all' },
-  { id: 'openai/gpt-6-luna', zdr: 'some' },
-  { id: 'anthropic/claude-fable-5.1', zdr: 'none' },
+  { id: 'anthropic/claude-sonnet-5.5', zdr: 'all', ...sees },
+  { id: 'openai/gpt-6-luna', zdr: 'some', tags: ['tool-use', 'vision'] },
+  { id: 'anthropic/claude-fable-5.1', zdr: 'none', ...sees },
+  { id: 'zai/glm-5', zdr: 'all', modalities: { input: ['text'], output: ['text'] }, tags: ['tool-use'] },
+  { id: 'someone/odd-modalities', zdr: 'all', modalities: { input: 'image' }, tags: 'vision' },
   { id: 'someone/without-a-field' },
 ]
 
@@ -18,7 +21,7 @@ async function load(reply: () => Response | Promise<Response>) {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('qualifying models', () => {
-  it('keeps models with any zero-data-retention provider and drops the rest', async () => {
+  it('keeps models with any zero-data-retention provider that read images, and drops the rest', async () => {
     const { zdr } = await load(() => Response.json({ data: MODELS }))
     expect([...(await zdr.qualifyingModels())!]).toEqual(['anthropic/claude-sonnet-5.5', 'openai/gpt-6-luna'])
   })

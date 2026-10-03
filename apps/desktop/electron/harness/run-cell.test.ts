@@ -432,6 +432,92 @@ describe('the record of how a cell was made', () => {
   })
 })
 
+describe('what the agent sees', () => {
+  // A 1 by 1 PNG
+  const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+  type ToolMessage = { role: string; content: { type: string; toolName?: string; output?: { type: string; value: unknown } }[] }
+  /** The tool result the model got back in its second request. */
+  const resultIn = (prompts: unknown[]) => (prompts[1] as ToolMessage[]).find((m) => m.role === 'tool')!.content.find((p) => p.type === 'tool-result')!.output!
+
+  it('looks at the charts run_cell draws', async () => {
+    const kernel = new FakeKernel(() => ({ ok: true, outputs: [{ type: 'image', mime: 'image/png', data: PNG, width: 1, height: 1 }] }))
+    const { model, prompts } = scriptedModel([
+      { tool: 'run_cell', input: { summary: 'Plotting orders by month', code: 'orders.plot()' } },
+      { tool: 'finish', input: { interpretation: '', answer: '' } },
+    ])
+    await runCell(request(), harness(model, kernel).deps)
+    const output = resultIn(prompts)
+    expect(output.type).toBe('content')
+    const [text, image] = output.value as { type: string; text?: string; mediaType?: string; data?: unknown }[]
+    expect(text.text).toContain('[chart 1, shown to the user in the notebook]')
+    expect(text.text).toContain('The chart is attached as an image.')
+    expect(text.text).toContain('Look at each chart')
+    expect(image).toEqual({ type: 'file', mediaType: 'image/png', data: { type: 'data', data: PNG } })
+  })
+
+  it('keeps a result without figures as plain text', async () => {
+    const { model, prompts } = scriptedModel([
+      { tool: 'run_cell', input: { summary: 'Averaging orders', code: 'orders.total.mean()' } },
+      { tool: 'finish', input: { interpretation: '', answer: '' } },
+    ])
+    await runCell(request(), harness(model, new FakeKernel(() => ({ ok: true, outputs: [table] }))).deps)
+    expect(resultIn(prompts).type).toBe('text')
+  })
+
+  it('looks at an image file in the folder with view_image, and records the read', async () => {
+    const { model, prompts } = scriptedModel([
+      { tool: 'view_image', input: { path: 'scans/slide.png' } },
+      { tool: 'finish', input: { interpretation: '', answer: 'The slide shows one cell.' } },
+    ])
+    const { deps, events } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [] })))
+    const { mkdirSync } = await import('node:fs')
+    mkdirSync(path.join(deps.workspaceDir, 'scans'))
+    writeFileSync(path.join(deps.workspaceDir, 'scans/slide.png'), Buffer.from(PNG, 'base64'))
+    const result = await runCell(request({ prompt: 'What does scans/slide.png show?' }), deps)
+
+    const output = resultIn(prompts)
+    expect(output.value).toEqual([
+      { type: 'text', text: 'scans/slide.png is attached as an image.' },
+      { type: 'file', mediaType: 'image/png', data: { type: 'data', data: PNG } },
+    ])
+    expect(result.provenance?.filesRead).toEqual([{ path: 'scans/slide.png', by: 'agent' }])
+    const looked = events.flatMap((e) => (e.type === 'activity' && e.item.id === 'call-1' ? [e.item] : [])).at(-1)
+    expect(looked).toMatchObject({ label: 'Looked at scans/slide.png', status: 'done' })
+  })
+
+  it("says why it can't look at a file that isn't an image, or isn't what its name says", async () => {
+    const { model, prompts } = scriptedModel([
+      { tool: 'view_image', input: { path: 'orders.csv' } },
+      { tool: 'view_image', input: { path: 'fake.png' } },
+      { tool: 'finish', input: { interpretation: '', answer: 'No.' } },
+    ])
+    const { deps, events } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [] })))
+    writeFileSync(path.join(deps.workspaceDir, 'orders.csv'), 'id,total\n1,2\n')
+    writeFileSync(path.join(deps.workspaceDir, 'fake.png'), 'not really a picture')
+    await runCell(request(), deps)
+    expect(resultIn(prompts)).toEqual({ type: 'text', value: "orders.csv isn't a PNG, JPEG, GIF or WebP image. Use read_file for text, or load it in Python." })
+    const second = (prompts[2] as ToolMessage[]).filter((m) => m.role === 'tool').at(-1)!.content[0].output
+    expect(second).toEqual({ type: 'text', value: "fake.png isn't a readable PNG, JPEG, GIF or WebP image." })
+    const last = (id: string) => events.flatMap((e) => (e.type === 'activity' && e.item.id === id ? [e.item] : [])).at(-1)
+    expect([last('call-1'), last('call-2')]).toMatchObject([
+      { label: "Couldn't look at orders.csv", status: 'error' },
+      { label: "Couldn't look at fake.png", status: 'error' },
+    ])
+  })
+
+  it('shrinks images with the prepare function the session passes', async () => {
+    const prepareImage = vi.fn(async () => ({ mediaType: 'image/jpeg', data: 'U01BTEw=' }))
+    const kernel = new FakeKernel(() => ({ ok: true, outputs: [{ type: 'image', mime: 'image/png', data: PNG }] }))
+    const { model, prompts } = scriptedModel([
+      { tool: 'explore', input: { summary: 'Looking at the spread', code: 'orders.total.hist()' } },
+      { tool: 'finish', input: { interpretation: '', answer: 'Spread out.' } },
+    ])
+    await runCell(request(), harness(model, kernel, { prepareImage }).deps)
+    expect(prepareImage).toHaveBeenCalledWith(Buffer.from(PNG, 'base64'), 'image/png', { maxSide: 1568, maxBytes: 600_000 })
+    expect((resultIn(prompts).value as unknown[]).at(-1)).toEqual({ type: 'file', mediaType: 'image/jpeg', data: { type: 'data', data: 'U01BTEw=' } })
+  })
+})
+
 describe('runCell without generation', () => {
   it('runs the existing code directly without calling the model', async () => {
     const kernel = new FakeKernel(() => ({ ok: true, outputs: [{ type: 'text', text: '42' }] }))
