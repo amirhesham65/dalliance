@@ -83,7 +83,7 @@ What the app relies on from the cloud site and the backend. The three sides impo
 
 - `packages/shared/src/cloud.ts`, `@dalliance/shared/cloud`: `DESKTOP_SCHEME` (`io.dalliance.app`), `SIGN_IN_CALLBACK`, `BILLING_LINK`, `REFUSAL_TYPE` (`dalliance_account`), `PROXY_HEADER`, `CLIENT_IP_HEADER`, and the types `PlanKey`, `PlanOption`, `SubscriptionView`, `PlanUsage`, `BillingStatus` and `CallCredits`. `BillingView` in `ipc.ts` is built from them.
 - `packages/shared/src/cloud-api.ts`, `@dalliance/shared/cloud-api`: `cloudApi`, typed references to the Convex functions the app calls. `electron/cloud/billing.ts` calls the backend through it, never through an untyped `anyApi`.
-- The backend annotates its handlers with the same types. `packages/backend/contract.ts` checks at typecheck that each function in `cloudApi` matches the backend's own, its kind, arguments and return type, and `contract.test.ts` checks the names.
+- The backend annotates its handlers with the same types. `packages/backend/contract.ts` checks at typecheck that each function in `cloudApi` matches the backend's own, its kind, arguments and return type, and `contract.test.ts` checks the names. The admin app's `metricsApi` gets the same checks against the internal `metrics:overview`, see [admin.md](admin.md).
 
 So renaming a function or changing a shape fails typecheck or tests on both sides, in one pull request. Better Auth and `@better-auth/electron` come from one catalog version in `pnpm-workspace.yaml`, so the app's client and the backend's server always match.
 

@@ -34,11 +34,11 @@ The root scripts run through Turborepo, in dependency order, with caching. The t
 
 | Command | Does |
 | --- | --- |
-| `pnpm dev` | The desktop app: Vite and Electron with hot reload. The website (`pnpm --filter @dalliance/web dev`, `:3100`), the cloud site (`pnpm --filter @dalliance/cloud dev`, `:3200`) and the backend (`npx convex dev` in `packages/backend`) start on their own, since the last two need their deployment settings |
+| `pnpm dev` | The desktop app: Vite and Electron with hot reload. The website (`pnpm --filter @dalliance/web dev`, `:3100`), the cloud site (`pnpm --filter @dalliance/cloud dev`, `:3200`), the admin app (`pnpm --filter @dalliance/admin dev`, `:3300`) and the backend (`npx convex dev` in `packages/backend`) start on their own, since the last three need their deployment settings |
 | `pnpm test` | Every test suite. See [testing.md](testing.md) |
 | `pnpm typecheck` | `tsc` in every package |
 | `pnpm lint` | oxlint in every package, with the root `.oxlintrc.json` |
-| `pnpm build` | Renderer to `apps/desktop/dist/`, main and preload to `apps/desktop/dist-electron/`, the sites to `apps/web/.next/` and `apps/cloud/.next/` |
+| `pnpm build` | Renderer to `apps/desktop/dist/`, main and preload to `apps/desktop/dist-electron/`, the sites to `apps/web/.next/`, `apps/cloud/.next/` and `apps/admin/.next/` |
 
 For one package, filter:
 
@@ -60,7 +60,7 @@ The real-Python kernel tests run in CI. The paid end-to-end test doesn't. Run th
 pnpm turbo run lint typecheck test build
 ```
 
-The `typecheck` of each Next app, `apps/web` and `apps/cloud`, runs `next typegen` first, so Next's route types exist before `tsc` reads them. Each app's `turbo.json` makes its build wait for it: `next build` empties `.next` when it starts, and running both at once can delete the types `tsc` is about to read.
+The `typecheck` of each Next app, `apps/web`, `apps/cloud` and `apps/admin`, runs `next typegen` first, so Next's route types exist before `tsc` reads them. Each app's `turbo.json` makes its build wait for it: `next build` empties `.next` when it starts, and running both at once can delete the types `tsc` is about to read.
 
 ## How dev mode works
 
@@ -86,7 +86,7 @@ pnpm --filter @dalliance/desktop exec vite preview
 
 Open `http://localhost:4173/?demo`. `?demo&welcome` shows the start page, `?demo&setup` the first-run setup and `?demo&hero` the notebook in the website's hero. Add `&update` to any of them for the update banner. `vite preview` serves the last build, so rebuild after changes. See [renderer.md](renderer.md#the-browser-preview).
 
-`.claude/launch.json` defines the same servers for tools that start them by name: `renderer-preview` on 4173, `desktop` for `pnpm dev`, `web` for the built site on 3100, `web-dev` for the site in dev mode, and `cloud-dev` for the cloud site on 3200.
+`.claude/launch.json` defines the same servers for tools that start them by name: `renderer-preview` on 4173, `desktop` for `pnpm dev`, `web` for the built site on 3100, `web-dev` for the site in dev mode, `cloud-dev` for the cloud site on 3200, and `admin-dev` for the admin app on 3300.
 
 ## Debugging
 
@@ -103,7 +103,7 @@ Open `http://localhost:4173/?demo`. `?demo&welcome` shows the start page, `?demo
 - TypeScript is strict. Shared types go in `packages/shared`, not duplicated per side.
 - Imports use `@/` for `apps/desktop/src` and `@dalliance/shared/<module>` for the shared package.
 - Comments explain why, in plain sentences. Doc comments start with `/**` and say what a thing is for, as in `notebook.ts`. Match the density of the file you're in.
-- Lint is oxlint with the React, TypeScript and oxc plugins. `react/rules-of-hooks` is an error. The generated shadcn files in `components/ui/` are exempt from `react/only-export-components`. Keep lint at zero warnings.
+- Lint is oxlint with the React, TypeScript and oxc plugins. `react/rules-of-hooks` is an error. The generated shadcn files in `components/ui/`, in the desktop app and the admin app, are exempt from `react/only-export-components`. Keep lint at zero warnings.
 - Keep the harness free of Electron imports so it stays testable.
 - Code the renderer runs in a browser, such as the demo, must not reach for `window.dalliance` directly. Use `getApi()`.
 

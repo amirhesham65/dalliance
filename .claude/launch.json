@@ -53,6 +53,16 @@
         "dev"
       ],
       "port": 3200
+    },
+    {
+      "name": "admin-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@dalliance/admin",
+        "dev"
+      ],
+      "port": 3300
     }
   ]
 }
