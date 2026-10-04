@@ -91,6 +91,8 @@ export interface CellPromptContext {
   previousCells: { kind: 'prompt' | 'note'; text: string; code?: string }[]
   existingCode: string | null
   corrections: Correction[]
+  /** Files the user attached to this cell, as paths inside the notebook's folder. */
+  attachments?: string[]
   /** False when the user turned the suggested next prompts off, so the agent doesn't spend tokens on them. */
   suggestNext?: boolean
 }
@@ -130,6 +132,11 @@ export function buildCellPrompt(ctx: CellPromptContext): string {
   }
   // Here, not in the system prompt, so switching it doesn't break the cache
   if (ctx.suggestNext === false) parts.push('# Follow-up prompts\nThe user turned suggested next prompts off. Leave next empty in finish.')
-  parts.push(`# The cell's prompt\n${ctx.prompt}`)
+  if (ctx.attachments?.length) {
+    parts.push(
+      `# Files attached to this cell\nThe user attached these for this prompt. Paths are relative to the notebook's folder, which is the working directory.\n${ctx.attachments.map((f) => `- ${f}`).join('\n')}`,
+    )
+  }
+  parts.push(`# The cell's prompt\n${ctx.prompt.trim() || '(No prompt. Load the attached files and show what they hold.)'}`)
   return parts.join('\n\n')
 }

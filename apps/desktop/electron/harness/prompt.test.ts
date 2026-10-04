@@ -41,4 +41,13 @@ describe('buildCellPrompt', () => {
     expect(buildCellPrompt({ ...base, suggestNext: true })).not.toContain('Follow-up prompts')
     expect(buildCellPrompt(base)).not.toContain('Follow-up prompts')
   })
+
+  it('lists attached files just before the prompt, and asks for a look at them when there is no prompt', () => {
+    const withFiles = buildCellPrompt({ ...base, attachments: ['uploads/orders.csv', 'uploads/plans.xlsx'] })
+    expect(withFiles).toContain('# Files attached to this cell')
+    expect(withFiles).toContain('- uploads/orders.csv\n- uploads/plans.xlsx')
+    expect(withFiles.indexOf('# Files attached')).toBeLessThan(withFiles.indexOf("# The cell's prompt"))
+    expect(buildCellPrompt(base)).not.toContain('Files attached')
+    expect(buildCellPrompt({ ...base, prompt: ' ', attachments: ['uploads/a.csv'] })).toContain('(No prompt. Load the attached files and show what they hold.)')
+  })
 })

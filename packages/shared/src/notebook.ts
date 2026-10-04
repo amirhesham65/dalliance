@@ -162,6 +162,8 @@ export interface PromptCell {
   id: string
   kind: 'prompt'
   prompt: string
+  /** Files the user attached, as paths inside the notebook's folder, usually `uploads/…`. The agent is told about them. */
+  attachments: string[]
   /** A short name for the outline, written by a small model. */
   title: string | null
   /** The prompt the title was written for. A changed prompt shows itself until it's named again. */
@@ -253,6 +255,7 @@ export function newPromptCell(prompt = '', code = ''): PromptCell {
     id: newId(),
     kind: 'prompt',
     prompt,
+    attachments: [],
     title: null,
     titleFrom: null,
     code,
@@ -288,10 +291,18 @@ export function newNoteCell(markdown = ''): NoteCell {
  * or can execute the existing code directly, the way a Jupyter cell reruns.
  */
 export function needsGeneration(cell: PromptCell): boolean {
-  if (!cell.code.trim()) return cell.prompt.trim().length > 0
+  if (!cell.code.trim()) return cell.prompt.trim().length > 0 || cell.attachments.length > 0
   if (cell.corrections.length > 0) return true
   if (cell.codeEdited) return false
-  return cell.generatedFrom == null ? false : cell.prompt.trim() !== cell.generatedFrom.trim()
+  return cell.generatedFrom == null ? false : generationKey(cell).trim() !== cell.generatedFrom.trim()
+}
+
+/**
+ * What the code is written for, kept in `generatedFrom`: the prompt, and the attached files when there are any. A cell
+ * without attachments keys on its prompt alone, as files saved before attachments existed do.
+ */
+export function generationKey(cell: Pick<PromptCell, 'prompt' | 'attachments'>): string {
+  return cell.attachments.length ? `${cell.prompt.trim()}\n\nAttached: ${cell.attachments.join(', ')}` : cell.prompt
 }
 
 export type Segment = { text: string; assumption: boolean }

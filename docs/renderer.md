@@ -121,7 +121,7 @@ The main process menu owns the global shortcuts. The renderer owns the rest.
 
 | Keys | Where | Does |
 | --- | --- | --- |
-| Cmd+N, Cmd+O, Shift+Cmd+O, Cmd+S, Shift+Cmd+S | Menu | New, Open, Open Folder, Save, Save As |
+| Cmd+N, Shift+Cmd+N, Cmd+O, Shift+Cmd+O, Cmd+S, Shift+Cmd+S | Menu | New Notebook, New Project, Open, Open Project, Save, Save As |
 | Cmd+Z, Shift+Cmd+Z | Menu, and command mode | Undo, Redo. In a text field, the field's own undo. Elsewhere, notebook edits. See [Undo and redo](#undo-and-redo) |
 | Cmd+, | Menu | Settings |
 | Shift+Cmd+Enter | Menu | Run all |
@@ -149,10 +149,13 @@ Undo and Redo come two ways. The Edit menu in `electron/menu.ts` replaces the bu
 `CellView.tsx` holds the notebook's main component. A prompt cell shows, top to bottom:
 
 1. The prompt editor, with `@name` references coloured by `RefText`.
-2. The interpretation, when it has `[[assumptions]]`. Click one to correct it.
-3. Run progress: the activity list, a status line, and a question card or install bar. Each step's label is plain words. A step that ran code, an `explore` or a `run_cell`, is a button that opens its code underneath. Its detail, a duration or an error line, sits on its own line under the label, so a long error never squeezes the label. A step marks done with a check, failed with a cross, and `warning` (an exploration that raised) with a warning sign. After the run, the list folds into the "N steps" toggle by the duration, which opens it in a popover that keeps itself inside the window, wherever the toggle sits.
-4. A message for non-Python errors.
-5. Result and Code tabs. A question answered in words shows only the answer, without tabs. The record of how a cell was made is saved with the notebook for Verify, but the UI never shows it.
+2. The attached files, as chips, `AttachmentChips` in `Attachments.tsx`. Each is a shadcn `Badge` with an icon for its kind, the file's name and a cross that calls `detachFile()`, which takes it off the cell and leaves the file in the folder.
+3. The interpretation, when it has `[[assumptions]]`. Click one to correct it.
+4. Run progress: the activity list, a status line, and a question card or install bar. Each step's label is plain words. A step that ran code, an `explore` or a `run_cell`, is a button that opens its code underneath. Its detail, a duration or an error line, sits on its own line under the label, so a long error never squeezes the label. A step marks done with a check, failed with a cross, and `warning` (an exploration that raised) with a warning sign. After the run, the list folds into the "N steps" toggle by the duration, which opens it in a popover that keeps itself inside the window, wherever the toggle sits.
+5. A message for non-Python errors.
+6. Result and Code tabs. A question answered in words shows only the answer, without tabs. The record of how a cell was made is saved with the notebook for Verify, but the UI never shows it.
+
+Files dragged from the computer onto a prompt cell are attached to it. `useFileDrop()` in `notebook/use-file-drop.ts` handles the drag events on the cell's article, only for drags that carry files, and counts enters and leaves so moving over the editor doesn't flicker the dashed "Drop to attach" overlay. The drop calls `actions.attachFiles()`, which sends the `File` objects to `attachFiles()`, adds the paths that come back to `attachments` as one undoable edit, skipping any the cell has, marks a cell that has run `edited`, and bumps `filesVersion` so the Files pane looks again. A reason some files couldn't be attached shows as an error notice.
 
 Under Result: the answer, the outputs, the variables the run created, and suggestions. Suggestions show only on the cell that just finished or the selected one, and not at all when `settings.suggestNext` is off, including ones a cell saved earlier.
 
@@ -192,7 +195,7 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 | Brief | The workspace's `AGENTS.md` as a document, editable in place. Starts from a template. `- [ ]` tasks toggle on click |
 | Variables & Environment | Two views under a switch. Variables from the kernel through `listVariables()`. Environment is the Python's version and its libraries with versions, through `listPackages()`, searchable. The libraries are read when the view is first shown. After a run, a restart or a Python change, `environmentChanged()` reads them again at once if the view is on screen, and otherwise marks them stale so the view reads them when it's next shown, never spawning a Python nobody looks at. `loadEnvironment()` called during a read queues one more read after it, and only the last answer lands |
 | History | The selected cell's revisions. Restore brings one back without calling the model |
-| Files | Workspace files, reloaded after every run. Clicking a data file adds a prompt cell to load it |
+| Files | Workspace files, reloaded after every run. Clicking a data file adds a prompt cell to load it. A button in its header opens the folder in Finder, named for the platform's file manager |
 | Pinned | Result cards for pinned cells, in pin order |
 | Activity | The session log. Click an entry to jump to its cell. With `settings.showCosts` on, each run says what it cost and the top shows the notebook's total. See [Costs](#costs) |
 
@@ -214,7 +217,7 @@ A bridge call the user started should never fail silently. `actions.notifyFailur
 
 ## The notebook name
 
-The notebook's name at the top of the overview, above the folder and the kernel state, is a button that turns into a text field, `NotebookName` in `components/app/`: Enter or leaving the field calls `renameNotebook()`, Esc, or leaving the field empty, keeps the old name, and a name that can't be used stays in the field with the reason under it. The tab in the top bar is unchanged and opens the recent notebooks, with New notebook, Open and Open folder. The field is read-only while the rename is in flight rather than disabled, so it keeps focus and a refused name still answers Enter and Esc. A rename only changes `path`, so the undo stack and any notice showing are left alone.
+The notebook's name at the top of the overview, above the folder and the kernel state, is a button that turns into a text field, `NotebookName` in `components/app/`: Enter or leaving the field calls `renameNotebook()`, Esc, or leaving the field empty, keeps the old name, and a name that can't be used stays in the field with the reason under it. The tab in the top bar is unchanged and opens the recent notebooks, with New notebook (naming the folder it goes in), Open notebook, New project and Open project. The field is read-only while the rename is in flight rather than disabled, so it keeps focus and a refused name still answers Enter and Esc. A rename only changes `path`, so the undo stack and any notice showing are left alone.
 
 ## Settings
 
@@ -235,7 +238,9 @@ Changes save as they're made. Selects save on change. The model id and the Pytho
 
 ## First run and the start page
 
-`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a Dalliance account, a Python, and a first notebook. The account step shows `CloudStatus`, and counts as done once the account is on a plan, see [cloud.md](cloud.md#signing-in). Skipping any step still sets `onboarded`. The start page offers new, open, open folder, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New goes through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, and Open folder asks for a folder first, then does the same in it, so nothing the start page opens is unsaved. File > Open Folder and the notebook tab's menu do the same, and both name the folder in use with `folderName()`.
+`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a Dalliance account, a Python, and a first notebook. The account step shows `CloudStatus`, and counts as done once the account is on a plan, see [cloud.md](cloud.md#signing-in). Skipping any step still sets `onboarded`. The start page offers new project, open project, new notebook, open notebook, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New goes through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, and Open project asks for a folder first, then opens a notebook in it or starts one, so nothing the start page opens is unsaved. File > Open Project and the notebook tab's menu do the same, and the tab names the folder in use with `folderName()`.
+
+New project opens `NewProjectDialog` in `components/app/`, rendered once in `App.tsx` over either screen and shown while the store's `newProject` is true. `askNewProject()` and `closeNewProject()` set it, from the start page, the notebook tab's menu and File > New Project. It asks for a name and shows where the project will go, from `projectsFolder()`, with Change… calling `chooseProjectsFolder()`. Create asks `confirmDiscard()` first, so nothing is made on disk when the user keeps their changes, then calls `createProject()`. A refused name stays in the dialog with the reason under the field. See [storage.md](storage.md#projects).
 
 ## Theming
 

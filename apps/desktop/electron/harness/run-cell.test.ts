@@ -64,7 +64,7 @@ function scriptedModel(steps: Step[]) {
 }
 
 function request(overrides: Partial<RunCellRequest> = {}): RunCellRequest {
-  return { cellId: 'c1', prompt: 'Average order value by month', code: '', generate: true, corrections: [], previousCells: [], ...overrides }
+  return { cellId: 'c1', prompt: 'Average order value by month', code: '', generate: true, corrections: [], attachments: [], previousCells: [], ...overrides }
 }
 
 function harness(model: MockLanguageModelV4, kernel: FakeKernel, extra: Partial<HarnessDeps> = {}) {

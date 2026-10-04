@@ -1,4 +1,4 @@
-import { Activity, CircleAlert, File, FolderOpen, History, LocateFixed, Pencil, Pin, PinOff, Play, RefreshCw, RotateCw, ShieldCheck, Sparkles, Square, Variable } from 'lucide-react'
+import { Activity, CircleAlert, ExternalLink, File, FolderOpen, History, LocateFixed, Pencil, Pin, PinOff, Play, RefreshCw, RotateCw, ShieldCheck, Sparkles, Square, Variable } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { IconButton } from '@/components/app/IconButton'
@@ -240,6 +240,7 @@ function FilesPane() {
   const path = useNotebook((s) => s.path)
   const kernelCwd = useNotebook((s) => s.kernel.cwd)
   const runs = useNotebook((s) => s.log.length)
+  const added = useNotebook((s) => s.filesVersion)
   const [files, setFiles] = useState<FileEntry[] | null>(null)
   const [tick, setTick] = useState(0)
 
@@ -253,33 +254,46 @@ function FilesPane() {
     return () => {
       live = false
     }
-  }, [path, kernelCwd, runs, tick])
+  }, [path, kernelCwd, runs, added, tick])
 
   const load = (file: string) => {
     const id = actions.insertAfterSelected('prompt')
     actions.setPrompt(id, `Load ${file}`)
   }
 
-  const folder = (path ? path.split(/[\\/]/).slice(-2, -1)[0] : kernelCwd.split(/[\\/]/).pop()) ?? ''
+  const reveal = async () => {
+    try {
+      await getApi()?.revealFolder()
+    } catch (err) {
+      actions.notifyFailure("Couldn't open the folder", err)
+    }
+  }
+
   return (
     <Pane
       title="Files"
       icon={<FolderOpen />}
       onClose={close}
       actions={
-        <IconButton label="Refresh" size="icon-xs" onClick={() => setTick((t) => t + 1)}>
-          <RefreshCw />
-        </IconButton>
+        <>
+          <IconButton label={revealLabel()} size="icon-xs" onClick={() => void reveal()}>
+            <ExternalLink />
+          </IconButton>
+          <IconButton label="Refresh" size="icon-xs" onClick={() => setTick((t) => t + 1)}>
+            <RefreshCw />
+          </IconButton>
+        </>
       }
     >
-      <p className="px-4 pb-2 text-xs text-faint">
-        In {folder || 'the notebook folder'}. Click a file to start a cell that loads it.
-      </p>
       {files == null ? null : files.length ? (
         <ul className="flex flex-col px-2 pb-3">
           {files.map((f) => (
             <li key={f.path}>
-              <button type="button" onClick={() => load(f.path)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-hover">
+              <button
+                type="button"
+                onClick={() => load(f.path)}
+                title={`Start a cell that loads ${f.path}`}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-hover">
                 <File className="size-3.5 shrink-0 text-faint" />
                 <span className="truncate">{f.path}</span>
                 <span className="ml-auto shrink-0 text-[11.5px] text-faint tabular-nums">{f.size}</span>
@@ -292,6 +306,12 @@ function FilesPane() {
       )}
     </Pane>
   )
+}
+
+/** What the platform calls showing a folder in its file manager. */
+function revealLabel() {
+  const platform = getApi()?.platform
+  return platform === 'darwin' ? 'Show in Finder' : platform === 'win32' ? 'Show in File Explorer' : 'Show in file manager'
 }
 
 /** Results kept in view while you work further down the notebook, one card per pinned cell. */

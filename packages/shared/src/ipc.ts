@@ -35,6 +35,8 @@ export interface RunCellRequest {
   /** True when the agent must write the code. False to run the existing code directly. */
   generate: boolean
   corrections: Correction[]
+  /** Files attached to the cell, as paths inside the notebook's folder. */
+  attachments: string[]
   /** Ask the small model for a title while the cell runs. */
   nameIt?: boolean
   previousCells: { kind: 'prompt' | 'note'; text: string; code?: string }[]
@@ -252,15 +254,30 @@ export interface RestoreFailure {
   error: string
 }
 
+/** A file from a drop in the window. The preload reads where it is on disk; the window never sees the path. */
+export interface DroppedFile {
+  readonly name: string
+}
+
+/** Files copied into the notebook's folder, as paths inside it, and why any of the rest weren't. */
+export interface AttachResult {
+  paths: string[]
+  error: string | null
+}
+
 export interface OpenedNotebook {
   path: string | null
   notebook: Notebook
 }
 
+/** A new project's first notebook, open on a kernel in the project's folder, or why the project couldn't be made. */
+export type CreatedProject = OpenedNotebook | { error: string }
+
 export type MenuAction =
   | 'new'
+  | 'new-project'
   | 'open'
-  | 'open-folder'
+  | 'open-project'
   | 'save'
   | 'save-as'
   | 'undo'
@@ -333,13 +350,32 @@ export interface DallianceApi {
   openNotebook(): Promise<OpenedNotebook | null>
   /** Writes a new notebook file into the folder in use, so it has a path from the start, on a fresh kernel. Null when the folder can't be written to, after the reason is shown. */
   newNotebook(notebook: Notebook): Promise<OpenedNotebook | null>
-  /** Asks for a folder, an existing one or a new one made in the dialog, and starts a notebook file in it. Null when cancelled, or when the folder can't be written to. */
-  openFolder(notebook: Notebook): Promise<OpenedNotebook | null>
+  /**
+   * Makes a folder called `name` where new projects go, writes `notebook` into it under the same name, and opens it
+   * on a kernel there. A bad or taken name, or a disk that refuses, comes back as an error. Never throws.
+   */
+  createProject(name: string, notebook: Notebook): Promise<CreatedProject>
+  /**
+   * Asks for a project folder and opens the notebook last opened there, or the newest one in it. A folder without
+   * notebooks gets `notebook` as its first. Null when cancelled, or when the folder can't be used.
+   */
+  openProject(notebook: Notebook): Promise<OpenedNotebook | null>
+  /** The folder new projects go in. */
+  projectsFolder(): Promise<string>
+  /** Asks for a new folder for projects to go in and remembers it. Null when cancelled. */
+  chooseProjectsFolder(): Promise<string | null>
   openRecent(path: string): Promise<OpenedNotebook | null>
   recentNotebooks(): Promise<RecentNotebook[]>
   readBrief(): Promise<Brief>
   writeBrief(text: string): Promise<Brief>
   listFiles(): Promise<FileEntry[]>
+  /**
+   * Copies dropped files into `uploads` in the folder in use, under a free name, and returns their paths inside it. A
+   * file already in the folder is used where it is. Never throws: what couldn't be copied comes back as `error`.
+   */
+  attachFiles(files: DroppedFile[]): Promise<AttachResult>
+  /** Opens the folder in use in Finder, or the platform's file manager. Rejects with the reason when it can't. */
+  revealFolder(): Promise<void>
   /**
    * Renames the open notebook's file, as Jupyter does. A notebook without a file is written under that name in the
    * folder in use. Unsaved edits stay unsaved. The name is checked, and a taken one comes back as an error.
@@ -400,12 +436,17 @@ export const IPC = {
   pythonLog: 'python-log',
   openNotebook: 'open-notebook',
   newNotebook: 'new-notebook',
-  openFolder: 'open-folder',
+  createProject: 'create-project',
+  openProject: 'open-project',
+  projectsFolder: 'projects-folder',
+  chooseProjectsFolder: 'choose-projects-folder',
   openRecent: 'open-recent',
   recentNotebooks: 'recent-notebooks',
   readBrief: 'read-brief',
   writeBrief: 'write-brief',
   listFiles: 'list-files',
+  revealFolder: 'reveal-folder',
+  attachFiles: 'attach-files',
   saveNotebook: 'save-notebook',
   checkPins: 'check-pins',
   renameNotebook: 'rename-notebook',

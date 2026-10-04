@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC, type DallianceApi } from '@dalliance/shared/ipc'
 
 function subscribe<T extends unknown[]>(channel: string, listener: (...args: T) => void) {
@@ -29,12 +29,18 @@ const api: DallianceApi = {
   onPythonLog: (listener) => subscribe(IPC.pythonLog, listener),
   openNotebook: () => ipcRenderer.invoke(IPC.openNotebook),
   newNotebook: (notebook) => ipcRenderer.invoke(IPC.newNotebook, notebook),
-  openFolder: (notebook) => ipcRenderer.invoke(IPC.openFolder, notebook),
+  createProject: (name, notebook) => ipcRenderer.invoke(IPC.createProject, name, notebook),
+  openProject: (notebook) => ipcRenderer.invoke(IPC.openProject, notebook),
+  projectsFolder: () => ipcRenderer.invoke(IPC.projectsFolder),
+  chooseProjectsFolder: () => ipcRenderer.invoke(IPC.chooseProjectsFolder),
   openRecent: (path) => ipcRenderer.invoke(IPC.openRecent, path),
   recentNotebooks: () => ipcRenderer.invoke(IPC.recentNotebooks),
   readBrief: () => ipcRenderer.invoke(IPC.readBrief),
   writeBrief: (text) => ipcRenderer.invoke(IPC.writeBrief, text),
   listFiles: () => ipcRenderer.invoke(IPC.listFiles),
+  revealFolder: () => ipcRenderer.invoke(IPC.revealFolder),
+  // Only a File from a real drop has a path. Anything else reads as '' and is left out
+  attachFiles: (files) => ipcRenderer.invoke(IPC.attachFiles, files.map((f) => webUtils.getPathForFile(f as File)).filter(Boolean)),
   renameNotebook: (current, name, notebook) => ipcRenderer.invoke(IPC.renameNotebook, current, name, notebook),
   saveNotebook: (path, notebook) => ipcRenderer.invoke(IPC.saveNotebook, path, notebook),
   checkPins: (pins) => ipcRenderer.invoke(IPC.checkPins, pins),

@@ -98,7 +98,7 @@ The renderer is treated as untrusted web content.
 - The main process answers IPC only from the top frame of its own window showing the app's own page. See [ipc.md](ipc.md#who-may-call).
 - Packaged builds get a strict Content Security Policy from the `dalliance-csp` plugin in `vite.config.ts`. The dev server skips it because React Fast Refresh needs inline scripts.
 - The app holds no model keys. The account's session and tokens stay in the main process, and the session is encrypted at rest with Electron `safeStorage`. The renderer only sees the name, email and plan. See [cloud.md](cloud.md#security).
-- File paths from the renderer aren't trusted. `saveNotebook()` only writes to an absolute path ending in `.ipynb` and shows the Save dialog for anything else. `openRecent()` only opens a path already in `settings.recent`. `checkPins()` only reads files inside the folder in use, by relative paths.
+- File paths from the renderer aren't trusted. `saveNotebook()` only writes to an absolute path ending in `.ipynb` and shows the Save dialog for anything else. `openRecent()` only opens a path already in `settings.recent`. `createProject()` takes a folder name, never a path, and makes it in the projects folder the main process keeps. `attachFiles()` takes `File` objects from a drop, and the preload reads their paths with `webUtils.getPathForFile()`, so the window can't name a file to copy. `checkPins()` only reads files inside the folder in use, by relative paths.
 
 The agent is fenced in by the harness rather than by the OS:
 

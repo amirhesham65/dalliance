@@ -65,7 +65,7 @@ describe.skipIf(!enabled)('end to end', () => {
   async function run(prompt: string, code = '', generate = true) {
     const events: RunEvent[] = []
     const result = await runCell(
-      { cellId: `c${previous.length}`, prompt, code, generate, corrections: [], previousCells: [...previous] },
+      { cellId: `c${previous.length}`, prompt, code, generate, corrections: [], attachments: [], previousCells: [...previous] },
       { ...deps, emit: (e) => events.push(e) },
     )
     console.log(`\n# ${prompt}\n${result.activity.map((a) => `  ${a.status === 'error' ? 'x' : '-'} ${a.label}${a.detail ? ` (${a.detail})` : ''}`).join('\n')}\n--- code\n${result.code}\n--- answer: ${result.answer}\n--- interpretation: ${result.interpretation}\n--- outputs: ${result.outputs.map((o) => o.type).join(', ')}\n--- error: ${result.error}`)

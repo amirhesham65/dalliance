@@ -1,9 +1,11 @@
 import { existsSync, mkdirSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rmdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { DESKTOP_SCHEME } from '@dalliance/shared/cloud'
 import {
+  type AttachResult,
+  type CreatedProject,
   type DraftState,
   IPC,
   type MenuAction,
@@ -25,11 +27,13 @@ import { DraftStore } from './draft'
 import { prepareImage } from './images'
 import { type AppPage, isTrustedSender } from './ipc-sender'
 import { buildMenu } from './menu'
-import { folderForNewNotebook, newNotebookPath, notebookPathIn, renameNotebookFile } from './notebook-files'
+import { folderForNewNotebook, newNotebookPath, notebookInProject, notebookPathIn, projectPathIn, renameNotebookFile } from './notebook-files'
+import { isBroadFolder } from './harness/workspace'
 import { OpenQueue, notebookFromArgv } from './open-files'
 import { NotebookSession } from './session'
 import { SettingsStore } from './settings'
 import { Updates } from './updates'
+import { copyIntoUploads } from './uploads'
 
 const isMac = process.platform === 'darwin'
 const TITLE_BAR_HEIGHT = 48
@@ -114,12 +118,12 @@ async function openFile(file: string): Promise<OpenedNotebook> {
 const ipynbText = (notebook: Notebook) => `${JSON.stringify(toIpynb(notebook), null, 1)}\n`
 
 /**
- * Write a notebook under the first free "Untitled" name in `dir`. The `wx` flag never overwrites a file that
- * appeared after the name was picked: that name is skipped and the next free one tried.
+ * Write a notebook under the first free `name` in `dir`: "Untitled", then "Untitled 2". The `wx` flag never overwrites
+ * a file that appeared after the name was picked: that name is skipped and the next free one tried.
  */
-async function writeNewNotebook(dir: string, notebook: Notebook): Promise<string> {
+async function writeNewNotebook(dir: string, notebook: Notebook, name?: string): Promise<string> {
   for (let attempt = 0; ; attempt++) {
-    const file = newNotebookPath(dir)
+    const file = newNotebookPath(dir, name)
     try {
       await writeFile(file, ipynbText(notebook), { flag: 'wx' })
       return file
@@ -129,27 +133,36 @@ async function writeNewNotebook(dir: string, notebook: Notebook): Promise<string
   }
 }
 
+/** Write a new notebook into `dir` and open it there on a fresh kernel. Throws when the folder can't be written to. */
+async function startNotebook(dir: string, notebook: Notebook, name?: string): Promise<OpenedNotebook> {
+  // The folder may have been moved or deleted since it was chosen
+  await mkdir(dir, { recursive: true })
+  const file = await writeNewNotebook(dir, notebook, name)
+  await session.openWorkspace(dir)
+  // Only once the notebook is really open, so a failure above leaves no recent entry behind
+  app.addRecentDocument(file)
+  settings.addRecent(file)
+  drafts.update({ path: file, dirty: false, notebook })
+  return { path: file, notebook }
+}
+
+const firstLine = (err: unknown) => (err instanceof Error ? err.message.split('\n')[0] : String(err))
+
 /**
  * A new notebook is a file from the start, in the folder it was made for, with a fresh kernel there. When the folder
  * can't be written to, the reason is shown in a dialog and the result is null, so the window stays as it was.
  */
 async function createNotebook(dir: string, notebook: Notebook): Promise<OpenedNotebook | null> {
   try {
-    // The folder may have been moved or deleted since it was chosen
-    await mkdir(dir, { recursive: true })
-    const file = await writeNewNotebook(dir, notebook)
-    await session.openWorkspace(dir)
-    // Only once the notebook is really open, so a failure above leaves no recent entry behind
-    app.addRecentDocument(file)
-    settings.addRecent(file)
-    drafts.update({ path: file, dirty: false, notebook })
-    return { path: file, notebook }
+    return await startNotebook(dir, notebook)
   } catch (err) {
-    const detail = err instanceof Error ? err.message.split('\n')[0] : String(err)
-    if (win) await dialog.showMessageBox(win, { type: 'error', message: "Couldn't create a notebook here", detail: `${dir}\n${detail}` })
+    if (win) await dialog.showMessageBox(win, { type: 'error', message: "Couldn't create a notebook here", detail: `${dir}\n${firstLine(err)}` })
     return null
   }
 }
+
+/** Where new projects go: the folder chosen for them, or the default one when none was or it has gone. */
+const projectsFolder = () => settings.projectsDir ?? defaultWorkspace
 
 function createWindow() {
   win = new BrowserWindow({
@@ -326,17 +339,68 @@ function registerIpc() {
   // A notebook opened straight from Documents makes it the folder in use, but new ones still never land there
   handle(IPC.newNotebook, (_e, notebook: Notebook) => createNotebook(folderForNewNotebook(session.dir, defaultWorkspace), notebook))
 
-  handle(IPC.openFolder, async (_e, notebook: Notebook) => {
+  handle(IPC.projectsFolder, () => projectsFolder())
+
+  handle(IPC.chooseProjectsFolder, async () => {
     if (!win) return null
-    // On macOS the dialog's New Folder button makes a folder and picks it in one go
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-      title: 'Choose a folder for your notebooks',
-      buttonLabel: 'Use folder',
-      defaultPath: session.dir,
+      title: 'Choose where new projects go',
+      buttonLabel: 'Choose',
+      defaultPath: projectsFolder(),
       properties: ['openDirectory', 'createDirectory'],
     })
     if (canceled || !filePaths[0]) return null
-    return createNotebook(filePaths[0], notebook)
+    settings.setProjectsDir(filePaths[0])
+    return filePaths[0]
+  })
+
+  // A project is a folder of its own. Its first notebook takes the project's name.
+  handle(IPC.createProject, async (_e, name: string, notebook: Notebook): Promise<CreatedProject> => {
+    const target = projectPathIn(projectsFolder(), typeof name === 'string' ? name : '')
+    if ('error' in target) return target
+    try {
+      await mkdir(projectsFolder(), { recursive: true })
+      // Not recursive: a folder that appeared under that name since the check is never taken over
+      await mkdir(target.path)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') return { error: `There is already a folder called "${target.name}" there.` }
+      return { error: `Couldn't create the project: ${firstLine(err)}` }
+    }
+    try {
+      return await startNotebook(target.path, notebook, target.name)
+    } catch (err) {
+      // Leave nothing behind but what was there. rmdir only removes an empty folder.
+      await rmdir(target.path).catch(() => {})
+      return { error: `Couldn't create the project: ${firstLine(err)}` }
+    }
+  })
+
+  handle(IPC.openProject, async (_e, notebook: Notebook) => {
+    if (!win) return null
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Open project',
+      buttonLabel: 'Open',
+      defaultPath: projectsFolder(),
+      properties: ['openDirectory'],
+    })
+    const dir = filePaths[0]
+    if (canceled || !dir) return null
+    // The agent can't list a folder like Documents, so it makes a poor project
+    if (isBroadFolder(dir)) {
+      await dialog.showMessageBox(win, {
+        type: 'info',
+        message: `${path.basename(dir) || dir} is too broad to be a project`,
+        detail: 'Choose the folder that holds your notebooks and data, or start a new project.',
+      })
+      return null
+    }
+    try {
+      const file = await notebookInProject(dir, settings.recent)
+      return file ? await openFile(file) : await startNotebook(dir, notebook)
+    } catch (err) {
+      await dialog.showMessageBox(win, { type: 'error', message: "Couldn't open the project", detail: `${dir}\n${firstLine(err)}` })
+      return null
+    }
   })
 
   handle(IPC.openRecent, async (_e, file: string) => {
@@ -357,6 +421,18 @@ function registerIpc() {
   handle(IPC.readBrief, () => session.readBrief())
   handle(IPC.writeBrief, (_e, text: string) => session.writeBrief(text))
   handle(IPC.listFiles, () => session.files())
+  // The paths come from the preload, which reads them off File objects from a real drop. The window can't name one.
+  handle(IPC.attachFiles, async (_e, sources: unknown): Promise<AttachResult> => {
+    if (!Array.isArray(sources) || !sources.every((s) => typeof s === 'string')) return { paths: [], error: "Couldn't attach those files." }
+    // The agent can't list a folder like Documents, so files dropped there would be lost on it
+    if (isBroadFolder(session.dir)) return { paths: [], error: 'Files can only be attached in a project. Create or open one first.' }
+    return copyIntoUploads(session.dir, sources)
+  })
+  // Always the folder in use, never a path from the window
+  handle(IPC.revealFolder, async () => {
+    const failed = await shell.openPath(session.dir)
+    if (failed) throw new Error(failed)
+  })
 
   handle(IPC.saveNotebook, async (_e, current: string | null, unpinned: Notebook): Promise<SavedNotebook | null> => {
     if (!win) return null

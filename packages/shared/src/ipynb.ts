@@ -35,7 +35,7 @@ type Json = Record<string, unknown>
 const DEFAULT_KERNELSPEC = { display_name: 'Python 3', language: 'python', name: 'python3' }
 
 /** The keys of a cell's metadata.dalliance that Dalliance reads. Any other key there is carried through. */
-const CELL_FIELDS = ['prompt', 'title', 'titleFrom', 'generatedFrom', 'codeEdited', 'interpretation', 'answer', 'suggestions', 'history', 'variables', 'showTables', 'state', 'durationMs', 'provenance']
+const CELL_FIELDS = ['prompt', 'attachments', 'title', 'titleFrom', 'generatedFrom', 'codeEdited', 'interpretation', 'answer', 'suggestions', 'history', 'variables', 'showTables', 'state', 'durationMs', 'provenance']
 
 const lines = (s: string): string[] => (s ? s.split(/(?<=\n)/) : [])
 const joinSource = (v: unknown): string => (Array.isArray(v) ? v.filter((x) => typeof x === 'string').join('') : typeof v === 'string' ? v : '')
@@ -318,6 +318,7 @@ function promptToNb(cell: PromptCell): Json {
         // Keys a newer Dalliance wrote. Ours win where they overlap
         ...asObject(metadata.dalliance),
         prompt: cell.prompt,
+        ...(cell.attachments.length ? { attachments: cell.attachments } : {}),
         ...(cell.title ? { title: cell.title, titleFrom: cell.titleFrom } : {}),
         generatedFrom: cell.generatedFrom,
         codeEdited: cell.codeEdited,
@@ -403,6 +404,7 @@ export function fromIpynb(raw: unknown): Notebook {
     const cell: PromptCell = {
       ...base,
       id: id ?? base.id,
+      attachments: asStrings(meta.attachments),
       title: asString(meta.title),
       titleFrom: asString(meta.titleFrom),
       // Missing or mistyped means the code was written for this prompt, as in newPromptCell

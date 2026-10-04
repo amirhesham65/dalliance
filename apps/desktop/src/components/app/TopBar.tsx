@@ -1,4 +1,4 @@
-import { ChevronDown, FilePlus, FolderOpen, FolderPlus, PanelLeft, Settings } from 'lucide-react'
+import { ChevronDown, FileInput, FilePlus, FolderOpen, FolderPlus, PanelLeft, Settings } from 'lucide-react'
 import { useState } from 'react'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -110,10 +110,21 @@ function NotebookTab() {
           <MenuButton
             icon={<FilePlus />}
             label="New notebook"
+            detail={`in ${folder}`}
             onClick={() => void load(() => api!.newNotebook(welcomeNotebook()))}
           />
-          <MenuButton icon={<FolderOpen />} label="Open…" onClick={() => void load(() => api!.openNotebook())} />
-          <MenuButton icon={<FolderPlus />} label="Open folder…" detail={folder} onClick={() => void load(() => api!.openFolder(welcomeNotebook()))} />
+          <MenuButton icon={<FileInput />} label="Open notebook…" onClick={() => void load(() => api!.openNotebook())} />
+        </div>
+        <div className="mt-1 flex flex-col border-t pt-1">
+          <MenuButton
+            icon={<FolderPlus />}
+            label="New project…"
+            onClick={() => {
+              setOpen(false)
+              actions.askNewProject()
+            }}
+          />
+          <MenuButton icon={<FolderOpen />} label="Open project…" onClick={() => void load(() => api!.openProject(welcomeNotebook()))} />
         </div>
       </PopoverContent>
     </Popover>

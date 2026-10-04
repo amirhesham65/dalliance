@@ -44,3 +44,15 @@ describe('the Kernel menu', () => {
     expect(sent).toEqual(['verify'])
   })
 })
+
+describe('the File menu', () => {
+  it('offers new and open for notebooks and for projects', () => {
+    const sent: string[] = []
+    buildMenu((action) => sent.push(action))
+    const file = built.at(-1)!.find((m) => m.label === 'File')!
+    const items = (file.submenu as MenuItemConstructorOptions[]).filter((i) => i.label)
+    for (const label of ['New Notebook', 'New Project…', 'Open…', 'Open Project…']) (items.find((i) => i.label === label)!.click as () => void)()
+    expect(sent).toEqual(['new', 'new-project', 'open', 'open-project'])
+    expect(items.find((i) => i.label === 'New Project…')!.accelerator).toBe('Shift+CmdOrCtrl+N')
+  })
+})

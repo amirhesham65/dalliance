@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Check, FilePlus, FolderOpen, FolderPlus, NotebookText } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, FileInput, FilePlus, FolderOpen, FolderPlus, NotebookText } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ago } from '@/lib/notebook/text'
@@ -64,9 +64,10 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
           <p className="mt-3 max-w-[40ch] text-[14px] leading-[1.6] text-muted-foreground">A notebook where each cell is written in plain language and turned into working Python.</p>
 
           <div className="mt-7 -mx-2 flex flex-col">
+            <Row icon={<FolderPlus />} label="New project…" shortcut={`⇧${mod}N`} onClick={() => actions.askNewProject()} />
+            <Row icon={<FolderOpen />} label="Open project…" shortcut={`⇧${mod}O`} onClick={() => void startWith(() => api!.openProject(welcomeNotebook()))} />
             <Row icon={<FilePlus />} label="New notebook" shortcut={`${mod}N`} onClick={() => void startWith(fresh(welcomeNotebook()))} />
-            <Row icon={<FolderOpen />} label="Open…" shortcut={`${mod}O`} onClick={() => void startWith(() => api!.openNotebook())} />
-            <Row icon={<FolderPlus />} label="Open folder…" shortcut={`⇧${mod}O`} onClick={() => void startWith(() => api!.openFolder(welcomeNotebook()))} />
+            <Row icon={<FileInput />} label="Open notebook…" shortcut={`${mod}O`} onClick={() => void startWith(() => api!.openNotebook())} />
             <Row icon={<NotebookText />} label="Sample notebook" onClick={() => void startWith(fresh(sampleNotebook()))} />
           </div>
           <p className="mt-2 text-xs text-faint" title={cwd}>

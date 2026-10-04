@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
@@ -9,7 +9,7 @@ import { SIGNED_OUT, fakeApi, fakeSettings, result } from '@/test/fake-api'
 
 beforeEach(() => {
   actions.load({ cells: [newPromptCell('')] }, null)
-  useNotebook.setState({ settings: null })
+  useNotebook.setState({ settings: null, newProject: false })
 })
 
 function setup(settings: Partial<SettingsView> = {}, { signedIn = true } = {}) {
@@ -104,30 +104,85 @@ describe('Welcome', () => {
     expect(useNotebook.getState()).toMatchObject({ path: '/work/Untitled 2.ipynb', screen: 'notebook' })
   })
 
-  it('starts a notebook in the folder that was picked, and stays put when the dialog is cancelled', async () => {
+  it('opens the project that was picked, and stays put when the dialog is cancelled', async () => {
     const user = userEvent.setup()
     const { api } = setup()
     let picked: string | null = null
-    api.openFolder = async (notebook) => (picked ? { path: `${picked}/Untitled.ipynb`, notebook } : null)
+    api.openProject = async (notebook) => (picked ? { path: `${picked}/survival.ipynb`, notebook } : null)
     actions.showWelcome(false)
     render(<App />)
 
-    await user.click(await screen.findByRole('button', { name: /Open folder/ }))
+    await user.click(await screen.findByRole('button', { name: /Open project/ }))
     expect(useNotebook.getState()).toMatchObject({ path: null, screen: 'welcome' })
 
     picked = '/work/trials'
-    await user.click(screen.getByRole('button', { name: /Open folder/ }))
-    expect(useNotebook.getState()).toMatchObject({ path: '/work/trials/Untitled.ipynb', screen: 'notebook' })
+    await user.click(screen.getByRole('button', { name: /Open project/ }))
+    expect(useNotebook.getState()).toMatchObject({ path: '/work/trials/survival.ipynb', screen: 'notebook' })
   })
 
-  it('opens a folder from the File menu', async () => {
+  it('opens a project from the File menu', async () => {
     const { api, menu } = setup()
-    api.openFolder = async (notebook) => ({ path: '/work/menu/Untitled.ipynb', notebook })
+    api.openProject = async (notebook) => ({ path: '/work/menu/Untitled.ipynb', notebook })
     render(<App />)
     expect(await screen.findByRole('textbox', { name: 'Prompt' })).toBeInTheDocument()
 
-    menu('open-folder')
+    menu('open-project')
     await vi.waitFor(() => expect(useNotebook.getState().path).toBe('/work/menu/Untitled.ipynb'))
+  })
+
+  it('creates a project from a name, where projects go, and opens its first notebook', async () => {
+    const user = userEvent.setup()
+    const { api } = setup()
+    const made: string[] = []
+    api.createProject = async (name, notebook) => {
+      made.push(name)
+      return { path: `/tmp/projects/${name}/${name}.ipynb`, notebook }
+    }
+    actions.showWelcome(false)
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: /New project/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'New project' })
+    expect(within(dialog).getByRole('button', { name: 'Create project' })).toBeDisabled()
+    expect(await within(dialog).findByText('/tmp/projects', { exact: false })).toBeInTheDocument()
+
+    await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Churn{Enter}')
+    expect(made).toEqual(['Churn'])
+    expect(useNotebook.getState()).toMatchObject({ path: '/tmp/projects/Churn/Churn.ipynb', screen: 'notebook', newProject: false })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('keeps the dialog open with the reason when a project name is refused', async () => {
+    const user = userEvent.setup()
+    const { api, menu } = setup()
+    api.createProject = async () => ({ error: 'There is already a folder called "Churn" there.' })
+    render(<App />)
+    expect(await screen.findByRole('textbox', { name: 'Prompt' })).toBeInTheDocument()
+
+    menu('new-project')
+    const dialog = await screen.findByRole('dialog', { name: 'New project' })
+    await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Churn')
+    await user.click(within(dialog).getByRole('button', { name: 'Create project' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('already a folder called "Churn"')
+    expect(useNotebook.getState().path).toBeNull()
+  })
+
+  it('creates nothing when unsaved changes are kept', async () => {
+    const user = userEvent.setup()
+    const { api } = setup()
+    let made = 0
+    api.confirmDiscard = async () => false
+    api.createProject = async (name, notebook) => {
+      made++
+      return { path: `/tmp/projects/${name}/${name}.ipynb`, notebook }
+    }
+    actions.showWelcome(false)
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: /New project/ }))
+    await user.type(await screen.findByRole('textbox', { name: 'Name' }), 'Churn{Enter}')
+    expect(made).toBe(0)
+    expect(screen.getByRole('dialog', { name: 'New project' })).toBeInTheDocument()
   })
 
   it('stays on the start page when a notebook could not be created', async () => {

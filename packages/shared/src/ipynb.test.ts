@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { FORMAT_VERSION, TABLE_MIME, fromIpynb, toIpynb } from './ipynb'
-import { type Output, type PromptCell, type Provenance, needsGeneration, newNoteCell, newPromptCell, parseInterpretation } from './notebook'
+import { type Output, type PromptCell, type Provenance, generationKey, needsGeneration, newNoteCell, newPromptCell, parseInterpretation } from './notebook'
 
 describe('ipynb', () => {
   it('round-trips prompts, code and every output type', () => {
@@ -333,6 +333,34 @@ describe('needsGeneration', () => {
     expect(needsGeneration({ ...base, corrections: [{ from: 'a', to: 'b' }] })).toBe(true))
   it('generates when there is no code yet', () => expect(needsGeneration(newPromptCell('Plot it'))).toBe(true))
   it('retries after a failed generation', () => expect(needsGeneration({ ...base, generatedFrom: '' })).toBe(true))
+  it('regenerates when a file is attached or taken off, and not after a run for those files', () => {
+    const attached = { ...base, attachments: ['uploads/orders.csv'] }
+    expect(needsGeneration(attached)).toBe(true)
+    const ran = { ...attached, generatedFrom: generationKey(attached) }
+    expect(needsGeneration(ran)).toBe(false)
+    expect(needsGeneration({ ...ran, attachments: [] })).toBe(true)
+    expect(needsGeneration({ ...ran, attachments: ['uploads/orders.csv', 'uploads/plans.csv'] })).toBe(true)
+  })
+  it('keys a cell without attachments on its prompt alone, as older files saved it', () => expect(generationKey(base)).toBe(base.prompt))
+  it('generates for attached files even with no prompt', () => expect(needsGeneration({ ...newPromptCell(''), attachments: ['uploads/a.csv'] })).toBe(true))
+})
+
+describe('attachments', () => {
+  it('round-trip, and are left out of the file when there are none', () => {
+    const cell: PromptCell = { ...newPromptCell('Load these'), attachments: ['uploads/orders.csv', 'data/plans.xlsx'] }
+    const nb = toIpynb({ cells: [cell, newPromptCell('Nothing attached')] }) as { cells: { metadata: { dalliance: Record<string, unknown> } }[] }
+    expect(nb.cells[1].metadata.dalliance).not.toHaveProperty('attachments')
+    const back = fromIpynb(nb).cells as PromptCell[]
+    expect(back[0].attachments).toEqual(['uploads/orders.csv', 'data/plans.xlsx'])
+    expect(back[1].attachments).toEqual([])
+  })
+
+  it('reads a mistyped list as no attachments, keeping the strings it can', () => {
+    const read = (attachments: unknown) =>
+      (fromIpynb({ nbformat: 4, cells: [{ cell_type: 'code', source: '', metadata: { dalliance: { prompt: 'x', attachments } } }] }).cells[0] as PromptCell).attachments
+    expect(read('uploads/a.csv')).toEqual([])
+    expect(read(['uploads/a.csv', 3, null])).toEqual(['uploads/a.csv'])
+  })
 })
 
 describe('parseInterpretation', () => {

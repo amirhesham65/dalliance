@@ -146,7 +146,8 @@ Some models write the rest of a tool call into a text field, like `...the answer
 5. This cell's current code, when regenerating after a prompt change or a correction.
 6. The user's corrections.
 7. When Settings turns the suggested next prompts off (`suggestNext`), a line telling the model to leave `next` empty in `finish`. It sits here rather than in the system prompt so switching it never breaks the cache.
-8. The prompt.
+8. The files attached to the cell, when there are any, as paths relative to the notebook's folder, which is the kernel's working directory.
+9. The prompt. A cell with attached files and no prompt asks the model to load them and show what they hold.
 
 Some rules in the system prompt shape the product, so change them knowingly:
 
