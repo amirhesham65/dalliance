@@ -15,10 +15,16 @@ export function SiteHeader() {
       </div>
       <StickyBar>
         <Wordmark />
-        <a className={button} href="/download?from=bar">
-          <AppleLogo />
-          Download for macOS
-        </a>
+        <div className="flex items-center gap-5">
+          {/* No room beside the download button on a phone, where the footer links it instead */}
+          <Link className="text-[14px] font-medium text-ink-subtle no-underline hover:text-ink max-sm:hidden" href="/blog">
+            Blog
+          </Link>
+          <a className={button} href="/download?from=bar">
+            <AppleLogo />
+            Download for macOS
+          </a>
+        </div>
       </StickyBar>
     </>
   )
@@ -77,6 +83,7 @@ export function SiteFooter() {
         <span>© 2026 {site.author}</span>
         <nav aria-label="Footer" className="flex gap-4 [&_a]:text-ink-subtle [&_a:hover]:text-ink">
           <Link href="/">Home</Link>
+          <Link href="/blog">Blog</Link>
           <Link href="/privacy">Privacy</Link>
         </nav>
       </footer>
