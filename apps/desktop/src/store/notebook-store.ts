@@ -8,6 +8,7 @@ import type {
   CellRunResult,
   KernelState,
   DallianceApi,
+  DroppedFile,
   EnvironmentView,
   ModelList,
   PaneName,
@@ -29,6 +30,7 @@ import {
   type PromptCell,
   MAX_REVISIONS,
   MIN_TITLE_PROMPT,
+  generationKey,
   needsGeneration,
   newNoteCell,
   tablesOpen,
@@ -187,6 +189,10 @@ export interface NotebookState {
   verify: VerifyReport | null
   /** Whether Verify's confirmation is showing. */
   verifyAsking: boolean
+  /** Whether the New project dialog is showing. */
+  newProject: boolean
+  /** Bumped when files are added to the folder outside a run, so the Files pane looks again. */
+  filesVersion: number
   /** What differs from the notebook's pins, for the banner over the notebook. Empty when nothing did, or once dismissed. */
   pinChanges: PinChange[]
 }
@@ -252,6 +258,8 @@ export const useNotebook = create<NotebookState>(() => ({
   notice: null,
   verify: null,
   verifyAsking: false,
+  newProject: false,
+  filesVersion: 0,
   pinChanges: [],
 }))
 
@@ -565,6 +573,15 @@ export const actions = {
     set({ screen: 'notebook', canReturn: false })
   },
 
+  /** The New project dialog, over whichever screen is showing. */
+  askNewProject() {
+    set({ newProject: true })
+  },
+
+  closeNewProject() {
+    set({ newProject: false })
+  },
+
   /** Settings, on the given section or the one it was last left on. */
   openSettings(section?: SettingsSection) {
     lastSettingsPage = section ?? lastSettingsPage
@@ -715,7 +732,7 @@ export const actions = {
     changeFields(cell, {
       prompt: rev.prompt,
       code: rev.code,
-      generatedFrom: rev.prompt,
+      generatedFrom: generationKey({ prompt: rev.prompt, attachments: cell.attachments }),
       codeEdited: rev.edited,
       interpretation: rev.interpretation,
       answer: rev.answer,
@@ -735,6 +752,34 @@ export const actions = {
 
   setPrompt(id: string, prompt: string) {
     updateCell(id, (c) => (c.kind !== 'prompt' ? c : { ...c, prompt, state: hasRun(c) && c.state !== 'stale' ? 'edited' : c.state }))
+  },
+
+  /**
+   * Copy dropped files into the project's uploads folder and attach them to a prompt cell. A file the cell already has
+   * isn't added twice. Attaching is an edit: Undo takes it back, and the next run writes the code again.
+   */
+  async attachFiles(id: string, files: DroppedFile[]) {
+    if (!api || !files.length) return
+    let result
+    try {
+      result = await api.attachFiles(files)
+    } catch (err) {
+      return actions.notifyFailure("Couldn't attach the files", err)
+    }
+    if (result.paths.length) set((s) => ({ filesVersion: s.filesVersion + 1 }))
+    const cell = findCell(id)
+    if (cell?.kind === 'prompt') {
+      const added = result.paths.filter((p) => !cell.attachments.includes(p))
+      if (added.length) changeFields(cell, { attachments: [...cell.attachments, ...added], state: hasRun(cell) && cell.state !== 'stale' ? 'edited' : cell.state })
+    }
+    if (result.error) actions.notify(result.error, { tone: 'error' })
+  },
+
+  /** Take a file off a cell. The file stays in the folder, since another cell may use it. */
+  detachFile(id: string, file: string) {
+    const cell = findCell(id)
+    if (cell?.kind !== 'prompt' || !cell.attachments.includes(file)) return
+    changeFields(cell, { attachments: cell.attachments.filter((f) => f !== file), state: hasRun(cell) && cell.state !== 'stale' ? 'edited' : cell.state })
   },
 
   setCode(id: string, code: string) {
@@ -825,7 +870,7 @@ export const actions = {
 
   run(id: string) {
     const cell = get().notebook.cells.find((c) => c.id === id)
-    if (!cell || cell.kind !== 'prompt' || (!cell.prompt.trim() && !cell.code.trim())) return
+    if (!cell || cell.kind !== 'prompt' || (!cell.prompt.trim() && !cell.code.trim() && !cell.attachments.length)) return
     if (get().runs[id] || queue.includes(id)) return
     queue.push(id)
     set((s) => ({ runs: { ...s.runs, [id]: emptyRun('queued') } }))
@@ -1109,6 +1154,7 @@ async function pump() {
         // Any run names a cell that has no title for its current prompt, including reruns of saved code
         nameIt: !verifying && cell.prompt.trim().length >= MIN_TITLE_PROMPT && cell.titleFrom?.trim() !== cell.prompt.trim(),
         corrections: cell.corrections,
+        attachments: cell.attachments,
         previousCells: cells.slice(0, index).map((c) =>
           c.kind === 'note' ? { kind: 'note' as const, text: c.markdown } : { kind: 'prompt' as const, text: c.prompt, code: c.code },
         ),
@@ -1167,11 +1213,12 @@ function finish(id: string, generate: boolean, result: CellRunResult, sent: Prom
     const nothingRan = result.executionCount == null && result.outputs.length === 0 && !result.ok
     // The user can keep typing while the agent works. Their edits win over the result, and the cell stays
     // `edited`, so the next run regenerates for the new prompt or runs their code
-    const promptEdited = cell.prompt !== sent.prompt
+    const promptEdited = cell.prompt !== sent.prompt || cell.attachments !== sent.attachments
     const codeEdited = cell.code !== sent.code
     const ran: PromptCell = {
       ...cell,
       prompt: sent.prompt,
+      attachments: sent.attachments,
       code: result.code,
       outputs: result.outputs,
       variables: result.ok ? result.variables : cell.variables,
@@ -1181,7 +1228,7 @@ function finish(id: string, generate: boolean, result: CellRunResult, sent: Prom
       ...(generate
         ? {
             // A failed generation leaves generatedFrom empty, so the next run tries again
-            generatedFrom: result.ok ? sent.prompt : '',
+            generatedFrom: result.ok ? generationKey(sent) : '',
             codeEdited: false,
             corrections: result.ok ? [] : cell.corrections,
             interpretation: result.ok ? result.interpretation : cell.interpretation,
@@ -1201,6 +1248,7 @@ function finish(id: string, generate: boolean, result: CellRunResult, sent: Prom
         ? {
             ...ran,
             prompt: cell.prompt,
+            attachments: cell.attachments,
             code: codeEdited ? cell.code : ran.code,
             codeEdited: codeEdited || ran.codeEdited,
             state: 'edited',

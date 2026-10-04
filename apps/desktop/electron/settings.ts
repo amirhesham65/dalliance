@@ -17,6 +17,8 @@ interface Stored {
   onboarded: boolean
   /** The folder in use: where new notebooks go, and where the kernel and the agent work. Null for the default one. */
   workspaceDir: string | null
+  /** Where new projects go. Null for the default folder. */
+  projectsDir: string | null
   /** Notebooks opened or saved lately, newest first. */
   recent: { path: string; openedAt: number }[]
 }
@@ -33,6 +35,7 @@ const DEFAULTS: Stored = {
   showCosts: false,
   onboarded: false,
   workspaceDir: null,
+  projectsDir: null,
   recent: [],
 }
 
@@ -114,6 +117,18 @@ export class SettingsStore {
   setWorkspaceDir(dir: string) {
     if (dir === this.data.workspaceDir) return
     this.data.workspaceDir = dir
+    this.save()
+  }
+
+  /** The folder chosen for new projects, if it is still there. */
+  get projectsDir() {
+    const dir = this.data.projectsDir
+    return dir && existsSync(dir) ? dir : null
+  }
+
+  setProjectsDir(dir: string) {
+    if (dir === this.data.projectsDir) return
+    this.data.projectsDir = dir
     this.save()
   }
 

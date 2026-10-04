@@ -1,5 +1,5 @@
 import { existsSync, statSync } from 'node:fs'
-import { rename } from 'node:fs/promises'
+import { readdir, rename, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { isBroadFolder } from './harness/workspace'
 
@@ -23,12 +23,45 @@ const MAX_NAME = 100
 
 /** A name someone typed for a notebook, as a file name: no ".ipynb", no path characters, not empty. */
 export function cleanNotebookName(raw: string): { name: string } | { error: string } {
-  const name = raw.trim().replace(/\.ipynb$/i, '').trim()
-  if (!name) return { error: 'Give the notebook a name.' }
+  return checkName(raw.trim().replace(/\.ipynb$/i, '').trim(), 'notebook')
+}
+
+/** A name someone typed for a project, as a folder name: no path characters, not empty. */
+export function cleanProjectName(raw: string): { name: string } | { error: string } {
+  return checkName(raw.trim(), 'project')
+}
+
+function checkName(name: string, what: string): { name: string } | { error: string } {
+  if (!name) return { error: `Give the ${what} a name.` }
   if (RESERVED.test(name) || [...name].some((c) => c.charCodeAt(0) < 32)) return { error: 'A name can\'t hold / \\ : * ? " < > |.' }
   if (name.startsWith('.')) return { error: "A name can't start with a dot." }
   if (name.length > MAX_NAME) return { error: `A name can be up to ${MAX_NAME} characters.` }
   return { name }
+}
+
+/** The folder a project called `raw` would have in `parent`, or why it can't: a bad name, or one already taken. */
+export function projectPathIn(parent: string, raw: string): { path: string; name: string } | { error: string } {
+  const cleaned = cleanProjectName(raw)
+  if ('error' in cleaned) return cleaned
+  const dir = path.join(parent, cleaned.name)
+  return existsSync(dir) ? { error: `There is already a folder called "${cleaned.name}" there.` } : { path: dir, name: cleaned.name }
+}
+
+/**
+ * The notebook to open when a project folder is opened: the one opened there most recently, then the one changed most
+ * recently, among the notebooks right in the folder. Null when it has none.
+ */
+export async function notebookInProject(dir: string, recent: { path: string }[]): Promise<string | null> {
+  const last = recent.find((r) => path.dirname(r.path) === dir && existsSync(r.path))
+  if (last) return last.path
+  let newest: { file: string; at: number } | null = null
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (!entry.isFile() || entry.name.startsWith('.') || !/\.ipynb$/i.test(entry.name)) continue
+    const file = path.join(dir, entry.name)
+    const at = (await stat(file)).mtimeMs
+    if (!newest || at > newest.at) newest = { file, at }
+  }
+  return newest?.file ?? null
 }
 
 /** The path a notebook called `raw` would have in `dir`, or why it can't: a bad name, or one already taken. */

@@ -144,6 +144,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     previousCells: request.previousCells,
     existingCode: request.code.trim() ? request.code : null,
     corrections: request.corrections,
+    attachments: request.attachments,
     suggestNext: deps.suggestNext,
   })
 

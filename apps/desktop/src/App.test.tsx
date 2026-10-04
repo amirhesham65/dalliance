@@ -918,6 +918,85 @@ describe('command mode', () => {
   })
 })
 
+describe('attaching files', () => {
+  const dropOn = (el: HTMLElement, names: string[]) => {
+    const dataTransfer = { types: ['Files'], files: names.map((n) => new File(['x'], n)), dropEffect: 'none' }
+    fireEvent.dragEnter(el, { dataTransfer })
+    fireEvent.dragOver(el, { dataTransfer })
+    fireEvent.drop(el, { dataTransfer })
+  }
+
+  it('attaches files dropped on a prompt cell as chips, and sends them with the run', async () => {
+    const user = userEvent.setup()
+    const { api, requests } = fakeApi(() => result({ answer: 'Labs loaded.' }))
+    const copied: string[][] = []
+    api.attachFiles = async (files) => {
+      copied.push(files.map((f) => f.name))
+      return { paths: files.map((f) => `uploads/${f.name}`), error: null }
+    }
+    setApi(api)
+    render(<App />)
+
+    const cell = screen.getByRole('article', { name: 'Prompt cell 1' })
+    dropOn(cell, ['labs.csv', 'notes.pdf'])
+    const chips = await within(cell).findByRole('list', { name: 'Attached files' })
+    expect(within(chips).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['labs.csv', 'notes.pdf'])
+    expect(copied).toEqual([['labs.csv', 'notes.pdf']])
+
+    // Dropping the same file again doesn't attach it twice
+    dropOn(cell, ['labs.csv'])
+    await waitFor(() => expect(copied).toHaveLength(2))
+    expect(within(chips).getAllByRole('listitem')).toHaveLength(2)
+
+    await user.type(within(cell).getByRole('textbox', { name: 'Prompt' }), 'Summarise the labs')
+    await user.keyboard('{Shift>}{Enter}{/Shift}')
+    expect(await screen.findByText('Labs loaded.')).toBeInTheDocument()
+    expect(requests[0]).toMatchObject({ prompt: 'Summarise the labs', attachments: ['uploads/labs.csv', 'uploads/notes.pdf'], generate: true })
+  })
+
+  it('takes a file off with its cross, and Undo puts it back', async () => {
+    const user = userEvent.setup()
+    setApi(fakeApi(() => result()).api)
+    render(<App />)
+    const cell = screen.getByRole('article', { name: 'Prompt cell 1' })
+    dropOn(cell, ['labs.csv'])
+    await user.click(await within(cell).findByRole('button', { name: 'Remove labs.csv' }))
+    expect(within(cell).queryByRole('list', { name: 'Attached files' })).not.toBeInTheDocument()
+    act(() => void actions.undo())
+    expect(within(cell).getByRole('button', { name: 'Remove labs.csv' })).toBeInTheDocument()
+  })
+
+  it('says why files could not be attached', async () => {
+    const { api } = fakeApi(() => result())
+    api.attachFiles = async () => ({ paths: [], error: 'Files can only be attached in a project. Create or open one first.' })
+    setApi(api)
+    render(<App />)
+    dropOn(screen.getByRole('article', { name: 'Prompt cell 1' }), ['labs.csv'])
+    expect(await screen.findByRole('alert')).toHaveTextContent('Files can only be attached in a project')
+  })
+})
+
+describe('the Files pane', () => {
+  it('shows the folder in Finder, and says so when it can\'t', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    let reveals = 0
+    api.revealFolder = async () => {
+      reveals++
+      if (reveals > 1) throw new Error('The folder has gone')
+    }
+    setApi(api)
+    actions.openPane('files')
+    render(<App />)
+
+    const files = screen.getByRole('region', { name: 'Files' })
+    await user.click(within(files).getByRole('button', { name: 'Show in Finder' }))
+    expect(reveals).toBe(1)
+    await user.click(within(files).getByRole('button', { name: 'Show in Finder' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't open the folder")
+  })
+})
+
 describe('switching notebooks', () => {
   it('stops a running cell before another notebook opens, and its result never lands there', async () => {
     const user = userEvent.setup()

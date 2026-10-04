@@ -32,8 +32,10 @@ export function buildMenu(send: (action: MenuAction) => void) {
       label: 'File',
       submenu: [
         item('New Notebook', 'new', 'CmdOrCtrl+N'),
+        item('New Project…', 'new-project', 'Shift+CmdOrCtrl+N'),
+        { type: 'separator' },
         item('Open…', 'open', 'CmdOrCtrl+O'),
-        item('Open Folder…', 'open-folder', 'Shift+CmdOrCtrl+O'),
+        item('Open Project…', 'open-project', 'Shift+CmdOrCtrl+O'),
         { type: 'separator' },
         item('Save', 'save', 'CmdOrCtrl+S'),
         item('Save As…', 'save-as', 'Shift+CmdOrCtrl+S'),

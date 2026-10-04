@@ -315,7 +315,9 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' | 'hero' = 'n
       error: null,
     }
   }
-  api.openFolder = async (notebook) => ({ path: '/Users/demo/Trials/Untitled.ipynb', notebook })
+  api.openProject = async (notebook) => ({ path: '/Users/demo/Trials/Untitled.ipynb', notebook })
+  api.projectsFolder = async () => '/Users/demo/Documents/Dalliance Notebooks'
+  api.createProject = async (name, notebook) => ({ path: `/Users/demo/Documents/Dalliance Notebooks/${name}/${name}.ipynb`, notebook })
   api.listVariables = async () =>
     mode === 'hero'
       ? [

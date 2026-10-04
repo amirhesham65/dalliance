@@ -240,7 +240,7 @@ describe('what a run cost', () => {
       launchKernel: async (cwd) => new FolderKernel(cwd),
     })
     const contents = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
-    return s.runCell({ cellId: 'c1', prompt: 'Nothing', code: '', generate: true, corrections: [], previousCells: [] }, contents)
+    return s.runCell({ cellId: 'c1', prompt: 'Nothing', code: '', generate: true, corrections: [], attachments: [], previousCells: [] }, contents)
   }
 
   it("names the run's calls for Show costs", async () => {
@@ -274,7 +274,7 @@ describe("the notebook's pins", () => {
       listPackages: async () => [{ name: 'pandas', version: '2.2.3' }],
     })
     const contents = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
-    const run = (cellId: string, code: string) => s.runCell({ cellId, prompt: '', code, generate: false, corrections: [], previousCells: [] }, contents)
+    const run = (cellId: string, code: string) => s.runCell({ cellId, prompt: '', code, generate: false, corrections: [], attachments: [], previousCells: [] }, contents)
     const notebook: Notebook = { cells: [{ ...newPromptCell('', 'visits = read("visits.csv")'), id: 'a' }] }
     return { s, dir, kernel, run, notebook }
   }

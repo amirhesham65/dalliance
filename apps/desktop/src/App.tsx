@@ -2,6 +2,7 @@ import { X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { IconButton } from '@/components/app/IconButton'
+import { NewProjectDialog } from '@/components/app/NewProjectDialog'
 import { Sidebar } from '@/components/app/Sidebar'
 import { TopBar } from '@/components/app/TopBar'
 import { UpdateBanner } from '@/components/app/UpdateBanner'
@@ -61,9 +62,13 @@ export default function App() {
             if (created) actions.load(created.notebook, created.path)
           }
           break
-        case 'open-folder':
+        case 'new-project':
+          // The dialog asks about unsaved changes once a name is chosen
+          actions.askNewProject()
+          break
+        case 'open-project':
           if (await api.confirmDiscard()) {
-            const opened = await api.openFolder(welcomeNotebook())
+            const opened = await api.openProject(welcomeNotebook())
             if (opened) actions.load(opened.notebook, opened.path)
           }
           break
@@ -213,6 +218,7 @@ export default function App() {
           {settingsPage && <SettingsScreen />}
         </div>
       </SidebarProvider>
+      <NewProjectDialog />
       <NoticeToast />
     </TooltipProvider>
   )

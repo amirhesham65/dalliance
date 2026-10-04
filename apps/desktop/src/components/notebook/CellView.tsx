@@ -9,12 +9,14 @@ import { cn } from '@/lib/utils'
 import type { ActivityItem } from '@dalliance/shared/ipc'
 import { type Cell, type NoteCell, type PromptCell, needsGeneration, parseInterpretation, tablesOpen } from '@dalliance/shared/notebook'
 import { type CellRun, actions, useNotebook } from '@/store/notebook-store'
+import { AttachmentChips } from './Attachments'
 import { HighlightedEditor } from './HighlightedEditor'
 import { InlineText } from './InlineText'
 import { MarkdownText } from './MarkdownText'
 import { OutputList } from './outputs/OutputView'
 import { PythonTokens } from './PythonTokens'
 import { RefText } from './RefText'
+import { useFileDrop } from './use-file-drop'
 
 interface CellViewProps {
   cell: Cell
@@ -52,6 +54,8 @@ function editorKeys(cellId: string, onEscape?: () => void) {
  * or streaming output into it leaves every other cell alone.
  */
 export const CellView = memo(function CellView({ cell, number, selected }: CellViewProps) {
+  // Files dropped on a prompt cell are attached to it
+  const { dropping, handlers } = useFileDrop(cell.id)
   return (
     <article
       aria-label={cell.kind === 'note' ? 'Note' : `Prompt cell ${number}`}
@@ -59,9 +63,15 @@ export const CellView = memo(function CellView({ cell, number, selected }: CellV
       data-selected={selected || undefined}
       onMouseDown={() => actions.select(cell.id)}
       onFocus={() => actions.select(cell.id)}
+      {...(cell.kind === 'prompt' ? handlers : {})}
       className="group relative flex gap-2 py-3 pr-1"
     >
       <span className="absolute inset-y-3 -left-2.5 w-0.5 rounded-full group-focus-within:bg-ring group-data-selected:bg-ring" />
+      {dropping && (
+        <div className="pointer-events-none absolute -inset-x-2 inset-y-1 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-ring bg-background/85 text-[13px] text-muted-foreground">
+          Drop to attach to this cell. A copy goes in uploads.
+        </div>
+      )}
       <div className="w-9 shrink-0 pt-[3px]">{cell.kind === 'prompt' && <RunButton cellId={cell.id} number={number} count={cell.executionCount} />}</div>
       <div className="min-w-0 flex-1">{cell.kind === 'prompt' ? <PromptCellView cell={cell} selected={selected} /> : <NoteCellView cell={cell} />}</div>
     </article>
@@ -171,6 +181,7 @@ function PromptCellView({ cell, selected }: { cell: PromptCell; selected: boolea
           </CellActions>
         </div>
       </div>
+      <AttachmentChips cellId={cell.id} files={cell.attachments} />
 
       {!running && hasAssumptions(cell.interpretation) && <Interpretation cell={cell} />}
       {run && <RunProgress cellId={cell.id} run={run} />}

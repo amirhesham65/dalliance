@@ -17,8 +17,9 @@ A `PromptCell` carries more. The fields that drive behaviour:
 | Field | What it's for |
 | --- | --- |
 | `prompt` | What the user wrote |
+| `attachments` | Files the user dropped on the cell, as paths inside the notebook's folder, usually `uploads/…`. Saved only when there are any |
 | `code` | The Python that runs. Written by the agent or by the user |
-| `generatedFrom` | The prompt text `code` was written for. A different prompt means regenerate |
+| `generatedFrom` | What `code` was written for, from `generationKey()`: the prompt, plus the attached files when there are any. A different one means regenerate |
 | `codeEdited` | True once the user edits `code` by hand. Stops regeneration until the prompt changes |
 | `interpretation` | The agent's reading, with assumptions in `[[double brackets]]` |
 | `corrections` | `{ from, to }` pairs the user made to assumptions |
@@ -72,11 +73,11 @@ Opening a file puts every cell that has outputs or an execution count into `stal
 
 `needsGeneration(cell)` decides whether the agent writes code or the saved code runs as is, the way a Jupyter cell reruns. It checks in this order:
 
-1. No code and a non-empty prompt: generate.
+1. No code and a non-empty prompt, or an attached file: generate.
 2. Any corrections: generate.
 3. The user edited the code: run it.
 4. `generatedFrom` is `null`: run it. That covers plain Jupyter cells and code the user typed into a fresh cell.
-5. Otherwise, generate when the trimmed prompt differs from `generatedFrom`.
+5. Otherwise, generate when `generationKey(cell)` differs from `generatedFrom`, both trimmed. With no attachments the key is the prompt alone, so files saved before attachments existed still match. Attaching a file or taking one off changes the key, so the next run writes the code again. Restoring a revision keeps the cell's attachments and counts the restored code as written for them.
 
 A few actions set these fields on purpose:
 
