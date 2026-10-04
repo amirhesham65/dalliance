@@ -1,6 +1,6 @@
 # Deploying
 
-Two things ship besides the app: the Convex backend in `packages/backend`, and the cloud site in `apps/cloud` on Vercel at `cloud.dalliance.io`. The app's own release is in [releasing.md](releasing.md), and the website's in [website.md](website.md).
+Two things ship besides the app: the Convex backend in `packages/backend`, and the cloud site in `apps/cloud` on Vercel at `cloud.dalliance.io`. The admin app in `apps/admin` never ships; it runs on your machine, see [admin.md](admin.md). The app's own release is in [releasing.md](releasing.md), and the website's in [website.md](website.md).
 
 ## Environments
 

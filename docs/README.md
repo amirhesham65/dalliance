@@ -24,6 +24,7 @@ Dalliance is an Electron app. You write a notebook cell in plain language, an ag
 | Setup, commands, conventions | [development.md](development.md) |
 | Building the .dmg and publishing a release | [releasing.md](releasing.md) |
 | dalliance.io, its blog and the shared web brand | [website.md](website.md) |
+| The internal admin app and its product metrics | [admin.md](admin.md) |
 | Adding a tool, a setting, an IPC call, a pane, a Convex function | [recipes.md](recipes.md) |
 
 ## The repo in one screen
@@ -35,8 +36,9 @@ apps/desktop/         the Electron app, @dalliance/desktop
   src/                renderer: React 19, zustand, shadcn, Tailwind v4
 apps/web/             dalliance.io, Next.js 16, @dalliance/web
 apps/cloud/           cloud.dalliance.io, Next.js 16, @dalliance/cloud: sign-in, billing pages, the auth and model proxies
+apps/admin/           the internal metrics dashboard, Next.js 16, @dalliance/admin: runs locally, never deployed
 packages/backend/     the Convex backend, @dalliance/backend: Better Auth with email sign-in links, Polar billing, the usage ledger
-packages/shared/      types and pure functions every side imports, @dalliance/shared, including the Cloud contract
+packages/shared/      types and pure functions every side imports, @dalliance/shared, including the Cloud contract and the admin app's metrics
 packages/brand/       the web brand dalliance.io and the cloud site share, @dalliance/brand
 patches/              pnpm patches, applied through patchedDependencies in pnpm-workspace.yaml
 .github/              CI on every pull request, the release build on version tags, Dependabot, CODEOWNERS
