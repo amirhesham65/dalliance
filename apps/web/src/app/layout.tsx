@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter, JetBrains_Mono, Source_Serif_4 } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { feedAlternate } from '@/lib/blog'
 import { site } from '@/lib/site'
 import './globals.css'
 
@@ -18,7 +19,7 @@ export const metadata: Metadata = {
   authors: [{ name: site.author }],
   creator: site.author,
   category: 'technology',
-  alternates: { canonical: '/' },
+  alternates: { canonical: '/', types: feedAlternate },
   openGraph: {
     type: 'website',
     siteName: site.name,

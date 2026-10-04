@@ -23,7 +23,7 @@ Dalliance is an Electron app. You write a notebook cell in plain language, an ag
 | Running tests or writing new ones | [testing.md](testing.md) |
 | Setup, commands, conventions | [development.md](development.md) |
 | Building the .dmg and publishing a release | [releasing.md](releasing.md) |
-| dalliance.io and the shared web brand | [website.md](website.md) |
+| dalliance.io, its blog and the shared web brand | [website.md](website.md) |
 | Adding a tool, a setting, an IPC call, a pane, a Convex function | [recipes.md](recipes.md) |
 
 ## The repo in one screen

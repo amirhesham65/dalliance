@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Band, SiteFooter, SiteHeader } from '@/components/Chrome'
+import { feedAlternate } from '@/lib/blog'
 import { site } from '@/lib/site'
 import { headline, labelMono, mastheadRuled, sheet, support } from '@dalliance/brand/ui'
 
@@ -8,7 +9,7 @@ const description = 'What this site counts, what Dalliance keeps on your Mac, wh
 export const metadata: Metadata = {
   title: 'Privacy',
   description,
-  alternates: { canonical: '/privacy' },
+  alternates: { canonical: '/privacy', types: feedAlternate },
   // Metadata merges shallowly, so the page restates the whole Open Graph block rather than only the url
   openGraph: { type: 'website', siteName: site.name, locale: 'en_US', title: `Privacy · ${site.name}`, description, url: '/privacy' },
   twitter: { card: 'summary_large_image', title: `Privacy · ${site.name}`, description },

@@ -1,0 +1,121 @@
+---
+title: Why Data Science Needs Its Own AI Coding Agent
+description: "Coding agents are good at software. Research asks for something else: decisions you can see, answers from code that ran, and notebooks that rerun."
+date: 2026-10-04
+---
+
+import light from './why-data-science-needs-its-own-coding-agent/cover-light.webp'
+import dark from './why-data-science-needs-its-own-coding-agent/cover-dark.webp'
+
+export const cover = { light, dark, alt: 'A lone street lamp in the snow at night, under a swirling sky and a crescent moon.' }
+
+Coding agents have had an incredible couple of years. Claude Code, Codex and Cursor are default tools for a lot of developers now, me included. In JetBrains' 2026 survey of more than 15,000 professional developers, 90% said they use AI coding agents at work at least weekly, and 68% use them daily.[^1]
+
+They earned it. Give one a well-scoped task, like "fix this bug" or "add this endpoint", and it usually gets there.
+
+Now open a dataset and ask:
+
+> Does the new regimen improve survival?
+
+Things get harder. Not because the model can't write pandas or fit a Kaplan-Meier curve. It can, in seconds.
+
+The benchmarks show the gap. DSAgentBench gave 15 models 275 end-to-end data science tasks in real computer environments: wrangling, exploration, modeling, visualization and validation. The strongest agent completed 56.7% of them.[^2] Real research is messier than any benchmark.
+
+And the hard part isn't writing the code. It's everything the code doesn't say.
+
+## Software has tests. Research has decisions.
+
+A software task ends when the tests pass. Research has no test suite for "is this the right answer".
+
+Before anyone can answer the survival question, someone has to decide:
+
+- what counts as an event
+- when the clock starts, at randomisation or at first dose
+- whether the 38 patients who switched arms count in the arm they were assigned to, or the one they ended up in
+- what to do with the 17 patients missing a stage
+
+Each of those is a defensible choice. Each one moves the number.
+
+This isn't hypothetical. In 2018, Silberzahn and colleagues gave 29 research teams the same dataset and the same question: are soccer referees more likely to give red cards to dark-skinned players? 20 teams found a significant effect. 9 didn't. Their estimates ranged from an odds ratio of 0.89 to 2.93.[^3] Same data, different decisions.
+
+Gelman and Loken call this the garden of forking paths.[^4] Every analysis walks through dozens of small, reasonable choices, and the answer depends on which ones you took. You don't have to be fishing for a result to end up somewhere different.
+
+## The failure mode isn't a crash
+
+When a coding agent gets something wrong, you usually find out. The build fails, a test goes red, the page doesn't load.
+
+When an analysis agent gets something wrong, it hands you a clean table and a confident sentence. The code ran. The plot looks fine. It quietly took a fork you would never have taken, and nothing on screen tells you.
+
+That's the scary part of AI in research. Bad code is easy to catch. A silent assumption isn't.
+
+## Notebooks were already fragile
+
+Most of this work happens in notebooks, for good reason. Code, outputs, plots and notes sit in one place, and you can poke at the data as you go.
+
+But notebooks have never been good at the second half of research: proving what you did. When Pimentel and colleagues tried to rerun about 1.4 million notebooks from GitHub, only about 24% ran without errors, and about 4% produced the same results as before.[^5] The usual culprits were missing dependencies, hidden state, cells run out of order, and data that was no longer where the notebook expected it.
+
+Add an agent that writes code faster than you can read it, and every one of those problems gets bigger.
+
+## The environment matters as much as the model
+
+Most of the agent conversation is about models: Claude vs GPT vs Gemini.
+
+But the same model behaves very differently depending on what's around it. Hugging Face showed this while building their Jupyter agent. They kept the same small model, Qwen3-4B, and only rebuilt the scaffolding around it. Accuracy on the easy tasks of their benchmark went from 44.4% to 59.7%.[^6] The model didn't get smarter. Its environment got better.
+
+Software agents got good partly because their environment got good: repos, tests, git, CI. Research needs its own version of that environment, and Jupyter with a chat box next to it isn't enough. It needs a harness built around what research actually depends on.
+
+That's what we built Dalliance to be.
+
+## What a research harness needs
+
+**1. Decisions you can see and change.**
+In Dalliance you write a cell in plain language. Next to the answer, the agent shows how it read your question, with every assumption underlined: "survival is time to death, censored at last visit, measured from randomisation." Click one, change it to first dose, and the cell reruns with your definition.
+
+When a wrong reading would make the answer useless, it doesn't guess. It stops and asks: 38 patients switched arms, so should they count by intention to treat or per protocol?
+
+Project-level decisions go in a brief: definitions, exclusions, study design. The agent reads it before every cell, so you make those calls once.
+
+**2. Answers that come from code that ran.**
+A cell can't finish until its code succeeds. If the last run failed, the agent has to read the traceback and fix it. The numbers in an answer come from output the agent actually saw, and the Python is always one tab away.
+
+The agent also works with the live runtime, not just files. Before each cell it reads the variables in memory, with their shapes and columns, plus the workspace files and earlier cells. When an earlier cell reruns, the cells after it are marked stale, so hidden state can't quietly feed an old result into a new one.
+
+**3. Reproducibility by default.**
+Verify restarts Python, reruns every cell from scratch, and shows what came out the same, what changed and what failed. Random calls without a fixed seed get flagged.
+
+Each save pins the Python version, the package versions and a SHA-256 of every file the cells read. Open the notebook in six months and a banner tells you what changed. That covers three of the four reasons most notebooks fail to reproduce: dependencies, hidden state and data that moved.
+
+Every cell keeps its record: the prompt, your corrections, the model and the files it read. History restores any of the last 12 versions. It's all plain .ipynb, so Jupyter, GitHub and your reviewers open it as is.
+
+**4. Your data stays yours.**
+Python runs locally on your machine. The agent can only read the notebook's folder, never .env files, and by default asks before code uses the network or runs shell commands. Every model runs with zero data retention, so nothing you send is stored or used for training.
+
+## Why not just run more experiments?
+
+A popular idea right now is that agents should branch: try four approaches in parallel and keep the best.
+
+For ML benchmarks, that makes sense. For research, it's the garden of forking paths on autopilot. Try enough analyses, keep the one that looks best, and you will find something. That's how results stop replicating. When the Open Science Collaboration repeated 100 published psychology studies, 97% of the originals had significant results. 36% of the replications did.[^7]
+
+Speed isn't the bottleneck in research. Trust is. A good research agent shouldn't hide the forks it took. It should put every one of them on the record.
+
+## Where we are
+
+Dalliance is still in early preview, and the response from researchers in labs at several universities has been better than we hoped. Two PhD students are already using it to run the analysis for their theses, which is the kind of test no benchmark can give us.
+
+It's Mac only for now. Windows is coming soon.
+
+## Where this goes
+
+The models will keep getting better. They'll write better pandas and pick better defaults.
+
+But research doesn't ask whether the model can write the code. It asks whether you can defend the answer. That depends on what's around the model: whether its decisions are visible, whether its work reruns, and whether your data stays where it should.
+
+That's the harness we're building. Try it at [dalliance.io](https://dalliance.io).
+
+[^1]: JetBrains Research, [AI coding agent adoption trends, Developer Ecosystem Survey 2026](https://blog.jetbrains.com/research/2026/08/ai-coding-agent-adoption-2026/).
+[^2]: DSAgentBench: Can Agents Automate End-to-End Data-Science Workflows in Real Computer Environments? 2026. [arXiv:2608.10366](https://arxiv.org/abs/2608.10366).
+[^3]: Silberzahn, R. et al. (2018). [Many analysts, one data set: Making transparent how variations in analytic choices affect results](https://dare.uva.nl/id/0785a9cc-2470-4a3a-bea8-0f34828953c2). *Advances in Methods and Practices in Psychological Science.*
+[^4]: Gelman, A. & Loken, E. (2013). [The garden of forking paths](http://www.stat.columbia.edu/~gelman/research/unpublished/p_hacking.pdf).
+[^5]: Pimentel, J. F., Murta, L., Braganholo, V. & Freire, J. (2019). [A Large-scale Study about Quality and Reproducibility of Jupyter Notebooks](https://2019.msrconf.org/details/msr-2019-papers/36/A-Large-scale-Study-about-Quality-and-Reproducibility-of-Jupyter-Notebooks). *MSR 2019.*
+[^6]: Hugging Face, [Jupyter Agents: training LLMs to reason with notebooks](https://huggingface.co/blog/jupyter-agent-2), 2025.
+[^7]: Open Science Collaboration (2015). [Estimating the reproducibility of psychological science](https://osf.io/ezcuj/wiki). *Science.*

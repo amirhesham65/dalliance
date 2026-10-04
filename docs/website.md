@@ -1,6 +1,6 @@
 # The website
 
-`apps/web` is dalliance.io: a landing page, a privacy page, a 404, and a route that logs each download and redirects to the latest installer. It uses Next.js 16 with the App Router and Tailwind v4, and has no client data fetching. Its palette, theme and shared class strings come from `@dalliance/brand`, which the cloud site uses too. See [Design](#design).
+`apps/web` is dalliance.io: a landing page, a blog, a privacy page, a 404, and a route that logs each download and redirects to the latest installer. It uses Next.js 16 with the App Router and Tailwind v4, and has no client data fetching. Blog posts are MDX files, see [Blog](#blog). Its palette, theme and shared class strings come from `@dalliance/brand`, which the cloud site uses too. See [Design](#design).
 
 ```bash
 pnpm --filter @dalliance/web dev     # http://localhost:3100
@@ -12,7 +12,11 @@ pnpm --filter @dalliance/web start   # serve the build on 3100
 
 ```
 src/app/
-  page.tsx               the home page: masthead with the live demo, reel, bands
+  page.tsx               the home page: masthead with the live demo, reel, bands, the newest posts
+  blog/page.tsx          the blog's index
+  blog/opengraph-image.tsx, blog/twitter-image.tsx   the index's social card
+  blog/[slug]/           a post: page.tsx, and its social cards in opengraph-image.tsx and twitter-image.tsx
+  blog/rss.xml/route.ts  the feed
   privacy/page.tsx       the privacy page
   download/route.ts      logs the download, then redirects to the installer
   not-found.tsx          404
@@ -23,15 +27,21 @@ public/
   sitemap.ts, robots.ts, manifest.ts
   icon.svg, apple-icon.tsx, favicon.ico
   opengraph-image.tsx, twitter-image.tsx   both render socialCard()
+src/content/blog/        the posts, one .mdx file each, with a folder per post for its images
+src/mdx-components.tsx   how Markdown renders in a post
 src/components/
   Chrome.tsx             SiteHeader, Band, Act (the download button), SiteFooter
+  CodeBlock.tsx, Figure.tsx, CoverImage.tsx   a post's code blocks, screenshots and cover
+  LatestPosts.tsx        the From the blog band on the home page
   demo/                  the live demo in the hero: Demo.tsx, its charts, its Python highlighting, and data.json
   Reel.tsx               the scrolling screenshot strip with its ledger
   StickyBar.tsx          the top bar that sticks once it reaches the top
   Wordmark.tsx           the mark and the name, from @dalliance/brand
 src/lib/
   site.ts                copy, the site URL and the download URL, over brand.ts. Change copy here first
-  card.tsx               the 1200 by 630 social card
+  blog.ts                lists and loads posts, and checks their frontmatter
+  card.tsx               the 1200 by 630 social card, also drawn for the blog and each post
+  seo.ts                 the publisher and the script tag for structured data
 src/assets/shots/        light and dark captures of the app
 scripts/demo-data.py     computes demo/data.json
 ```
@@ -45,7 +55,7 @@ scripts/demo-data.py     computes demo/data.json
 
 `NEXT_PUBLIC_SITE_URL` is read at build time. `turbo.json` lists it in the build task's `env`, so changing it busts the cache. The Redis pair is only read when `/download` runs, so it stays out of `turbo.json`. `site.ts` and the route read them with `||` rather than `??`, because Vercel lets a variable be set but empty.
 
-Every download button links to `/download`, with `?from=` naming the button: `bar` for the top bar, `hero` and `end` for the two on the home page, and `demo` for the link the live demo shows when a visitor types a prompt it can't run. Two come from outside the site: `update` from the app's update banner, and `install` from the installer script.
+Every download button links to `/download`, with `?from=` naming the button: `bar` for the top bar, `hero` and `end` for the two on the home page, `blog` for the one under each post, and `demo` for the link the live demo shows when a visitor types a prompt it can't run. Two come from outside the site: `update` from the app's update banner, and `install` from the installer script.
 
 Under each download button, `InstallCommand` shows the Terminal command, `installCommand` in `site.ts`, with a button that copies it. Where the browser won't allow copying, the button selects the command instead. The command runs `public/install.sh`, see [releasing.md](releasing.md#the-terminal-installer). `download/route.ts` answers it with a temporary redirect to `downloadUrl` in `site.ts`, `Dalliance.dmg` on the latest release of the public `amirhesham65/dalliance-releases`, so the URL always serves the newest version. See [releasing.md](releasing.md). The redirect is temporary, not permanent, so moving the installer only means changing `downloadUrl`. `robots.ts` disallows `/download`. The config also sets `nosniff`, `DENY` framing, a strict referrer policy and a permissions policy on every route.
 
@@ -100,6 +110,58 @@ The masthead centres the headline over a live demo: a working miniature of the a
 - Type a prompt in the empty cell at the end. The demo runs its three prompts when the words match one; anything else gets a line saying the demo only runs those, with a download link, `?from=demo`.
 
 Nothing calls a model. Runs are scripted, and every number comes from `src/components/demo/data.json`, which `scripts/demo-data.py` computes with pandas and lifelines from the same generated trial as the desktop app's `?demo&hero` notebook, plus dose dates, early stops and arm switches from its own seed. Change the data there and rerun it: its docstring says how. Charts are SVG drawn in the kernel's dark matplotlib style, so they match the app's output, and they switch to a narrower drawing under 520 px so their text stays readable on a phone. The window has a fixed height, and its notebook only scrolls once the visitor clicks or tabs into it, so a wheel passing over the hero scrolls the page. A mouse leaving the window, a click or tap outside it, or Escape hands the wheel back; on touch screens leaving doesn't count, since a finger lifting fires it. A wheel over the window before that shows a short "Click to scroll the notebook" note, and the window gets a ring while it scrolls. A new cell still scrolls into view in the notebook either way. With reduced motion, steps still play but quickly, and nothing animates. There are no analytics events, as the privacy page says.
+
+## Blog
+
+Posts live in `src/content/blog`, one `.mdx` file each. The file name is the slug: `first-post.mdx` is served at `/blog/first-post`. Use lowercase words joined by hyphens; `blog.ts` fails the build on any other name.
+
+Each post opens with YAML frontmatter:
+
+| Field | Needed | Meaning |
+| --- | --- | --- |
+| `title` | Yes | The headline, the page title and the social card |
+| `description` | Yes | The line under the headline, and the summary on the index, in the feed and in search results |
+| `date` | Yes | The day it was published, as `YYYY-MM-DD`. Posts sort newest first |
+| `updated` | No | The day it last changed in a way worth telling search engines, as `YYYY-MM-DD`. Defaults to `date`. Sets `dateModified`, `article:modified_time` and the sitemap date |
+| `author` | No | Defaults to `site.author` |
+| `draft` | No | `true` shows the post under `next dev`, marked Draft and `noindex`, and leaves it out of production builds, the sitemap and the feed |
+
+`blog.ts` checks the frontmatter when the site builds and fails with the file's name if a field is missing or mistyped, so a broken post never ships half-rendered.
+
+A cover image can't go in the frontmatter, since it has to be imported. Put the files in a folder named after the post and export it below the frontmatter:
+
+```mdx
+import light from './first-post/cover-light.webp'
+import dark from './first-post/cover-dark.webp'
+
+export const cover = { light, dark, alt: '…' }
+```
+
+`CoverImage` draws it across the sheet under the masthead, loading first since it's the largest thing above the fold. `dark` is optional; when it's there, a dark page shows it and only it loads. `blog.ts` checks the cover's shape and alt text too.
+
+Sources are GFM footnotes: `[^1]` in the text and `[^1]: …` at the end. They collect under a Sources label at the bottom of the post, each with a link back. `remarkRehypeOptions` in `next.config.ts` names that heading. MDX only hands elements with a place in the source to `mdx-components.tsx`, and the footnotes' `<section>` and heading have none, so `[data-footnotes]` in `globals.css` styles those two; the calls, the list and its paragraphs go through the component map as usual.
+
+`@next/mdx` compiles the posts, wrapped around the config in `next.config.ts`. Its plugins are `remark-gfm` for tables, `remark-frontmatter` and `remark-mdx-frontmatter` to read the frontmatter as a `frontmatter` export, and `rehype-slug` to give each heading an id for links. Turbopack can't take plugin functions, so they're named as strings. `@next/mdx` is pinned to the same version as `next` in the catalog; bump them together.
+
+`src/mdx-components.tsx` styles each Markdown element in the site's type: Source Serif headings, Inter prose, JetBrains Mono code. A post sits in the band grid, with its date and author in the 200 px margin. Fenced `python` blocks get the live demo's highlighter, `Python` in `demo/Python.tsx`, in the app's code colours from `.demo` in `globals.css`; other languages stay plain. Markdown images load as plain images. For a screenshot, import the light and dark captures at the top of the post and use `<Figure src={light} dark={dark} alt="…" caption="…" />`, which resizes them through `next/image` and shows the dark one on a dark page.
+
+Every post is built ahead of time: `generateStaticParams` lists them, and `dynamicParams = false` makes any other slug a 404. Each post gets a social card, `socialCard()` with the post's title and description in place of the headline and tagline. `blog/rss.xml` is an RSS 2.0 feed of titles and descriptions, linked from the index and from each page's `<head>`. The sitemap lists `/blog` and each published post.
+
+The header links the blog from 600 px up; on a phone there's no room beside the download button, so only the footer does. The home page's From the blog band, `LatestPosts`, lists the three newest posts, the first with its cover, and disappears when there are none.
+
+### Search
+
+Every page has a canonical URL, a description, Open Graph and Twitter tags, and a social card. Metadata merges shallowly, so a page that sets `openGraph` or `alternates` restates the whole block. `feedAlternate` in `blog.ts` puts the feed in every page's `<head>`; a page that sets its own `alternates` spreads it in again.
+
+Structured data, through `jsonLdScript()` in `seo.ts`:
+
+| Page | Types |
+| --- | --- |
+| Home | `WebSite`, `Organization` (the publisher, with the mark from `apple-icon.tsx` as its logo) and `SoftwareApplication` |
+| `/blog` | `Blog`, listing each published post |
+| A post | `BlogPosting`, with the cover and the social card as images, and a `BreadcrumbList` from the home page through the blog |
+
+A post's page is one `<article>`, from the headline through the sources. The sitemap dates each post by `updated`, and moves the home page and `/blog` to the newest post's date, since both list it. The privacy page's date in `sitemap.ts` matches the one the page shows, so change both together.
 
 ## Screenshots
 

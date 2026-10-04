@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "The Dalliance website: the landing page, privacy and the download redirect.",
+  "description": "The Dalliance website: the landing page, the blog, privacy and the download redirect.",
   "scripts": {
     "dev": "next dev --port 3100",
     "build": "next build",
@@ -13,16 +13,24 @@
   },
   "dependencies": {
     "@dalliance/brand": "workspace:*",
+    "@mdx-js/loader": "^3.1.1",
+    "@mdx-js/react": "^3.1.1",
+    "@next/mdx": "16.3.6",
     "@upstash/redis": "^1.39.0",
     "@vercel/analytics": "^2.0.1",
     "next": "catalog:",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "rehype-slug": "^6.0.0",
+    "remark-frontmatter": "^5.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-mdx-frontmatter": "^6.0.0"
   },
   "devDependencies": {
     "@fontsource/inter": "^5.3.0",
     "@fontsource/source-serif-4": "^5.3.0",
     "@tailwindcss/postcss": "^4.3.3",
+    "@types/mdx": "^2.0.14",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",

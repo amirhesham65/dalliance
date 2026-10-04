@@ -1,5 +1,6 @@
-// Just enough Python highlighting for the demo's Code tab, in the app's colours: keywords, strings, numbers,
-// calls and comments. The app's own PythonTokens does more; the demo only shows code it wrote itself.
+// Just enough Python highlighting for the demo's Code tab and the blog's code blocks, in the app's colours:
+// keywords, strings, numbers, calls and comments. The app's own PythonTokens does more. Its colours come
+// from `.demo` in globals.css, so wrap it in an element with that class.
 const TOKEN = /(#[^\n]*)|('(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*")|\b(from|import|for|in|if|else|and|or|not|lambda|return|True|False|None)\b|\b(\d+(?:\.\d+)?)\b|\b([A-Za-z_]\w*)(?=\()/g
 
 export function Python({ code }: { code: string }) {

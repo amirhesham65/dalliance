@@ -11,8 +11,12 @@ const font = (pkg: string, file: string) => readFile(join(process.cwd(), 'node_m
 
 const hatch = (gap: number) => `repeating-linear-gradient(-45deg, #c9c8c2 0px, #c9c8c2 1.5px, transparent 1.5px, transparent ${gap}px)`
 
-/** The social card: the site's masthead on warm paper, under the same hatched band. */
-export async function socialCard() {
+/** The social card: the site's masthead on warm paper, under the same hatched band. A blog post passes its own title and summary. */
+export async function socialCard({
+  headline = site.headline,
+  tagline = site.tagline,
+  footer = 'For macOS · Python · .ipynb',
+}: { headline?: string; tagline?: string; footer?: string } = {}) {
   const [serif, serifMedium, serifBold, sans] = await Promise.all([
     font('source-serif-4', 'source-serif-4-latin-400-normal.woff'),
     font('source-serif-4', 'source-serif-4-latin-500-normal.woff'),
@@ -32,12 +36,13 @@ export async function socialCard() {
             </svg>
             <div style={{ fontFamily: 'Serif', fontWeight: 600, fontSize: 42, letterSpacing: '-0.02em' }}>Dalliance</div>
           </div>
-          <div style={{ marginTop: 44, fontFamily: 'Serif', fontWeight: 500, fontSize: 72, lineHeight: 1.08, letterSpacing: '-0.02em', maxWidth: 1000 }}>
-            {site.headline}
+          {/* A long post title or summary steps down a size so both still fit above the footer */}
+          <div style={{ marginTop: 44, fontFamily: 'Serif', fontWeight: 500, fontSize: headline.length > 40 ? 60 : 72, lineHeight: 1.08, letterSpacing: '-0.02em', maxWidth: 1000 }}>
+            {headline}
           </div>
-          <div style={{ marginTop: 24, fontFamily: 'Sans', fontSize: 28, lineHeight: 1.4, color: '#3f3e3a', maxWidth: 960 }}>{site.tagline}</div>
+          <div style={{ marginTop: 24, fontFamily: 'Sans', fontSize: tagline.length > 110 ? 24 : 28, lineHeight: 1.4, color: '#3f3e3a', maxWidth: 960 }}>{tagline}</div>
           <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', fontFamily: 'Sans', fontSize: 24, color: '#6b6a65' }}>
-            <span>For macOS · Python · .ipynb</span>
+            <span>{footer}</span>
             <span>{site.url.replace(/^https?:\/\//, '')}</span>
           </div>
         </div>

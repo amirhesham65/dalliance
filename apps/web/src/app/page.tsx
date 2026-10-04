@@ -2,7 +2,10 @@ import type { StaticImageData } from 'next/image'
 import { getImageProps } from 'next/image'
 import { Act, Band, SiteFooter, SiteHeader } from '@/components/Chrome'
 import { Demo } from '@/components/demo/Demo'
+import { LatestPosts } from '@/components/LatestPosts'
 import { type Frame, Reel } from '@/components/Reel'
+import { listPosts } from '@/lib/blog'
+import { jsonLdScript, publisher } from '@/lib/seo'
 import { site } from '@/lib/site'
 import { gutter, headline, label, sheet, support } from '@dalliance/brand/ui'
 import answerDark from '@/assets/shots/answer-dark.png'
@@ -84,7 +87,9 @@ const jsonLd = {
       name: site.name,
       description: site.description,
       inLanguage: 'en',
+      publisher: { '@id': publisher['@id'] },
     },
+    publisher,
     {
       '@type': 'SoftwareApplication',
       '@id': `${site.url}/#app`,
@@ -97,16 +102,18 @@ const jsonLd = {
       downloadUrl: `${site.url}/download`,
       screenshot: `${site.url}${heroLight.src}`,
       author: { '@type': 'Person', name: site.author },
+      publisher: { '@id': publisher['@id'] },
       featureList: facts.map((f) => f.lead.replace(/\.$/, '')),
       fileFormat: 'application/x-ipynb+json',
     },
   ],
 }
 
-export default function Home() {
+export default async function Home() {
+  const posts = (await listPosts()).filter((p) => !p.draft).slice(0, 3)
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }} />
+      {jsonLdScript(jsonLd)}
 
       <SiteHeader />
       <div className={sheet}>
@@ -182,6 +189,8 @@ export default function Home() {
               <p>Dalliance is an early preview, so expect rough edges. Your notebooks are plain .ipynb files, so nothing is locked in.</p>
             </div>
           </Band>
+
+          <LatestPosts posts={posts} />
 
           <div className={`${gutter} border-b py-14 lg:py-22`}>
             <p className="max-w-[30ch] font-serif text-[30px] leading-[1.3] font-medium tracking-[-0.02em] text-ink lg:text-[40px]">Write the question. Keep the code.</p>
