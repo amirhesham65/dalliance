@@ -21,7 +21,7 @@
     "radix-ui": "^1.6.7",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "recharts": "3.8.0",
+    "recharts": "3.10.1",
     "server-only": "^0.0.1"
   },
   "devDependencies": {
