@@ -3,18 +3,27 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App'
 import type { MenuAction, SettingsUpdate, SettingsView } from '@dalliance/shared/ipc'
+import { MODELS, providerOf } from '@dalliance/shared/models'
 import { newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
-import { SIGNED_OUT, fakeApi, fakeSettings, result } from '@/test/fake-api'
+import { NO_KEYS, fakeApi, fakeSettings, result } from '@/test/fake-api'
 
 beforeEach(() => {
   actions.load({ cells: [newPromptCell('')] }, null)
   useNotebook.setState({ settings: null, newProject: false })
 })
 
-function setup(settings: Partial<SettingsView> = {}, { signedIn = true } = {}) {
+function setup(settings: Partial<SettingsView> = {}, { hasKey = true } = {}) {
   const fake = fakeApi(() => result({ answer: 'Seven is the most common total.' }))
-  if (!signedIn) fake.api.getAccount = async () => SIGNED_OUT
+  if (!hasKey) {
+    let keys = structuredClone(NO_KEYS)
+    fake.api.getProviderKeys = async () => keys
+    fake.api.setProviderKey = async (provider, key) => {
+      keys = { ...keys, configured: { ...keys.configured, [provider]: Boolean(key) } }
+      return keys
+    }
+    fake.api.listModels = async () => ({ models: MODELS.filter((model) => keys.configured[providerOf(model.id)!]), error: null })
+  }
   let current = { ...fakeSettings(), ...settings }
   const updates: SettingsUpdate[] = []
   let menu: ((action: MenuAction) => void) | undefined
@@ -36,14 +45,14 @@ function setup(settings: Partial<SettingsView> = {}, { signedIn = true } = {}) {
 describe('Welcome', () => {
   it('walks a first launch through setup, and remembers when it is skipped', async () => {
     const user = userEvent.setup()
-    const { updates } = setup({ onboarded: false }, { signedIn: false })
+    const { updates } = setup({ onboarded: false }, { hasKey: false })
     actions.showWelcome(false)
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: 'Write what you want to know' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Continue/ }))
-    expect(screen.getByRole('heading', { name: 'Sign in to Dalliance' })).toBeInTheDocument()
-    // Signed out, the step can still be passed over
+    expect(screen.getByRole('heading', { name: 'Connect a model provider' })).toBeInTheDocument()
+    // Without a key, the step can still be passed over
     expect(screen.getByRole('button', { name: 'Skip for now' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Set up later' }))
@@ -52,16 +61,33 @@ describe('Welcome', () => {
     expect(screen.getByRole('button', { name: /review/ })).toBeInTheDocument()
   })
 
-  it('signs in from the setup, and goes on once the account is on a plan', async () => {
+  it('adds a provider key during setup and can continue', async () => {
     const user = userEvent.setup()
-    setup({ onboarded: false }, { signedIn: false })
+    setup({ onboarded: false }, { hasKey: false })
     actions.showWelcome(false)
     render(<App />)
-
     await user.click(await screen.findByRole('button', { name: /Continue/ }))
-    expect(screen.getByText(/Sign in with your email/)).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Sign in' }))
-    expect(await screen.findByText(/Pro plan/)).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Anthropic API key'), 'test-provider-key')
+    await user.click(within(screen.getByRole('form', { name: 'Anthropic connection' })).getByRole('button', { name: 'Save key' }))
+    expect(await screen.findByText('Anthropic key added')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Continue/ })).toBeInTheDocument()
+  })
+
+  it('connects OpenAI during setup and chooses its model without selecting a provider', async () => {
+    const user = userEvent.setup()
+    setup({ onboarded: false }, { hasKey: false })
+    actions.showWelcome(false)
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: /Continue/ }))
+    await user.type(screen.getByLabelText('OpenAI API key'), 'test-openai-key')
+    await user.click(within(screen.getByRole('form', { name: 'OpenAI connection' })).getByRole('button', { name: 'Save key' }))
+    expect(await screen.findByText('OpenAI key added')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Active provider' })).not.toBeInTheDocument()
+    screen.getByRole('combobox', { name: 'Suggested model' }).focus()
+    await user.keyboard('{Enter}')
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(MODELS.filter((model) => providerOf(model.id) === 'openai').map((model) => model.name))
+    await user.keyboard('{Enter}')
+    expect(providerOf(useNotebook.getState().settings!.model)).toBe('openai')
     expect(screen.getByRole('button', { name: /Continue/ })).toBeInTheDocument()
   })
 

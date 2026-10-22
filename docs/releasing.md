@@ -1,6 +1,6 @@
 # Releasing
 
-Dalliance ships as one universal `.dmg` for Apple Silicon and Intel Macs. This repo is private, so downloads come from the public [amirhesham65/dalliance-releases](https://github.com/amirhesham65/dalliance-releases), which holds a README and the installers, never code. Its GitHub releases are the downloads; this repo's releases are only a record.
+Dalliance ships as one universal `.dmg` for Apple Silicon and Intel Macs. Downloads come from [amirhesham65/dalliance-releases](https://github.com/amirhesham65/dalliance-releases), which holds a README and the installers, never code. Its GitHub releases are the downloads; this repo's releases are only a record.
 
 ## Build the installer
 
@@ -37,7 +37,7 @@ Releases publish from a version tag. `.github/workflows/release.yml` does the bu
    ```
 
 3. The workflow checks that the tag matches the version and fails if it doesn't. It sets up Python 3.12 with pandas, NumPy, matplotlib and IPython 8 or 9 and runs `pnpm turbo run lint typecheck test`, the same checks as CI, so a failing test stops the release. Then it runs `dist:mac --publish never` and publishes a release in `dalliance-releases` with `Dalliance.dmg` and the update files, its notes from `.github/release-notes.md`. Last, it records the tag here, with notes generated from the merged pull requests.
-4. Edit the release in `dalliance-releases` to add what's new above the install notes. The generated notes stay here, since they name pull requests in a private repo.
+4. Edit the release in `dalliance-releases` to add what's new above the install notes. Generated notes stay in the source repository.
 
 Keep the file names. `downloadUrl` in `apps/web/src/lib/site.ts` is `releases/latest/download/Dalliance.dmg` in `dalliance-releases`, and the app reads `releases/latest/download/latest-mac.yml`, so both follow the newest release on their own.
 
@@ -57,7 +57,7 @@ Releases are ad-hoc signed, so the app can't install an update itself (see the e
 
 1. `Updates` in `electron/updates.ts` fetches `latest-mac.yml` from the latest release in `dalliance-releases` when the app starts, and every six hours after. Only packaged builds check. A release without the file, such as v0.3.0, or a failed request counts as nothing newer.
 2. A later plain `x.y.z` than `app.getVersion()` goes to the page through `onUpdate`. Pre-releases are never offered.
-3. `UpdateBanner` says "Dalliance 0.4.0 is available." Download opens `dalliance.io/download?from=update`, and the user drags the new app over the old one in Applications. It has the same name and app ID, so it replaces the old one, and settings, sign-in and drafts carry over.
+3. `UpdateBanner` says "Dalliance 0.4.0 is available." Download opens `dalliance.io/download?from=update`, and the user drags the new app over the old one in Applications. It has the same name and app ID, so it replaces the old one, and settings, provider keys and drafts carry over.
 
 The privacy page lists the check, so change both together.
 

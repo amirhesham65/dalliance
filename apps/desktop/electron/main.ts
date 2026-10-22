@@ -1,8 +1,7 @@
 import { existsSync, mkdirSync } from 'node:fs'
 import { mkdir, readFile, rmdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent, app, dialog, ipcMain, nativeTheme, shell } from 'electron'
-import { DESKTOP_SCHEME } from '@dalliance/shared/cloud'
+import { BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent, app, dialog, ipcMain, nativeTheme, safeStorage, shell } from 'electron'
 import {
   type AttachResult,
   type CreatedProject,
@@ -19,9 +18,6 @@ import {
 import { fromIpynb, pinsFromNb, toIpynb } from '@dalliance/shared/ipynb'
 import type { Notebook } from '@dalliance/shared/notebook'
 import { writeFileAtomic } from './atomic-write'
-import { Account } from './cloud/account'
-import { Billing } from './cloud/billing'
-import { type CloudConfig, cloudUrl, deepLinkFromArgv, fetchCloudConfig } from './cloud/config'
 import { listModels } from './harness/model'
 import { DraftStore } from './draft'
 import { prepareImage } from './images'
@@ -32,6 +28,7 @@ import { isBroadFolder } from './harness/workspace'
 import { OpenQueue, notebookFromArgv } from './open-files'
 import { NotebookSession } from './session'
 import { SettingsStore } from './settings'
+import { ProviderKeys } from './provider-keys'
 import { Updates } from './updates'
 import { copyIntoUploads } from './uploads'
 
@@ -39,13 +36,9 @@ const isMac = process.platform === 'darwin'
 const TITLE_BAR_HEIGHT = 48
 
 // One copy of the app at a time. A second launch hands its command line to this one through 'second-instance'
-// and exits at once, before it reads settings or signs in to anything.
+// and exits at once, before it reads settings.
 const primary = app.requestSingleInstanceLock()
 if (!primary) app.exit(0)
-
-// In development, read .env in the project folder, which can point the app at a local Dalliance Cloud
-const envFile = path.join(app.getAppPath(), '.env')
-if (!app.isPackaged && existsSync(envFile)) process.loadEnvFile(envFile)
 
 let win: BrowserWindow | null = null
 let documentState = { path: null as string | null, dirty: false }
@@ -53,27 +46,12 @@ let allowClose = false
 // Set when the close dialog chose Save: once the save lands, the window closes
 let allowCloseAfterSave = false
 
-// Dalliance Cloud: the account, the plan and the models. See docs/cloud.md
-const cloud = cloudUrl(app.isPackaged)
-const account = new Account({ userData: app.getPath('userData'), cloud, getWindow: () => win })
-let cloudConfig: Promise<CloudConfig> | null = null
-const billing = new Billing({
-  // Asked once and kept. A failure is forgotten, so the next attempt asks again
-  convexUrl: async () => {
-    cloudConfig ??= fetchCloudConfig(cloud).catch((err: unknown) => {
-      cloudConfig = null
-      throw err
-    })
-    return (await cloudConfig).convexUrl
-  },
-  token: () => account.convexToken(),
-  open: (url) => shell.openExternal(url),
+const keys = new ProviderKeys(app.getPath('userData'), {
+  available: () => safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'),
+  encrypt: (value) => safeStorage.encryptString(value),
+  decrypt: (value) => safeStorage.decryptString(value),
 })
-const settings = new SettingsStore(app.getPath('userData'), {
-  baseURL: `${cloud}/api/ai`,
-  signedIn: () => account.signedIn,
-  token: () => account.convexToken(),
-})
+const settings = new SettingsStore(app.getPath('userData'), keys.get)
 const drafts = new DraftStore(app.getPath('userData'))
 // Newer releases, offered as a download. See docs/releasing.md
 const updates = new Updates({ version: app.getVersion(), open: (url) => shell.openExternal(url) })
@@ -246,15 +224,6 @@ function showWindow() {
   win.focus()
 }
 
-/**
- * A link on the app's scheme, from the browser. A sign-in link redeems its code; `io.dalliance.app://billing`,
- * from the page after checkout, only brings the app forward.
- */
-function openLink(link: string) {
-  account.handleLink(link)
-  showWindow()
-}
-
 /** A file from Finder, the Dock or a second launch. It opens as if picked in the Open dialog. */
 function openFromOs(file: string | null) {
   if (file) opens.request(file)
@@ -300,7 +269,7 @@ function registerIpc() {
   handle(IPC.listVariables, () => session.variables())
   handle(IPC.listPackages, () => session.environment())
   handle(IPC.getSettings, () => settings.view())
-  handle(IPC.listModels, () => listModels(settings.modelConfig().cloud))
+  handle(IPC.listModels, () => listModels(keys.get))
   handle(IPC.updateSettings, async (_e, update: SettingsUpdate) => {
     const pythonChanged = update.pythonPath !== undefined && update.pythonPath !== settings.pythonPath
     const view = settings.update(update)
@@ -549,35 +518,11 @@ function registerIpc() {
     updateTitle()
   })
 
-  // Dalliance Cloud
-  handle(IPC.getAccount, () => account.current)
-  handle(IPC.signIn, () => account.signIn())
-  handle(IPC.redeemSignInCode, (_e, code: string) => (typeof code === 'string' ? account.redeem(code) : account.current))
-  handle(IPC.signOut, () => account.signOut())
-  handle(IPC.getBilling, () => billing.current)
-  handle(IPC.startCheckout, (_e, plan: string) => (plan === 'pro' ? billing.checkout(plan) : billing.current))
-  handle(IPC.openBillingPortal, () => billing.portal())
-  handle(IPC.countCredits, (_e, ids: unknown) => {
-    const generationIds = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []
-    return billing.credits(generationIds)
-  })
+  handle(IPC.getProviderKeys, () => keys.view())
+  handle(IPC.setProviderKey, (_e, provider: unknown, key: unknown) => keys.set(provider, key))
 
   handle(IPC.getUpdate, () => updates.current)
   handle(IPC.downloadUpdate, () => updates.download())
-}
-
-/** Sends account and plan changes to the page, and keeps the plan following the account. */
-function watchCloud() {
-  const send = (channel: string, view: unknown) => {
-    if (win && !win.isDestroyed()) win.webContents.send(channel, view)
-  }
-  account.onChange((view) => {
-    billing.setSignedIn(view.user != null)
-    send(IPC.accountChanged, view)
-  })
-  billing.onChange((view) => send(IPC.billingChanged, view))
-  void account.refresh()
-  void billing.connect()
 }
 
 /** Sends a newer release to the page. Only a packaged build checks: in development the version means nothing. */
@@ -588,16 +533,6 @@ function watchUpdates() {
   if (app.isPackaged) updates.start()
 }
 
-/** Makes the OS send links on the app's scheme here. Packaged builds also list it in electron-builder's protocols. */
-function registerScheme() {
-  // Development runs the Electron binary on the project folder, so the OS has to be told to pass that folder too
-  const registered =
-    process.defaultApp && process.argv[1]
-      ? app.setAsDefaultProtocolClient(DESKTOP_SCHEME, process.execPath, [path.resolve(process.argv[1])])
-      : app.setAsDefaultProtocolClient(DESKTOP_SCHEME)
-  if (!registered) console.warn(`Couldn't register ${DESKTOP_SCHEME}: links, so sign-in has to finish with the code from the page.`)
-}
-
 if (primary) {
   // macOS sends files from Finder and the Dock here, at launch before 'ready' too, so this is registered early
   app.on('open-file', (event, file) => {
@@ -605,29 +540,16 @@ if (primary) {
     if (isNotebookPath(file)) openFromOs(file)
   })
   // A second launch, with or without a file. Windows and Linux pass a double-clicked file on the command line,
-  // and a link on the app's scheme the same way
   app.on('second-instance', (_event, argv, workingDirectory) => {
-    const link = deepLinkFromArgv(argv)
-    if (link) return openLink(link)
     openFromOs(notebookFromArgv(argv, workingDirectory))
   })
   const launchFile = notebookFromArgv(process.argv, process.cwd())
   if (launchFile) opens.request(launchFile)
 
-  // macOS sends links here, at launch before 'ready' too
-  app.on('open-url', (event, url) => {
-    event.preventDefault()
-    void app.whenReady().then(() => openLink(url))
-  })
-  registerScheme()
-  const launchLink = deepLinkFromArgv(process.argv)
-  if (launchLink) void app.whenReady().then(() => openLink(launchLink))
-
   void app.whenReady().then(() => {
     registerIpc()
     buildMenu(sendMenu)
     createWindow()
-    watchCloud()
     watchUpdates()
     session.warmUp()
     app.on('activate', () => {
@@ -646,7 +568,6 @@ if (primary) {
   // Not in before-quit: the close dialog can still cancel the quit, and the notebook would stay open with a dead kernel
   app.on('will-quit', () => {
     drafts.flush()
-    billing.close()
     updates.stop()
     void session.shutdown()
   })

@@ -1,25 +1,21 @@
 // @vitest-environment node
-/**
- * End-to-end: real Python environment, real kernel, real model. The model is called on the AI Gateway directly with
- * AI_GATEWAY_API_KEY, the way Dalliance Cloud's proxy calls it, so the test needs no account.
- * Costs money and needs the network, so it only runs with DALLIANCE_E2E=1:
- *   DALLIANCE_E2E=1 pnpm exec vitest run electron/e2e.test.ts
- */
+/** Real model and Python checks. Opt in with DALLIANCE_E2E=1 and a provider API key. */
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createGateway } from '@ai-sdk/gateway'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { RunCellRequest, RunEvent } from '@dalliance/shared/ipc'
 import { createApproval } from './harness/approval'
 import { EventBus } from './harness/events'
-import { DEFAULT_MODEL, agentProviderOptions } from './harness/model'
+import { DEFAULT_MODEL, resolveModel } from './harness/model'
 import { type HarnessDeps, runCell } from './harness/run-cell'
 import { setupManagedEnv } from './kernel/python-env'
 import { PythonKernel } from './kernel/python-kernel'
 
 if (existsSync('.env')) process.loadEnvFile('.env')
-const enabled = process.env.DALLIANCE_E2E === '1' && Boolean(process.env.AI_GATEWAY_API_KEY)
+const modelId = process.env.DALLIANCE_E2E_MODEL ?? DEFAULT_MODEL
+const key = (provider: string) => ({ anthropic: process.env.ANTHROPIC_API_KEY, google: process.env.GOOGLE_GENERATIVE_AI_API_KEY, openai: process.env.OPENAI_API_KEY })[provider as 'anthropic' | 'google' | 'openai'] ?? null
+const enabled = process.env.DALLIANCE_E2E === '1' && Boolean(key(modelId.split('/')[0]))
 
 describe.skipIf(!enabled)('end to end', () => {
   const root = path.join(tmpdir(), 'dalliance-e2e')
@@ -41,9 +37,7 @@ describe.skipIf(!enabled)('end to end', () => {
     const python = await setupManagedEnv(path.join(root, 'env'), () => {})
     kernel = new PythonKernel({ python, cwd: workspace, scratchDir: path.join(root, 'kernel') })
     await kernel.start()
-    const modelId = process.env.DALLIANCE_E2E_MODEL ?? DEFAULT_MODEL
-    const model = createGateway({ apiKey: process.env.AI_GATEWAY_API_KEY! })(modelId)
-    const providerOptions = agentProviderOptions({ model: modelId, effort: 'low' })
+    const { model, providerOptions } = resolveModel({ model: modelId, effort: 'low', key })
     deps = {
       model,
       providerOptions,

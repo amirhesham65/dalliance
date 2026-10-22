@@ -1,8 +1,11 @@
 import { ArrowRight, Check, FilePlus, FolderOpen, Loader2, NotebookText } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { CloudStatus } from '@/components/cloud/CloudStatus'
-import { CLOUD_RETENTION, cloudReady } from '@/lib/cloud'
+import { ModelSelect } from '@/components/settings/ModelSelect'
+import { saveSettings } from '@/components/settings/save'
+import { Group, Note, Row } from '@/components/settings/parts'
+import { ProviderSetup } from '@/components/settings/ProviderSetup'
+import { providerOf } from '@dalliance/shared/models'
 import { sampleNotebook } from '@/lib/notebook/samples'
 import { cn } from '@/lib/utils'
 import type { DallianceApi, PythonState } from '@dalliance/shared/ipc'
@@ -12,22 +15,22 @@ import { StepBar, Wordmark } from './parts'
 import { finishOnboarding, fresh, modKey, pythonReady, startWith } from './start'
 import { usePythonSetup } from './use-python-setup'
 
-const STEPS = ['Welcome', 'Account', 'Python', 'Start']
+const STEPS = ['Welcome', 'Provider', 'Python', 'Start']
 
 /**
- * The first run: what a cell is, a Dalliance account, a Python to run on, and a first notebook.
+ * The first run: what a cell is, a provider API key, a Python to run on, and a first notebook.
  * Every step can be skipped; Settings has the same controls later.
  */
 export function Onboarding({ initialStep = 0, onClose }: { initialStep?: number; onClose: () => void }) {
   const settings = useNotebook((s) => s.settings)
   const python = useNotebook((s) => s.python)
-  const account = useNotebook((s) => s.account)
-  const billing = useNotebook((s) => s.billing)
+  const keys = useNotebook((s) => s.providerKeys)
   const [step, setStep] = useState(initialStep)
   const api = getApi()
   if (!settings || !api) return null
 
-  const ready = [true, cloudReady(account, billing), pythonReady(python), true]
+  const provider = providerOf(settings.model)
+  const ready = [true, provider != null && keys?.configured[provider] === true, pythonReady(python), true]
   const last = step === STEPS.length - 1
   const later = async () => {
     await finishOnboarding()
@@ -48,7 +51,7 @@ export function Onboarding({ initialStep = 0, onClose }: { initialStep?: number;
         </header>
 
         {/* Every step takes the height of the tallest one, the intro, so the card holds still between steps */}
-        <div className="grid px-8 py-8 short:py-4">
+        <div className="grid grid-cols-1 px-8 py-8 short:py-4">
           {step !== 0 && (
             <div aria-hidden inert className="invisible col-start-1 row-start-1">
               <IntroStep />
@@ -56,9 +59,9 @@ export function Onboarding({ initialStep = 0, onClose }: { initialStep?: number;
           )}
           <div key={step} className="col-start-1 row-start-1 duration-300 animate-in fade-in slide-in-from-bottom-1 motion-reduce:animate-none">
             {step === 0 && <IntroStep />}
-            {step === 1 && <AccountStep api={api} />}
+            {step === 1 && <ProviderStep api={api} settings={settings} />}
             {step === 2 && <PythonStep python={python} api={api} />}
-            {step === 3 && <StartStep missing={[!ready[1] && 'a Dalliance plan', !ready[2] && 'Python'].filter((m): m is string => !!m)} />}
+            {step === 3 && <StartStep missing={[!ready[1] && 'a provider API key', !ready[2] && 'Python'].filter((m): m is string => !!m)} />}
           </div>
         </div>
 
@@ -165,13 +168,23 @@ function SampleCell() {
   )
 }
 
-function AccountStep({ api }: { api: DallianceApi }) {
+function ProviderStep({ api, settings }: { api: DallianceApi; settings: import('@dalliance/shared/ipc').SettingsView }) {
+  const [error, setError] = useState<string | null>(null)
   return (
     <>
-      <StepHeading title="Sign in to Dalliance">
-        The agent writes code on your Dalliance plan: Claude, GPT, Gemini and others, paid for in credits, with no API key to manage. {CLOUD_RETENTION}
+      <StepHeading title="Connect a model provider">
+        Add your own Anthropic, Google, or OpenAI API key. Requests go directly to your provider, under your account's billing and data policies.
       </StepHeading>
-      <CloudStatus api={api} />
+      <ProviderSetup api={api} />
+      <Group label="Model">
+        <Row label="Model" wide description="Choose a model from any connected provider to start with.">
+          <ModelSelect value={settings.model} onValueChange={(model) => {
+            setError(null)
+            void saveSettings(api, { model }).catch(() => setError("Couldn't save the model. Try again."))
+          }} />
+          {error && <Note error>{error}</Note>}
+        </Row>
+      </Group>
     </>
   )
 }

@@ -43,16 +43,5 @@ release
 # Vercel CLI link
 .vercel
 
-# A local Convex deployment's data
-.convex
-
-# The Convex CLI's AI files. Regenerate them with `npx convex ai-files install` if you want them
-packages/backend/AGENTS.md
-packages/backend/CLAUDE.md
-packages/backend/.agents
-packages/backend/.claude
-packages/backend/skills-lock.json
-packages/backend/convex/_generated/ai
-
 # Agent worktrees
 .claude/worktrees

@@ -1,19 +1,35 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
+  "plugins": [
+    "react",
+    "typescript",
+    "oxc"
+  ],
   "rules": {
     "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
+    "react/only-export-components": [
+      "warn",
+      {
+        "allowConstantExport": true
+      }
+    ]
   },
-  "ignorePatterns": ["packages/backend/convex/_generated/**"],
   "overrides": [
     {
-      "files": ["apps/web/src/app/**", "apps/cloud/src/app/**", "apps/admin/src/app/**"],
-      "rules": { "react/only-export-components": "off" }
+      "files": [
+        "apps/web/src/app/**"
+      ],
+      "rules": {
+        "react/only-export-components": "off"
+      }
     },
     {
-      "files": ["apps/desktop/src/components/ui/**", "apps/admin/src/components/ui/**"],
-      "rules": { "react/only-export-components": "off" }
+      "files": [
+        "apps/desktop/src/components/ui/**"
+      ],
+      "rules": {
+        "react/only-export-components": "off"
+      }
     }
   ]
 }

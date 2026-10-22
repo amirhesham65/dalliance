@@ -1,3 +1,4 @@
+import { redactSecrets } from '../secrets'
 import { appendFile, mkdir, rename, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { type ConcernKind, inspectCode, isSecretPath } from './code-policy'
@@ -103,6 +104,7 @@ export function createRunLog(logDir: string, options: { maxBytes?: number } = {}
       const line = `${JSON.stringify({ at: new Date().toISOString(), event, ...data }, (k, v) => {
         // An image the agent was shown is logged by size only: its bytes would be noise
         if (k === 'images' && Array.isArray(v)) return v.map((image: { mediaType?: string; data?: string }) => ({ mediaType: image?.mediaType, chars: image?.data?.length ?? 0 }))
+        if (typeof v === 'string') v = redactSecrets(v)
         return k !== 'reasoning' && typeof v === 'string' && v.length > MAX_LOG_STRING ? `${v.slice(0, MAX_LOG_STRING)}…` : v
       })}\n`
       queue = queue

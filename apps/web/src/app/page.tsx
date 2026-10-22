@@ -120,7 +120,7 @@ export default async function Home() {
         {/* Centred type over a working miniature of the app */}
         <div className={`${gutter} pt-16 lg:pt-24`}>
           <div className="mx-auto flex max-w-[760px] flex-col items-center text-center">
-            <p className={label}>A notebook for macOS</p>
+            <p className={label}>{site.status}</p>
             {/* Hyphenated words stay whole: a line ending in "Open-" reads like a typo */}
             <h1 className={`${headline} mx-auto mt-5 lg:text-[62px]`}>
               {site.headline.split(/(\S+-\S+)/).map((part, i) => (i % 2 ? <span key={i} className="whitespace-nowrap">{part}</span> : part))}
@@ -165,7 +165,7 @@ export default async function Home() {
                 <strong>A Mac with Python 3.</strong> Dalliance can create a private environment with pandas, NumPy and matplotlib, or use an interpreter you already have.
               </p>
               <p>
-                <strong>A Dalliance plan.</strong> Claude, GPT, Gemini and more, paid for in credits, with no API key to manage. Sign in with your email.
+                <strong>Open source. Your own API key.</strong> Connect Anthropic, Google, or OpenAI. Requests go directly to your provider, and you pay for your own API usage.
               </p>
             </div>
           </Band>
@@ -179,7 +179,7 @@ export default async function Home() {
                 <strong>Not a black box.</strong> Every cell has a Code tab with the exact Python that ran. Notebooks save as standard .ipynb files and open in Jupyter.
               </p>
               <p>
-                <strong>Not a cloud notebook.</strong> Your data, code and Python kernel stay on your Mac. Only your prompt and the context the agent reads go to the model, and every model call runs with zero data retention.
+                <strong>Python runs locally.</strong> Your notebooks and Python kernel stay on your Mac. Your prompt and the context the agent reads go directly to your chosen provider, under your account's data policies.
               </p>
             </div>
           </Band>

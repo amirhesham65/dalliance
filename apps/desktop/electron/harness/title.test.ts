@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { MockLanguageModelV4 } from 'ai/test'
 import { describe, expect, it } from 'vitest'
-import { TITLE_MODEL, cleanTitle, generateTitle, titleModel } from './title'
+import { cleanTitle, generateTitle, titleModel } from './title'
 
 const usage = {
   inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
@@ -39,11 +39,11 @@ describe('cell titles', () => {
     expect(await generateTitle('Anything at all, long enough to be named by the model', { model })).toBeNull()
   })
 
-  it('uses GPT-6 Luna on Dalliance Cloud, and nothing when signed out', () => {
-    const cloud = (signedIn: boolean) => ({ baseURL: 'https://cloud.example/api/ai', signedIn: () => signedIn, token: async () => 'jwt' })
-    const title = titleModel({ model: 'anthropic/claude-opus-5', effort: 'medium', cloud: cloud(true) })
-    expect(title && (title.model as { modelId: string }).modelId).toBe(TITLE_MODEL)
-    expect(title?.providerOptions).toEqual({ openai: { reasoningEffort: 'low' } })
-    expect(titleModel({ model: 'x', effort: 'low', cloud: cloud(false) })).toBeNull()
+  it('uses the selected provider and key, and skips titles without a key', () => {
+    const config = { model: 'anthropic/claude-sonnet-5-5', effort: 'medium' as const, key: () => 'test-key' }
+    const title = titleModel(config)
+    expect(title && (title.model as { modelId: string }).modelId).toBe('claude-sonnet-5-5')
+    expect(title?.providerOptions?.anthropic).toBeDefined()
+    expect(titleModel({ ...config, key: () => null })).toBeNull()
   })
 })

@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import type { RecentNotebook } from '@dalliance/shared/ipc'
 import { newPromptCell } from '@dalliance/shared/notebook'
 import { actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
-import { signedIn } from '@/lib/cloud'
+import { providerOf } from '@dalliance/shared/models'
 import { Onboarding } from './Onboarding'
 import { Kbd } from '@/components/ui/kbd'
 import { Wordmark } from './parts'
@@ -24,7 +24,8 @@ export function WelcomeScreen() {
 }
 
 function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
-  const account = useNotebook((s) => s.account)
+  const keys = useNotebook((s) => s.providerKeys)
+  const settings = useNotebook((s) => s.settings)
   const python = useNotebook((s) => s.python)
   const canReturn = useNotebook((s) => s.canReturn)
   const path = useNotebook((s) => s.path)
@@ -37,7 +38,8 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
   }, [api])
 
   const cwd = useNotebook((s) => s.kernel.cwd)
-  const hasAccount = signedIn(account)
+  const provider = settings ? providerOf(settings.model) : null
+  const hasKey = provider != null && keys?.configured[provider] === true
   const hasPython = pythonReady(python)
   const name = path ? (path.split(/[\\/]/).pop() ?? path).replace(/\.ipynb$/, '') : 'Untitled'
 
@@ -99,8 +101,8 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
           )}
         </section>
 
-        <section aria-label={hasAccount && hasPython ? 'Try a prompt' : 'Setup'} className="flex min-w-0 flex-1 flex-col rounded-xl border bg-background shadow-pane">
-          {hasAccount && hasPython ? (
+        <section aria-label={hasKey && hasPython ? 'Try a prompt' : 'Setup'} className="flex min-w-0 flex-1 flex-col rounded-xl border bg-background shadow-pane">
+          {hasKey && hasPython ? (
             <>
               <header className="px-6 pt-6 pb-3">
                 <h2 className="font-serif text-[19px] font-medium">Try a prompt</h2>
@@ -132,9 +134,9 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
               </header>
               <ul className="flex flex-col gap-1 px-3 pb-3">
                 <SetupItem
-                  done={hasAccount}
-                  title="A Dalliance account"
-                  detail={account?.user ? `Signed in as ${account.user.name || account.user.email}` : 'Runs prompts on your plan'}
+                  done={hasKey}
+                  title="A provider API key"
+                  detail={hasKey ? 'Your provider key is added' : 'Connect Anthropic, Google, or OpenAI'}
                   onClick={() => onSetup(1)}
                 />
                 <SetupItem
@@ -145,7 +147,7 @@ function StartPage({ onSetup }: { onSetup: (step: number) => void }) {
                 />
               </ul>
               <div className="px-6 pb-6">
-                <Button className="w-full" onClick={() => onSetup(hasAccount ? 2 : 1)}>
+                <Button className="w-full" onClick={() => onSetup(hasKey ? 2 : 1)}>
                   Finish setting up
                 </Button>
               </div>

@@ -35,7 +35,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo run lint typecheck test
       - run: pnpm --filter @dalliance/desktop dist:mac --publish never
-      # This repo is private, so downloads come from the public amirhesham65/dalliance-releases, which holds only
+      # Downloads come from amirhesham65/dalliance-releases, which holds only
       # installers. The website's /download points at its latest release, and the app reads latest-mac.yml there to
       # tell a newer version is out. The zip and its blockmap are what electron-updater will download once releases
       # are signed. See docs/releasing.md

@@ -1,3 +1,4 @@
+import { pythonEnv } from '../secrets'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { PackageView } from '@dalliance/shared/ipc'
@@ -26,7 +27,7 @@ export interface ListOptions {
 export async function installedPackages(python: string, { cwd, timeoutMs = 20_000 }: ListOptions): Promise<PackageView[]> {
   let stdout: string
   try {
-    ;({ stdout } = await run(python, ['-c', SCRIPT], { cwd, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }))
+    ;({ stdout } = await run(python, ['-c', SCRIPT], { cwd, env: pythonEnv(process.env), timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }))
   } catch (err) {
     throw new Error(listingFailure(err, python, timeoutMs))
   }

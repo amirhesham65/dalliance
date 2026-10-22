@@ -3,21 +3,16 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "The notebook model, .ipynb conversion, output normalizing, Verify's comparison and code checks, IPC contract, the Dalliance Cloud contract, the admin app's metrics and leaked tool-call cleanup, used by the renderer, the Electron main process, the cloud site and the backend.",
+  "description": "Notebook types, .ipynb conversion, IPC, provider models, output comparison, and Python helpers.",
   "exports": {
     "./notebook": "./src/notebook.ts",
     "./ipynb": "./src/ipynb.ts",
     "./ipc": "./src/ipc.ts",
-    "./cloud": "./src/cloud.ts",
-    "./cloud-api": "./src/cloud-api.ts",
-    "./metrics": "./src/metrics.ts",
     "./leaked": "./src/leaked.ts",
     "./normalize": "./src/normalize.ts",
     "./python": "./src/python.ts",
-    "./verify": "./src/verify.ts"
-  },
-  "dependencies": {
-    "convex": "catalog:"
+    "./verify": "./src/verify.ts",
+    "./models": "./src/models.ts"
   },
   "scripts": {
     "test": "vitest run",
@@ -28,5 +23,6 @@
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  }
+  },
+  "license": "Apache-2.0"
 }

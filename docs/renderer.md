@@ -25,7 +25,7 @@ src/
 
 ## The store
 
-`src/store/notebook-store.ts` exports `useNotebook`, a zustand store, and `actions`, plain functions that change it. Components read with selectors, `useNotebook((s) => s.pane)`, and call `actions.*`. Besides the actions, `App.tsx`, `main.tsx` and the Settings sections write bridge results straight into `settings`, `python`, `kernel`, `account` and `billing`.
+`src/store/notebook-store.ts` exports `useNotebook`, a zustand store, and `actions`, plain functions that change it. Components read with selectors, `useNotebook((s) => s.pane)`, and call `actions.*`. Besides the actions, `App.tsx`, `main.tsx` and the Settings sections write bridge results straight into `settings`, `python`, `kernel`, `providerKeys`.
 
 Saved with the notebook: `notebook`. Everything else is session state:
 
@@ -38,8 +38,8 @@ Saved with the notebook: `notebook`. Everything else is session state:
 | `runs` | `CellRun` per queued or running cell: status text, activity, live outputs, live code, a pending question or approval |
 | `activity` | Each cell's activity from its last generation |
 | `messages` | Non-Python errors per cell |
-| `log` | The Activity pane's entries, newest first, at most 60. A run's entry has its `cost`, shown only with Show costs on |
-| `spend` | What the notebook's runs and cell names have cost since it loaded, and how many runs' credits are still counting. Clear keeps it, `load()` starts it again |
+| `log` | The Activity pane's entries, newest first, at most 60. A run's entry has its `cost`, shown only with Show token usage on |
+| `spend` | Tokens used by runs and cell names since the notebook loaded. Clear keeps it, `load()` starts it again |
 | `lastFinishedId` | The cell that shows its suggestions |
 | `pane`, `pinnedIds` | The open side pane and pinned cells |
 | `brief`, `models`, `variables`, `settings`, `python`, `kernel` | Data from the main process |
@@ -111,7 +111,7 @@ Below 1200 px wide, `NARROW_WINDOW` in `App.tsx`, there is no room for a side pa
 
 `UpdateBanner` in `components/app/` sits above both screens, the start page and the notebook, when `update` holds a newer release: "Dalliance 0.4.0 is available." Its Download opens the website's download in the browser. Its cross hides that version for the session, and a later one shows it again.
 
-A banner above the workspace asks for a sign-in, a Python or missing packages when the account or Python state say so. `signedIn()` in `lib/cloud.ts` decides the first, and an account not answered yet counts as signed in, so nothing flashes up. Its Open Settings goes to Account for a sign-in and Python otherwise. It has a cross on its right. Dismissing it hides that message for the session: it comes back if the message changes, or once the problem has been fixed and returns.
+A banner above the workspace asks for a provider key, Python, or missing packages when setup is incomplete. It waits for key status before showing a missing-key message. Open Settings goes to Models for a key and Python otherwise. Dismissing it hides that message until it changes or the problem returns.
 
 Under it, `PinChangesBanner` in `components/notebook/` says what changed since the notebook was saved, from `pinChanges`: "Changed since this notebook was saved: pandas 2.1.0, now 2.2.3; data/visits.csv has changed." `describePinChange()` in `lib/pins.ts` words each change. It lists three and folds the rest behind an "and 2 more" button, and it isn't there at all when nothing changed. Its cross calls `dismissPinChanges()`, which hides it until the next check. `load()` starts a check for a notebook with pins without waiting for it, and `checkPins()` runs one on demand and returns the changes, which is what Verify should await before it restarts the kernel. A check for a notebook that another has replaced since is dropped. See [notebook-model.md](notebook-model.md#pins).
 
@@ -197,19 +197,19 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 | History | The selected cell's revisions. Restore brings one back without calling the model |
 | Files | Workspace files, reloaded after every run. Clicking a data file adds a prompt cell to load it. A button in its header opens the folder in Finder, named for the platform's file manager |
 | Pinned | Result cards for pinned cells, in pin order |
-| Activity | The session log. Click an entry to jump to its cell. With `settings.showCosts` on, each run says what it cost and the top shows the notebook's total. See [Costs](#costs) |
+| Activity | The session log. Click an entry to jump to its cell. With `settings.showUsage` on, each run shows its token usage and the top shows the notebook's total. See [Token usage](#token-usage) |
 
-### Costs
+### Token usage
 
-Show costs is off by default, and with it off the Activity pane shows nothing about cost, even for entries that have one. The main process counts every run anyway, so turning it on shows the runs made while it was off, see [agent-harness.md](agent-harness.md#costs). `finish()` puts the run's `RunCost` on its log entry and adds it to `spend` through `trackCost()`. A cell name's cost comes on the `title` event and goes to `spend` only.
+Show token usage is off by default, and with it off the Activity pane hides token usage, even for entries that have one. The main process counts every run anyway, so turning it on shows the runs made while it was off, see [agent-harness.md](agent-harness.md#token-usage). `finish()` puts the run's `RunCost` on its log entry and adds it to `spend` through `trackCost()`. A cell name's cost comes on the `title` event and goes to `spend` only.
 
-`lib/cost.ts` words them, in credits, never dollars. The entry says "Counting credits" until `countCredits()` answers, then "4.2 credits", or the tokens if none were counted. A notebook loaded while credits are counting drops them when they arrive, so they never reach the new notebook's total. Tokens whose credits never came add up in `spend.uncountedTokens`, and the total says "12,345 tokens not counted".
+`lib/cost.ts` formats reported token counts for each entry and the notebook total. Totals update synchronously and include title requests. Loading another notebook resets the total; clearing the log keeps it. The app does not estimate provider charges.
 
 ## Notices and errors
 
 `actions.notify(text, { undo, tone })` puts one message at the bottom of the window for 6 seconds. `NoticeToast` in `App.tsx` draws it. With `undo` it shows an Undo button, without it a Dismiss button. A newer notice replaces the one showing, and loading a notebook clears it. D D and M use it to offer Undo, which goes through the notebook's undo stack, see [Undo and redo](#undo-and-redo).
 
-Opening the model picker loads the model list. A saved model the list doesn't offer goes back to the default with a notice, since the service only offers models with zero data retention that read images.
+Opening the model picker loads the local catalog for configured providers. Custom model selections are kept even when they are absent from the catalog.
 
 A bridge call the user started should never fail silently. `actions.notifyFailure(what, err)` shows "Couldn't save the notebook." and the reason, with the `Error invoking remote method` wrapper stripped by `errorText()`. Saving, writing the brief, refreshing the variables and restarting Python all report failures this way. A new notebook the main process can't write gets a dialog with the reason from there instead, and the window stays as it was. Background calls, like the variables refresh after each run, stay quiet.
 
@@ -227,10 +227,9 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 
 | Section | Component | Holds |
 | --- | --- | --- |
-| Models | `ModelSettings` | `CloudStatus` for the account (sign in, choose a plan, or the credits left), with the zero data retention line from `CLOUD_RETENTION` in `lib/cloud.ts`, see [cloud.md](cloud.md#zero-data-retention). Then the model id, effort and Show costs |
+| Models | `ModelSettings` | `ProviderSetup` for simultaneous provider connections, plus a model picker combining connected providers, custom model IDs, effort and token usage |
 | Agent | `AgentSettings` | Approvals (package installs, shell and network code), cell names, suggested next prompts |
 | Python | `PythonSettings` | The managed environment and a Python path |
-| Account | `AccountSettings` | The Dalliance account, the plan and its credits. See [cloud.md](cloud.md) |
 
 It sits over the area under the top bar with the screen below still mounted and `inert`, so the setup's step, the notebook's scroll and the resizable columns come back as they were. Command mode and the Cmd+number keys stay off while it's up. Esc goes back, unless a select or menu is open, or a text field has focus, which it leaves instead.
 
@@ -238,7 +237,9 @@ Changes save as they're made. Selects save on change. The model id and the Pytho
 
 ## First run and the start page
 
-`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a Dalliance account, a Python, and a first notebook. The account step shows `CloudStatus`, and counts as done once the account is on a plan, see [cloud.md](cloud.md#signing-in). Skipping any step still sets `onboarded`. The start page offers new project, open project, new notebook, open notebook, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New goes through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, and Open project asks for a folder first, then opens a notebook in it or starts one, so nothing the start page opens is unsaved. File > Open Project and the notebook tab's menu do the same, and the tab names the folder in use with `folderName()`.
+The onboarding body uses one `minmax(0, 1fr)` grid column. This keeps long installer output inside the log's scroll area instead of widening the step and pushing its controls outside the card.
+
+`WelcomeScreen` in `components/welcome/Welcome.tsx` shows `Onboarding` until `settings.onboarded` is true, and `StartPage` after that. Onboarding has four steps: what a cell is, a provider and API key, Python, and a first notebook. The Provider step shares `ProviderSetup` and `ModelSelect` with Settings and counts as ready once the chosen model's provider has a key. Skipping any step still sets `onboarded`. The start page offers new project, open project, new notebook, open notebook, the sample notebook, recent files, and the `STARTERS` prompts from `lib/notebook/samples.ts`. Help > Welcome opens it over the current notebook with `canReturn` set. New goes through `fresh()` in `welcome/start.ts`, which asks the main process to write the notebook as a file, and Open project asks for a folder first, then opens a notebook in it or starts one, so nothing the start page opens is unsaved. File > Open Project and the notebook tab's menu do the same, and the tab names the folder in use with `folderName()`.
 
 New project opens `NewProjectDialog` in `components/app/`, rendered once in `App.tsx` over either screen and shown while the store's `newProject` is true. `askNewProject()` and `closeNewProject()` set it, from the start page, the notebook tab's menu and File > New Project. It asks for a name and shows where the project will go, from `projectsFolder()`, with Change… calling `chooseProjectsFolder()`. Create asks `confirmDiscard()` first, so nothing is made on disk when the user keeps their changes, then calls `createProject()`. A refused name stays in the dialog with the reason under the field. See [storage.md](storage.md#projects).
 
@@ -272,7 +273,7 @@ Shortcut hints use `Kbd` from `ui/kbd.tsx`, in tooltips, menus and text alike. `
 
 ## Model maker logos
 
-`src/assets/makers/*.svg` are single-colour logos from `@lobehub/icons-static-svg`, MIT licensed. The file name is the maker label lowercased with only letters and digits: "Moonshot AI" is `moonshotai.svg`. `lib/makers.ts` loads them all with `import.meta.glob` and maps gateway prefixes that don't match, such as `spacexai` to `xai`. A maker without a file shows no logo.
+`src/assets/makers/*.svg` are single-colour logos from `@lobehub/icons-static-svg`, MIT licensed. The files cover Anthropic, Google, and OpenAI. `lib/makers.ts` loads them with `import.meta.glob`; an unknown maker has no logo.
 
 ## The browser preview
 
@@ -283,7 +284,7 @@ Without Electron there's no `window.dalliance`. `main.tsx` then checks the URL:
 | `/?demo` | A clinical trial notebook with results. The last cell asks a question when run. Verify finds the over-65 cell changed and the rest the same |
 | `/?demo&welcome` | The start page |
 | `/?demo&hero` | The notebook the website's hero capture shows: Kaplan-Meier curves and an adjusted hazard ratio, with a clean run log |
-| `/?demo&setup` | The first-run setup, signed out and with no Python. Sign in lands on the Pro plan after a moment |
+| `/?demo&setup` | The first-run setup, with no provider key and no Python |
 | `&update` added to any of these | The same, with the banner a newer release shows |
 | anything else | The app with no bridge. Runs fail with "Running cells needs the desktop app." |
 

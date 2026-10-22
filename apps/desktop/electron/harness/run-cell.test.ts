@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { APICallError, RetryError, generateText } from 'ai'
+import { APICallError, RetryError } from 'ai'
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -13,7 +13,7 @@ import { FakeKernel } from '../kernel/fake-kernel'
 import { createApproval } from './approval'
 import { type EventData, EventBus } from './events'
 import { installExtensions } from './extensions'
-import { agentProviderOptions, cloudGateway } from './model'
+import { agentProviderOptions } from './model'
 import { type HarnessDeps, describeCall, describeResult, friendlyError, runCell } from './run-cell'
 import { RUN_TIMEOUT_MS, type ToolDeps, createCellTools, duration } from './tools'
 
@@ -302,14 +302,14 @@ describe('observability', () => {
     expect(logged).toEqual(['Look at the columns first.', null, 'It ran, so finish.'])
   })
 
-  it("keeps each step's tokens and the gateway's generation id, for what the run cost", async () => {
+  it("keeps each step's tokens and their reasoning summaries for token usage", async () => {
     const step = (id: string, call: { toolName: string; input: unknown }, metadata?: Record<string, Record<string, string>>) => [
       { type: 'stream-start' as const, warnings: [] },
       { type: 'tool-call' as const, toolCallId: id, toolName: call.toolName, input: JSON.stringify(call.input) },
       { type: 'finish' as const, finishReason: { unified: 'tool-calls' as const, raw: 'tool_use' }, usage, providerMetadata: metadata },
     ]
     const replies = [
-      step('call-1', { toolName: 'run_cell', input: { code: 'x = 1\nx' } }, { gateway: { generationId: 'gen_01ABC' } }),
+      step('call-1', { toolName: 'run_cell', input: { code: 'x = 1\nx' } }),
       step('call-2', { toolName: 'finish', input: { interpretation: '', answer: '' } }),
     ]
     let calls = 0
@@ -319,8 +319,8 @@ describe('observability', () => {
     // The reasoning is inside the output tokens, never added on top
     const tokens = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 5, cacheWriteTokens: 1, reasoningTokens: 2 }
     expect(result.steps).toMatchObject([
-      { step: 1, usage: tokens, generationId: 'gen_01ABC' },
-      { step: 2, usage: tokens, generationId: null },
+      { step: 1, usage: tokens },
+      { step: 2, usage: tokens },
     ])
   })
 
@@ -359,7 +359,7 @@ describe('the record of how a cell was made', () => {
       { tool: 'explore', input: { summary: 'Averaging order value', code: 'len(open("notes/readme.txt").readlines())' } },
       { tool: 'finish', input: { interpretation: 'Order value is [[total including tax]].', answer: 'The mean is 41.2.' } },
     ])
-    const { deps } = harness(model, kernel, { modelId: 'anthropic/claude-sonnet-5.5', effort: 'medium', requestApproval: async () => true })
+    const { deps } = harness(model, kernel, { modelId: 'anthropic/claude-sonnet-5-5', effort: 'medium', requestApproval: async () => true })
     writeFileSync(path.join(deps.workspaceDir, 'orders.csv'), 'plan,total\npro,40\n')
     const corrections = [{ from: 'total', to: 'total including tax' }]
 
@@ -370,7 +370,7 @@ describe('the record of how a cell was made', () => {
       prompt: 'Average order value by month',
       corrections,
       madeAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
-      model: 'anthropic/claude-sonnet-5.5',
+      model: 'anthropic/claude-sonnet-5-5',
       effort: 'medium',
       steps: [1, 2, 3, 4, 5, 6].map((step) => ({ step, model: 'mock-model-id' })),
       rationale: { from: 'summaries', text: ['Check the header first.', 'The column is total, not amount.'] },
@@ -857,10 +857,10 @@ describe('the brief', () => {
 
 describe('friendlyError', () => {
   const apiError = (statusCode: number | undefined, message: string) =>
-    new APICallError({ message, url: 'https://cloud.dalliance.io/api/ai/language-model', requestBodyValues: {}, statusCode, isRetryable: statusCode == null || statusCode === 429 })
+    new APICallError({ message, url: 'https://api.anthropic.com/v1/messages', requestBodyValues: {}, statusCode, isRetryable: statusCode == null || statusCode === 429 })
 
-  it('reads a 401 as a sign-in Dalliance Cloud turned down', () => {
-    expect(friendlyError(apiError(401, 'Unauthorized'))).toMatch(/^Dalliance Cloud didn't accept your sign-in/)
+  it('reads a 401 as a provider key or access problem', () => {
+    expect(friendlyError(apiError(401, 'Unauthorized'))).toMatch(/^The provider rejected the API key/)
   })
 
   it('reads a 429 as rate limiting, also after retries', () => {
@@ -881,39 +881,16 @@ describe('friendlyError', () => {
   })
 
   it('still reads a status the message spells out', () => {
-    expect(friendlyError(new Error('Request failed with status code 401'))).toMatch(/didn't accept your sign-in/)
+    expect(friendlyError(new Error('Request failed with status code 401'))).toMatch(/rejected the API key/)
     expect(friendlyError(new Error('429 Too Many Requests'))).toMatch(/rate limiting/)
   })
 
-  /** What a real call through Dalliance Cloud throws when the proxy answers with this status and message. */
-  async function cloudRefusal(status: number, message: string) {
-    const fetch = vi.fn(async () => Response.json({ error: { message, type: 'dalliance_account' } }, { status }))
-    vi.stubGlobal('fetch', fetch)
-    try {
-      const model = cloudGateway({ baseURL: 'https://cloud.test/api/ai', signedIn: () => true, token: async () => 'jwt' })('anthropic/claude-fable-5.1')
-      return await generateText({ model, prompt: 'Hi', maxRetries: 0 }).then(
-        () => null,
-        (err: unknown) => err,
-      )
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  }
-
-  it("shows Dalliance Cloud's refusals as written", async () => {
-    const offered = "This model doesn't run with zero data retention, so Dalliance Cloud doesn't offer it. Choose another model in Settings."
-    expect(friendlyError(await cloudRefusal(403, offered))).toBe(offered)
-    expect(friendlyError(await cloudRefusal(401, 'Sign in to Dalliance to run prompts.'))).toBe('Sign in to Dalliance to run prompts.')
-    expect(friendlyError(await cloudRefusal(402, "You've used this period's credits."))).toBe("You've used this period's credits.")
-  })
-
-  it("keeps the gateway's own words for an error it explains", () => {
-    const viaGateway = new APICallError({ message: 'No zero data retention provider', url: 'https://ai-gateway.vercel.sh/v4/ai/language-model', requestBodyValues: {}, statusCode: 400 })
-    expect(friendlyError(viaGateway)).toBe('No zero data retention provider')
+  it('explains exhausted quota', () => {
+    expect(friendlyError(apiError(429, 'insufficient_quota'))).toMatch(/no available quota/)
   })
 
   it('reads a failed fetch as no connection', () => {
-    const offline = new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo ENOTFOUND cloud.dalliance.io'), { code: 'ENOTFOUND' }) })
+    const offline = new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo ENOTFOUND api.anthropic.com'), { code: 'ENOTFOUND' }) })
     expect(friendlyError(offline)).toMatch(/^Couldn't reach the model provider/)
     expect(friendlyError(apiError(undefined, 'Cannot connect to API: other side closed'))).toMatch(/^Couldn't reach the model provider/)
   })

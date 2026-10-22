@@ -28,14 +28,14 @@ export function AgentSettings({ api, settings }: { api: DallianceApi; settings: 
         <Row
           label="Cell names in the overview"
           htmlFor="titles"
-          description="Long prompts get a few-word name while the code is written. It costs a fraction of a cent per cell."
+          description="Long prompts get a short name from your selected model. This makes an extra request using the same provider key."
         >
           <Select value={settings.autoTitles ? 'model' : 'prompt'} onValueChange={(v) => update({ autoTitles: v === 'model' })}>
             <SelectTrigger id="titles" className="w-52">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="model">Short titles from GPT-6 Luna</SelectItem>
+              <SelectItem value="model">Short titles from the selected model</SelectItem>
               <SelectItem value="prompt">The prompt itself</SelectItem>
             </SelectContent>
           </Select>

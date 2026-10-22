@@ -27,7 +27,7 @@ Every handler goes through `handle()` or `on()` in `main.ts`, never `ipcMain` di
 | `listPackages()` | invoke | `session.environment` | The Python in use and its libraries with versions, an `EnvironmentView`. `installedPackages()` in `electron/kernel/python-packages.ts` reads the interpreter with `importlib.metadata` in its own process, so a running cell doesn't hold it up. It runs in userData, since `python -c` puts its working directory first on `sys.path` and a stray `json.py` there would shadow the standard library. A failure comes back as `error`, never a throw: no Python, a timeout after 20 seconds, or the last line Python wrote to stderr |
 | `getSettings()` | invoke | `settings.view` | `SettingsView` |
 | `updateSettings(update)` | invoke | `settings.update` | Returns the new view. Restarts the kernel if `pythonPath` changed |
-| `listModels()` | invoke | `listModels` | Dalliance Cloud's models for the picker, as a `ModelList`. Empty with an `error` when signed out |
+| `listModels()` | invoke | `listModels` | The local catalog for configured providers, as a `ModelList` |
 | `pythonState()` | invoke | `session.pythonState` | Which Python, which version, missing packages |
 | `setupPython()` | invoke | `session.setupPython` | Creates the managed venv, then restarts the kernel |
 | `openNotebook()` | invoke | dialog, `openFile` | Open dialog, parse, restart the kernel in that folder. A kernel still starting in the old folder shuts itself down. A file the OS asked to open takes the dialog's place, see [Opening files from the OS](#opening-files-from-the-os) |
@@ -48,14 +48,8 @@ Every handler goes through `handle()` or `on()` in `main.ts`, never `ipcMain` di
 | `revealFolder()` | invoke | `shell.openPath(session.dir)` | Opens the folder in use in Finder or the platform's file manager. Takes no path, so the window can only open that folder. Rejects with the reason when the OS can't open it |
 | `restoreSession()` | invoke | `drafts.restore` | The notebook to show at load, or a `RestoreFailure` with the reason it couldn't reopen, or null. See [storage.md](storage.md#session-and-drafts) |
 | `saveDraft(state)` | send | `drafts.update` | Mirrors the document to the main process |
-| `getAccount()` | invoke | `account.current` | The Dalliance account as an `AccountView`. See [cloud.md](cloud.md) |
-| `signIn()` | invoke | `account.signIn` | Opens the sign-in page in the browser and sets `waiting` |
-| `redeemSignInCode(code)` | invoke | `account.redeem` | The code the sign-in page shows when the browser couldn't open the app |
-| `signOut()` | invoke | `account.signOut` | Signs out here. The server session expires on its own |
-| `getBilling()` | invoke | `billing.current` | The plan as a `BillingView` |
-| `startCheckout(plan)` | invoke | `billing.checkout` | Opens checkout for the plan in the browser. Only takes `pro` |
-| `openBillingPortal()` | invoke | `billing.portal` | Opens the billing portal in the browser |
-| `countCredits(generationIds)` | invoke | `billing.credits` | The credits Dalliance Cloud counted for a run's calls, once they've all landed or after 90 seconds. Null when none were, or when signed out. See [agent-harness.md](agent-harness.md#costs) |
+| `getProviderKeys()` | invoke | `keys.view` | Configured flags and secure storage status, never saved key values |
+| `setProviderKey(provider, key)` | invoke | `keys.set` | Validate and save a provider key. Empty input removes it |
 | `getUpdate()` | invoke | `updates.current` | A newer release as an `UpdateView`, or null when none has been found. See [releasing.md](releasing.md#update-notices) |
 | `downloadUpdate()` | invoke | `updates.download` | Opens the website's download in the browser |
 | `setDocumentState({ path, dirty })` | send | `updateTitle` | Window title and the macOS edited dot |
@@ -70,8 +64,6 @@ Each `on*` method subscribes and returns an unsubscribe function.
 | `onKernelState` | `kernel-state-changed` | `KernelState` |
 | `onPythonLog` | `python-log` | One line of venv or pip output |
 | `onMenu` | `menu` | A `MenuAction` from the app menu |
-| `onAccount` | `account-changed` | `AccountView`, after sign-in, sign-out or a session check |
-| `onBilling` | `billing-changed` | `BillingView`, whenever the plan or its credits change |
 | `onUpdate` | `update-found` | `UpdateView`, when a check finds a newer release |
 
 `RunEvent` is a union:
@@ -105,7 +97,6 @@ Each one goes through the renderer's ordinary Open, so unsaved changes get the D
 
 At launch this runs after `restoreSession()`, so the last notebook comes back first and the file then replaces it.
 
-Links on the `io.dalliance.app` scheme arrive the same ways: `open-url` on macOS, and the command line elsewhere. They never go through `OpenQueue`. `openLink()` hands them to the account and brings the window forward. See [cloud.md](cloud.md#signing-in).
 
 ## Saving and closing
 

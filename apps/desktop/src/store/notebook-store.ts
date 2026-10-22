@@ -1,9 +1,7 @@
 import { create } from 'zustand'
 import { cellTitle } from '@/lib/notebook/text'
 import type {
-  AccountView,
   ActivityItem,
-  BillingView,
   Brief,
   CellRunResult,
   KernelState,
@@ -14,6 +12,7 @@ import type {
   PaneName,
   PinChange,
   PythonState,
+  ProviderKeysView,
   RunCellRequest,
   RunCost,
   RunEvent,
@@ -57,28 +56,15 @@ export interface LogEntry {
   kind: 'wrote' | 'ran' | 'failed' | 'stopped' | 'restarted' | 'restored' | 'verified'
   text: string
   cellId?: string
-  /** What the run's model calls cost, with Show costs on. */
+  /** Reported tokens for the run, displayed when Show token usage is on. */
   cost?: CostView
 }
 
-/** A run's cost as the Activity pane shows it. Credits are `counting` until Dalliance Cloud has them all. */
-export interface CostView {
-  credits: number | null
-  tokens: number
-  counting: boolean
-}
-
-/**
- * What the open notebook's model calls have cost since it was opened, cell names included. `uncountedTokens` are
- * the tokens of calls whose credits never arrived. `counting` is how many runs' credits are still on their way.
- */
-export interface Spend {
-  credits: number
-  uncountedTokens: number
-  counting: number
-}
-
-export const NO_SPEND: Spend = { credits: 0, uncountedTokens: 0, counting: 0 }
+/** Token usage for one run. */
+export interface CostView { tokens: number }
+/** Token usage since the notebook was opened, including cell titles. */
+export interface Spend { tokens: number }
+export const NO_SPEND: Spend = { tokens: 0 }
 
 /** A short message at the bottom of the window, with an Undo when the change can be taken back. Not saved. */
 export interface Notice {
@@ -161,9 +147,7 @@ export interface NotebookState {
   /** Which view the Variables & Environment pane shows. */
   variablesView: VariablesView
   settings: SettingsView | null
-  /** The Dalliance account and its plan. Null until the main process answers. */
-  account: AccountView | null
-  billing: BillingView | null
+  providerKeys: ProviderKeysView | null
   /** A newer release, once the main process has found one. */
   update: UpdateView | null
   /** The Settings section on screen, or null when Settings is closed. It covers whatever screen is under it. */
@@ -173,7 +157,7 @@ export interface NotebookState {
   focusId: string | null
   /** What happened in this session, newest first. */
   log: LogEntry[]
-  /** What this notebook's runs cost, when Show costs is on. Clearing the log keeps it. */
+  /** Tokens used in this notebook session. Clearing the log keeps the total. */
   spend: Spend
   /** The cell that most recently finished running, which shows its suggested next prompts. */
   lastFinishedId: string | null
@@ -219,7 +203,7 @@ export function welcomeNotebook(): Notebook {
 const initial = welcomeNotebook()
 
 /** The sections of Settings, in the order the side list shows them. */
-export const SETTINGS_SECTIONS = ['models', 'agent', 'python', 'account'] as const
+export const SETTINGS_SECTIONS = ['models', 'agent', 'python'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 // Settings reopens where it was left
@@ -242,8 +226,7 @@ export const useNotebook = create<NotebookState>(() => ({
   environmentStale: false,
   variablesView: 'variables',
   settings: null,
-  account: null,
-  billing: null,
+  providerKeys: null,
   update: null,
   settingsPage: null,
   python: null,
@@ -272,8 +255,6 @@ function addLog(entry: Omit<LogEntry, 'id' | 'at'>): number {
   return id
 }
 
-// Bumped when a notebook loads, so credits counted for the last one don't land in this one's total
-let spendEpoch = 0
 // Bumped when a notebook loads, so a pin check for the last one doesn't show over this one
 let pinEpoch = 0
 
@@ -285,33 +266,13 @@ function withPins(notebook: Notebook, pins: Pins | null): Notebook {
   return next
 }
 
-/**
- * Add a cost to the notebook's total and, for a run, to its log entry. Dalliance Cloud's credits are counted by
- * the service a few seconds after each call, so they're asked for here and show as counting until they arrive.
- */
-function trackCost(cost: RunCost | undefined, entryId: number | null) {
-  if (!cost) return
-  const epoch = spendEpoch
-  set((s) => ({ spend: { ...s.spend, counting: s.spend.counting + 1 } }))
-  const counted = api && cost.generationIds.length ? api.countCredits(cost.generationIds).catch(() => null) : Promise.resolve(null)
-  void counted.then((credits) => {
-    if (epoch !== spendEpoch) return
-    set((s) => ({
-      spend: {
-        ...s.spend,
-        counting: s.spend.counting - 1,
-        credits: s.spend.credits + (credits ?? 0),
-        // Credits that never came: the tokens are all there is to show
-        uncountedTokens: s.spend.uncountedTokens + (credits == null ? cost.tokens : 0),
-      },
-      log: s.log.map((e) => (e.id === entryId && e.cost ? { ...e, cost: { ...e.cost, credits, counting: false } } : e)),
-    }))
-  })
+/** Add reported token usage to this notebook's total. */
+function trackCost(cost: RunCost | undefined, _entryId: number | null) {
+  if (cost) set((s) => ({ spend: { tokens: s.spend.tokens + cost.tokens } }))
 }
 
 function costView(cost: RunCost | undefined): CostView | undefined {
-  if (!cost) return undefined
-  return { credits: null, tokens: cost.tokens, counting: true }
+  return cost ? { tokens: cost.tokens } : undefined
 }
 
 const NOTICE_MS = 6000
@@ -532,7 +493,6 @@ export const actions = {
       void api?.interrupt().catch(() => {})
     }
     clearEdits()
-    spendEpoch++
     // A Verify run belongs to the last notebook
     verifyRuns.clear()
     verifyEpoch++
@@ -674,17 +634,7 @@ export const actions = {
     const cached = !force && models && !models.error
     const list = cached ? models : await api.listModels().catch((err: unknown) => ({ models: [], error: String(err) }))
     if (!cached) set({ models: list })
-    // Dalliance Cloud only offers models with zero data retention that read images. A saved model it doesn't offer goes back to the
-    // default (an empty model resets it), rather than failing every run
-    const current = get().settings
-    if (current && !list.error && list.models.length && !list.models.some((m) => m.id === current.model)) {
-      try {
-        set({ settings: await api.updateSettings({ model: '' }) })
-        actions.notify(`${current.model} isn't offered on Dalliance Cloud, so the model is back to the default.`)
-      } catch (err) {
-        actions.notifyFailure("Couldn't reset the model", err)
-      }
-    }
+
   },
 
   async loadBrief() {

@@ -2,7 +2,7 @@
 
 These docs are for people and agents changing the code. The [repo README](../README.md) covers what Dalliance is and how to get it running.
 
-Dalliance is an Electron app. You write a notebook cell in plain language, an agent turns it into Python, runs it on a local kernel, fixes it until it works, and keeps the code. Notebooks save as ordinary `.ipynb` files. Models run through Dalliance Cloud, on the user's Dalliance account and plan. The cloud site and its Convex backend live in this repo too.
+Dalliance is an Electron app. You write a notebook cell in plain language, an agent turns it into Python, runs it on a local kernel, fixes it until it works, and keeps the code. Notebooks save as ordinary `.ipynb` files. Models run directly through Anthropic, Google, or OpenAI, with the user's own API key. The website lives in this repo too.
 
 ## Where to start
 
@@ -15,41 +15,31 @@ Dalliance is an Electron app. You write a notebook cell in plain language, an ag
 | Calls between the renderer and the main process | [ipc.md](ipc.md) |
 | React, the store, panes, shortcuts, theming | [renderer.md](renderer.md) |
 | Settings, drafts, logs and other files on disk | [storage.md](storage.md) |
-| Dalliance Cloud from the app's side, and the contract between the app, the cloud site and the backend | [cloud.md](cloud.md) |
-| Accounts and signing in, on the service's side | [accounts.md](accounts.md) |
-| Plans, checkout, the model proxy, zero data retention and the credit ledger | [billing.md](billing.md) |
-| Deploying the backend and the cloud site | [deploying.md](deploying.md) |
-| What Dalliance Cloud sells next, and draft plans | [roadmap.md](roadmap.md) |
+| Provider keys, model routing and data handling | [providers.md](providers.md) |
 | Running tests or writing new ones | [testing.md](testing.md) |
 | Setup, commands, conventions | [development.md](development.md) |
 | Building the .dmg and publishing a release | [releasing.md](releasing.md) |
 | dalliance.io, its blog and the shared web brand | [website.md](website.md) |
-| The internal admin app and its product metrics | [admin.md](admin.md) |
-| Adding a tool, a setting, an IPC call, a pane, a Convex function | [recipes.md](recipes.md) |
+| Adding a tool, a setting, an IPC call, a pane, or a model | [recipes.md](recipes.md) |
 
 ## The repo in one screen
 
 ```
 apps/desktop/         the Electron app, @dalliance/desktop
   electron/           main process: window, menus, settings, the agent, the kernel
-    cloud/            the Dalliance Cloud client: account, plan, credits
   src/                renderer: React 19, zustand, shadcn, Tailwind v4
 apps/web/             dalliance.io, Next.js 16, @dalliance/web
-apps/cloud/           cloud.dalliance.io, Next.js 16, @dalliance/cloud: sign-in, billing pages, the auth and model proxies
-apps/admin/           the internal metrics dashboard, Next.js 16, @dalliance/admin: runs locally, never deployed
-packages/backend/     the Convex backend, @dalliance/backend: Better Auth with email sign-in links, Polar billing, the usage ledger
-packages/shared/      types and pure functions every side imports, @dalliance/shared, including the Cloud contract and the admin app's metrics
-packages/brand/       the web brand dalliance.io and the cloud site share, @dalliance/brand
-patches/              pnpm patches, applied through patchedDependencies in pnpm-workspace.yaml
+packages/shared/      types and pure functions for the app, @dalliance/shared
+packages/brand/       the website brand, @dalliance/brand
 .github/              CI on every pull request, the release build on version tags, Dependabot, CODEOWNERS
 docs/                 you are here
 ```
 
-The repo is private and the code is proprietary, see `LICENSE`. Dalliance was published under the Apache License 2.0 until October 2026. `THIRD_PARTY_NOTICES.md` lists the contributions made under it, and the fonts and logos the app includes. `licenses/Apache-2.0.txt` holds that license's text.
+The code is licensed under Apache 2.0. See `LICENSE`, `NOTICE` and `THIRD_PARTY_NOTICES.md`.
 
 ## Rules that break things when ignored
 
-1. **The model's history is append-only.** With thinking on, Anthropic's API rejects any edit to earlier turns, through the gateway too. Don't add message pruning or rewriting to the agent loop. The step cap and bounded tool output keep runs small. See [agent-harness.md](agent-harness.md#context-and-caching).
+1. **The model's history is append-only.** With thinking on, Anthropic's API rejects any edit to earlier turns. Don't add message pruning or rewriting to the agent loop. The step cap and bounded tool output keep runs small. See [agent-harness.md](agent-harness.md#context-and-caching).
 2. **The system prompt must stay stable across cells.** It sits before the cache breakpoint. Put anything that changes per cell in `buildCellPrompt`, never in `buildSystemPrompt`.
 3. **Every tool result is bounded.** A new tool clips its output with `clip()` or returns a fixed-size summary.
 4. **Every tool call goes through `guarded()`** so the event bus can block it and the log sees it.
@@ -58,13 +48,9 @@ The repo is private and the code is proprietary, see `LICENSE`. Dalliance was pu
 7. **One cell runs at a time.** The renderer queues cells and the kernel queues requests. Don't add parallel runs without reworking both.
 8. **`.ipynb` stays valid nbformat 4.** Dalliance fields live under `metadata.dalliance`. Jupyter must still open the file.
 9. **No AI attribution** in commits, PRs, comments or docs. See [AGENTS.md](../AGENTS.md).
-10. **Every model call runs with zero data retention.** The app has no route to a model but Dalliance Cloud, and the cloud site's proxy sets the flag on every call and offers only qualifying models. Don't add a model route that skips `apps/cloud/src/lib/zdr.ts`, and never give the app a way to call a provider directly. `ZERO_DATA_RETENTION=off` exists only until the Vercel team is on a paid plan, and is never set in production. Copy may say every model call runs with zero data retention, never that it's a HIPAA business associate agreement. See [billing.md](billing.md#zero-data-retention).
-11. **The Cloud contract changes in one pull request.** The app, the cloud site and the backend share names, constants and shapes through `packages/shared/src/cloud.ts` and `cloud-api.ts`, and `packages/backend/contract.ts` checks them. Nothing is released to users yet, so the contract can change freely. Once a version ships, released copies can't be updated, so from then on change it additively. See [cloud.md](cloud.md#the-contract).
-12. **Secrets never leave the service.** `AI_GATEWAY_API_KEY` and `AUTH_PROXY_SECRET` live in Vercel and Convex settings only, never in code, logs, errors sent to the app, or `.env.example`. The only gateway key on the app's side is the one the end-to-end test reads from `apps/desktop/.env`.
-13. **Convex decides who a caller is.** Read the user from the JWT or the session, never from a request's arguments or body.
-14. **Better Auth stays on 1.6.x, `@polar-sh/sdk` on 0.x.** Both are pinned by the Convex components. Better Auth and the Electron plugin's exact peers come from the catalog, one version for every package. See [accounts.md](accounts.md) and [billing.md](billing.md#gotchas).
-15. **The two patches in `patches/` are load-bearing.** Bumping either package means checking its patch still applies and is still needed.
-16. **Deploy Convex before the cloud site** when a change touches both, so the site never calls a function that isn't there yet. See [deploying.md](deploying.md#shipping-a-change).
+10. **Provider keys stay in the main process.** `ProviderKeys` encrypts keys with Electron `safeStorage`. The renderer can set or remove a key and read its status, never retrieve a saved value. Without secure storage, keys last for the session only. Never put keys in ordinary settings, notebook metadata, logs, errors, or Python's environment.
+11. **Model calls go directly to the selected provider.** Use the explicit AI SDK provider adapters in `harness/model.ts`. Never pass a bare model string to AI SDK generation functions, since that can select its default provider. Titles use the same provider and key. No silent provider or model fallback.
+12. **Data handling follows the user's provider account.** Do not promise retention or training policies that the app cannot enforce. Explain what notebook context is sent. See [providers.md](providers.md).
 
 ## Words used in the code
 

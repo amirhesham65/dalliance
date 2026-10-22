@@ -19,13 +19,13 @@ import { useMediaQuery } from '@/hooks/use-media-query'
 import { useDefaultLayout } from 'react-resizable-panels'
 import type { MenuAction } from '@dalliance/shared/ipc'
 import { PANE_ORDER, actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
-import { signedIn } from '@/lib/cloud'
+import { providerOf } from '@dalliance/shared/models'
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => readStored('dalliance-sidebar') !== 'closed')
   const [dismissedBanner, setDismissedBanner] = useState<string | null>(null)
   const settings = useNotebook((s) => s.settings)
-  const account = useNotebook((s) => s.account)
+  const providerKeys = useNotebook((s) => s.providerKeys)
   const python = useNotebook((s) => s.python)
   const kernel = useNotebook((s) => s.kernel)
   const path = useNotebook((s) => s.path)
@@ -131,14 +131,11 @@ export default function App() {
     void api.getSettings().then((settings) => useNotebook.setState({ settings }))
     void api.pythonState().then((python) => useNotebook.setState({ python }))
     void api.kernelState().then((kernel) => useNotebook.setState({ kernel }))
-    void api.getAccount().then((account) => useNotebook.setState({ account }))
-    void api.getBilling().then((billing) => useNotebook.setState({ billing }))
+    void api.getProviderKeys().then((providerKeys) => useNotebook.setState({ providerKeys })).catch(() => actions.notify('Could not read API key status. Open Settings > Models.'))
     // Null only means none found yet, so it never replaces one the event below brought in first
     void api.getUpdate().then((update) => update && useNotebook.setState({ update }))
     void actions.loadBrief()
     const offs = [
-      api.onAccount((account) => useNotebook.setState({ account })),
-      api.onBilling((billing) => useNotebook.setState({ billing })),
       api.onUpdate((update) => useNotebook.setState({ update })),
       api.onRunEvent((cellId, event) => actions.applyRunEvent(cellId, event)),
       api.onKernelState((kernel) => useNotebook.setState({ kernel })),
@@ -173,10 +170,11 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [sidebarOpen])
 
-  const needsSignIn = settings != null && !signedIn(account)
+  const provider = settings ? providerOf(settings.model) : null
+  const needsKey = settings != null && providerKeys != null && (!provider || !providerKeys.configured[provider])
   const needsPython = python != null && (!python.python || python.missingPackages.length > 0)
-  const banner = needsSignIn
-    ? 'Sign in to Dalliance to run prompts.'
+  const banner = needsKey
+    ? 'Add your provider API key in Settings to generate cells.'
     : needsPython
       ? !python?.python
         ? 'Python is not set up yet.'
@@ -202,7 +200,7 @@ export default function App() {
                 {banner && banner !== dismissedBanner && (
                   <div className="mx-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-background py-2 pr-2 pl-4 text-[13px] shadow-pane">
                     <span className="text-muted-foreground">{banner}</span>
-                    <Button size="xs" variant="secondary" onClick={() => actions.openSettings(needsSignIn ? 'account' : 'python')}>
+                    <Button size="xs" variant="secondary" onClick={() => actions.openSettings(needsKey ? 'models' : 'python')}>
                       Open Settings
                     </Button>
                     <IconButton label="Dismiss notice" size="icon-xs" className="ml-auto" onClick={() => setDismissedBanner(banner)}>

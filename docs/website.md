@@ -1,6 +1,6 @@
 # The website
 
-`apps/web` is dalliance.io: a landing page, a blog, a privacy page, a 404, and a route that logs each download and redirects to the latest installer. It uses Next.js 16 with the App Router and Tailwind v4, and has no client data fetching. Blog posts are MDX files, see [Blog](#blog). Its palette, theme and shared class strings come from `@dalliance/brand`, which the cloud site uses too. See [Design](#design).
+`apps/web` is dalliance.io: a landing page, a blog, a privacy page, GitHub buttons in the header and download sections, a source-repository link in the footer, a 404, and a route that logs each download and redirects to the latest installer. It uses Next.js 16 with the App Router and Tailwind v4, and has no client data fetching. Blog posts are MDX files, see [Blog](#blog). Its palette, theme and shared class strings come from `@dalliance/brand`. See [Design](#design).
 
 ```bash
 pnpm --filter @dalliance/web dev     # http://localhost:3100
@@ -87,7 +87,7 @@ The log only sees clicks that go through the site. Anyone with the releases repo
 
 ## Design
 
-The site shares its palette and type with the app, so the page and the screenshots match. Both websites, dalliance.io and the cloud site in `apps/cloud`, take their brand from `packages/brand`, `@dalliance/brand`:
+The site shares its palette and type with the app, so the page and the screenshots match. The website takes its brand from `packages/brand`, `@dalliance/brand`:
 
 | File | Holds |
 | --- | --- |
@@ -96,13 +96,13 @@ The site shares its palette and type with the app, so the page and the screensho
 | `brand.ts` | The name, the author, the website's URL and the paper colours for the browser chrome |
 | `mark.ts`, `Mark.tsx` | The mark's squares, and the component that draws it |
 
-The package has no build step. Both Next apps list it in `transpilePackages`, and `theme.css` has `@source "."` so Tailwind scans `ui.ts` for classes. A change there changes both sites, so check the cloud site's sign-in page too.
+The package has no build step. The Next app lists it in `transpilePackages`, and `theme.css` has `@source "."` so Tailwind scans `ui.ts` for classes. Check both light and dark website themes after changing it.
 
 `theme.css` copies the app's light and dark colours from `apps/desktop/src/index.css` into its own tokens: `--paper`, `--ink`, `--hairline`, `--brand` and the rest. Utilities read them through `@theme`, so they flip with the system theme without `dark:` on every class. When you change an app colour that the sites show, change it in both files.
 
 Every page follows one grammar: a ruled sheet of warm paper, hairline bands, and short uppercase labels in a 200 px left margin. `Band` in `Chrome.tsx` draws one section. Keep band labels to one line. Shared class groups are in `@dalliance/brand/ui`, so a change to the gutter or the button happens once.
 
-The masthead centres the headline over a live demo: a working miniature of the app, `Demo` in `src/components/demo/`. It draws the app's window, sidebar and notebook in the app's own palette, light and dark, which `globals.css` copies from `apps/desktop/src/index.css` under `.demo`, so change both together. It opens on a finished survival cell, rendered on the server, so the page shows the product before any script runs. A visitor can:
+The masthead shows "Early preview" above "The Open-source Coding Agent for Researchers" and centres the headline over a live demo: a working miniature of the app, `Demo` in `src/components/demo/`. It draws the app's window, sidebar and notebook in the app's own palette, light and dark, which `globals.css` copies from `apps/desktop/src/index.css` under `.demo`, so change both together. It opens on a finished survival cell, rendered on the server, so the page shows the product before any script runs. A visitor can:
 
 - Click an underlined guess and pick another reading: survival measured from randomisation or first dose, in all patients, those over 65 or stage III, compared with a log-rank or Wilcoxon test. The cell reruns with its steps, and the answer, chart and code change. The popover says that in the app you type any correction.
 - Switch a cell to its Code tab.
@@ -187,6 +187,6 @@ The demo notebooks live in `apps/desktop/src/dev/demo.ts`: `sampleNotebook()` fo
 
 ## Privacy page
 
-The privacy page lists what the site counts through Vercel Web Analytics and what the download log records, what the app keeps on the user's Mac, and what goes with a model request, and says the app sends no telemetry. Update it in the same change if any of that stops being true, for example if you add a field to the download log, custom analytics events, or telemetry in the app. Model requests go through Dalliance Cloud with zero data retention, see [cloud.md](cloud.md#zero-data-retention).
+The privacy page lists what the site counts through Vercel Web Analytics and what the download log records, what the app keeps on the user's Mac, and what goes with a model request, and says the app sends no telemetry. Update it in the same change if any of that stops being true, for example if you add a field to the download log, custom analytics events, or telemetry in the app. Model requests go directly to the user's selected Anthropic, Google, or OpenAI account. Retention and training policies depend on that provider account, see [providers.md](providers.md#data-and-usage).
 
 The site doesn't link to the source or call the app open source: the repo is private.

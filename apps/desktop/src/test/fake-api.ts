@@ -1,10 +1,11 @@
-import type { AccountView, BillingView, CellRunResult, DallianceApi, RunCellRequest, RunEvent, SettingsView } from '@dalliance/shared/ipc'
+import type { ProviderKeysView, CellRunResult, DallianceApi, RunCellRequest, RunEvent, SettingsView } from '@dalliance/shared/ipc'
 import type { Provenance } from '@dalliance/shared/notebook'
 
 type RunHandler = (request: RunCellRequest, emit: (event: RunEvent) => void) => Promise<CellRunResult> | CellRunResult
 
 /** A stand-in for the Electron bridge. Tests decide what each run returns. */
 export function fakeApi(onRun: RunHandler) {
+  let providerKeys = structuredClone(KEYS_ADDED)
   const runListeners = new Set<(cellId: string, event: RunEvent) => void>()
   const requests: RunCellRequest[] = []
   const responses: [string, unknown][] = []
@@ -36,7 +37,7 @@ export function fakeApi(onRun: RunHandler) {
     getSettings: async () => fakeSettings(),
     listModels: async () => ({
       models: [
-        { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', maker: 'Anthropic' },
+        { id: 'anthropic/claude-sonnet-5-5', name: 'Claude Sonnet 5.5', maker: 'Anthropic' },
         { id: 'anthropic/claude-opus-5', name: 'Claude Opus 5', maker: 'Anthropic' },
         { id: 'openai/gpt-5.2', name: 'GPT-5.2', maker: 'OpenAI' },
         { id: 'google/gemini-3-pro', name: 'Gemini 3 Pro', maker: 'Google' },
@@ -72,16 +73,11 @@ export function fakeApi(onRun: RunHandler) {
     saveDraft: () => {},
     setDocumentState: () => {},
     onMenu: () => () => {},
-    getAccount: async () => SIGNED_IN,
-    signIn: async () => SIGNED_IN,
-    redeemSignInCode: async () => SIGNED_IN,
-    signOut: async () => SIGNED_OUT,
-    onAccount: () => () => {},
-    getBilling: async () => ON_PLAN,
-    startCheckout: async () => ON_PLAN,
-    openBillingPortal: async () => ON_PLAN,
-    onBilling: () => () => {},
-    countCredits: async () => null,
+    getProviderKeys: async () => providerKeys,
+    setProviderKey: async (provider, key) => {
+      providerKeys = { ...providerKeys, configured: { ...providerKeys.configured, [provider]: Boolean(key) } }
+      return providerKeys
+    },
     getUpdate: async () => null,
     downloadUpdate: async () => {},
     onUpdate: () => () => {},
@@ -91,28 +87,20 @@ export function fakeApi(onRun: RunHandler) {
 
 export function fakeSettings(): SettingsView {
   return {
-    model: 'anthropic/claude-sonnet-5.5',
+    model: 'anthropic/claude-sonnet-5-5',
     effort: 'medium',
+    providerModels: {},
     pythonPath: null,
     approvalMode: 'interactive',
     autoTitles: true,
     suggestNext: true,
-    showCosts: false,
+    showUsage: false,
     onboarded: true,
   }
 }
 
-/** Signed in on the Pro plan, so prompts can run. Tests of the signed-out app replace these. */
-export const SIGNED_IN: AccountView = { user: { name: 'Ada Lovelace', email: 'ada@example.com' }, checking: false, waiting: false, error: null }
-export const SIGNED_OUT: AccountView = { user: null, checking: false, waiting: false, error: null }
-export const ON_PLAN: BillingView = {
-  plans: [{ key: 'pro', name: 'Pro', description: null, price: '$20 / month', credits: 2000 }],
-  subscription: { key: 'pro', name: 'Pro', status: 'active', price: '$20 / month', currentPeriodEnd: '2026-11-01T00:00:00.000Z', cancelAtPeriodEnd: false },
-  usage: { spentCredits: 120, planCredits: 2000 },
-  loading: false,
-  checkingOut: false,
-  error: null,
-}
+export const KEYS_ADDED: ProviderKeysView = { configured: { anthropic: true, google: true, openai: true }, persistent: true, error: null }
+export const NO_KEYS: ProviderKeysView = { configured: { anthropic: false, google: false, openai: false }, persistent: true, error: null }
 
 export function result(overrides: Partial<CellRunResult> = {}): CellRunResult {
   return {
@@ -139,9 +127,9 @@ export function provenance(overrides: Partial<Provenance> = {}): Provenance {
     prompt: 'Average order value',
     corrections: [],
     madeAt: '2026-09-30T14:05:00.000Z',
-    model: 'anthropic/claude-sonnet-5.5',
+    model: 'anthropic/claude-sonnet-5-5',
     effort: 'medium',
-    steps: [1, 2, 3].map((step) => ({ step, model: 'anthropic/claude-sonnet-5.5' })),
+    steps: [1, 2, 3].map((step) => ({ step, model: 'anthropic/claude-sonnet-5-5' })),
     rationale: { from: 'summaries', text: ['The column is total, not amount.'] },
     attemptCount: 2,
     attempts: [

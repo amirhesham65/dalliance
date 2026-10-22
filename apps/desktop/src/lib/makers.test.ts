@@ -2,13 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { makerLogo, makerOfModel } from './makers'
 
 describe('maker logos', () => {
-  it('finds a logo from the label or the gateway prefix', () => {
-    expect(makerLogo('Anthropic')).toBeTruthy()
-    expect(makerLogo('Moonshot AI')).toBe(makerLogo('moonshotai'))
-    expect(makerLogo('Z.ai')).toBeTruthy()
-    // Grok models sit under SpaceX's prefix on the gateway
-    expect(makerLogo('spacexai')).toBe(makerLogo('xAI'))
-    expect(makerLogo('arcee-ai')).toBe(makerLogo('Arcee'))
+  it('finds each supported provider logo', () => {
+    for (const provider of ['Anthropic', 'Google', 'OpenAI']) expect(makerLogo(provider)).toBeTruthy()
   })
 
   it('has none for makers without one', () => {

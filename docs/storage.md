@@ -8,8 +8,8 @@ On macOS this is `~/Library/Application Support/Dalliance/`. The code gets it wi
 
 | Path | Written by | Holds |
 | --- | --- | --- |
-| `settings.json` | `SettingsStore`, `electron/settings.ts` | Model, effort, Python path, approval mode, titles on or off, suggested next prompts on or off, Show costs on or off, onboarded, the folder in use, the folder for new projects, recent notebooks. No keys. Mode `0600` |
-| `account.json` | The Better Auth Electron client, `electron/cloud/account.ts` | The Dalliance account's session, each value encrypted with `safeStorage`. Without a keychain the session stays in memory. Mode `0600` |
+| `settings.json` | `SettingsStore`, `electron/settings.ts` | Model, effort, Python path, approval mode, titles on or off, suggested next prompts on or off, Show token usage on or off, per-provider model choices, onboarded, the folder in use, the folder for new projects, recent notebooks. No keys. Mode `0600` |
+| `provider-keys.json` | `ProviderKeys`, `electron/provider-keys.ts` | API keys encrypted with `safeStorage`. Without secure storage, keys stay in memory. Mode `0600` |
 | `session.json` | `DraftStore`, `electron/draft.ts` | The open notebook's path, whether it's dirty, and its contents when dirty |
 | `logs/agent.jsonl` | `createRunLog()` and `logRuns()`, `electron/harness/extensions.ts` | One line per `run_start`, `tool_call`, `tool_result`, `step` (one per model call, with its reasoning summary) and `run_end`, strings clipped to 2,000 characters except the reasoning summaries. At 5 MB it moves to `agent.jsonl.1`, replacing the old backup. It holds the full trail behind each cell's record of how it was made. The notebook keeps only the final attempt |
 | `python-env/` | `setupManagedEnv()`, `electron/kernel/python-env.ts` | The managed virtual environment |
@@ -23,11 +23,11 @@ To reset the app to a first launch, quit it and delete this folder.
 
 `SettingsStore` reads `settings.json` once, merges it over `DEFAULTS`, and writes the whole file on every change. A file that doesn't parse, or isn't a JSON object, is renamed to `settings.json.corrupt-<timestamp>` and the app starts from the defaults. The old file is kept so the next save can't overwrite the recent notebooks it may still hold. The main process logs the move with `console.warn`.
 
-`settings.json` holds no keys. Models run on Dalliance Cloud with the account's token: the session is in `account.json`, and the Convex token only in `Account`'s memory. See [cloud.md](cloud.md). The file is still written with mode `0600`, since it lists the user's folders and notebooks.
+`settings.json` holds no keys. `ProviderKeys` stores them separately, see [providers.md](providers.md#key-storage). Settings still use mode `0600` because they list folders and notebooks.
 
-`SettingsStore` takes the userData folder and a `CloudAccess`, and `modelConfig()` returns `{ model, effort, cloud }` for `resolveModel()`. `SettingsView` gives the renderer `model`, `effort`, `pythonPath`, `approvalMode`, `autoTitles`, `suggestNext`, `showCosts` and `onboarded`, and `SettingsUpdate` takes the same fields.
+`SettingsStore` takes the userData folder and a key resolver. `modelConfig()` returns `{ model, effort, key }` for `resolveModel()`. `SettingsView` gives the renderer the preferences and remembered per-provider model IDs, never keys. Updating the model validates its provider and remembers it for future provider switches. Anthropic numeric version dots normalize to native dashes. Retired or unknown stored fields are not written back.
 
-Settings have no migrations. Nothing is released to users yet, so a renamed or retired setting is just changed. A setting the file doesn't have takes its default.
+Missing settings take defaults. A renamed or retired setting is changed directly; recent notebooks, workspace choices and drafts remain intact.
 
 ## Session and drafts
 

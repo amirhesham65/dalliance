@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CloudStatus } from '@/components/cloud/CloudStatus'
-import { CLOUD_RETENTION } from '@/lib/cloud'
+import { ProviderSetup } from './ProviderSetup'
+import { ModelSelect } from './ModelSelect'
+import { providerOf } from '@dalliance/shared/models'
 import type { DallianceApi, Effort, SettingsView } from '@dalliance/shared/ipc'
 import { Group, Row, SectionHeading } from './parts'
 import { saveSettings } from './save'
@@ -14,14 +15,18 @@ const EFFORTS: { value: Effort; label: string }[] = [
   { value: 'high', label: 'High: slowest' },
 ]
 
-/** The model that writes each cell's code, and the account it runs on. */
+/** The model that writes each cell's code, and the provider it runs on. */
 export function ModelSettings({ api, settings }: { api: DallianceApi; settings: SettingsView }) {
   // A model name being typed. Null shows the saved one, so a change from the model picker shows up here too
+  const [error, setError] = useState<string | null>(null)
   const [model, setModel] = useState<string | null>(null)
-  const update = (u: Parameters<typeof api.updateSettings>[0]) => void saveSettings(api, u)
+  const update = (u: Parameters<typeof api.updateSettings>[0]) => {
+    setError(null)
+    void saveSettings(api, u).catch(() => setError("Couldn't save the model settings. Check the model ID and try again."))
+  }
 
   const commitModel = () => {
-    if (model != null && model.trim() !== settings.model) update({ model })
+    if (model != null && model.trim()) update({ model: model.trim().includes('/') ? model.trim() : `${providerOf(settings.model) ?? 'anthropic'}/${model.trim()}` })
     setModel(null)
   }
 
@@ -29,14 +34,12 @@ export function ModelSettings({ api, settings }: { api: DallianceApi; settings: 
 
   return (
     <>
-      <SectionHeading title="Models">The model that writes each cell's code, on your Dalliance plan. The model picker in the top bar changes it too.</SectionHeading>
-      <Group label="Plan">
-        <Row label="Dalliance account" description={CLOUD_RETENTION} wide>
-          <CloudStatus api={api} />
-        </Row>
-      </Group>
+      <SectionHeading title="Models">The model that writes each cell's code, using your own API key. The model picker in the top bar changes it too.</SectionHeading>
+      {error && <p role="alert" className="mb-4 text-xs text-destructive">{error}</p>}
+      <ProviderSetup api={api} />
       <Group label="Model">
-        <Row label="Model" htmlFor="model" description="A gateway id like anthropic/claude-sonnet-5.5. Saved when you press Enter or leave the field." wide>
+        <Row label="Model" htmlFor="model" description="Choose from all connected providers, or enter provider/model-id. Custom models must support tools and image input." wide>
+          <ModelSelect value={settings.model} onValueChange={(value) => { setModel(null); update({ model: value }) }} />
           <Input
             id="model"
             value={model ?? settings.model}
@@ -51,7 +54,7 @@ export function ModelSettings({ api, settings }: { api: DallianceApi; settings: 
         <Row
           label="Effort"
           htmlFor="effort"
-          description={effortApplies ? 'How hard the model thinks before it writes. Higher is slower and uses more credits.' : 'Applies to Anthropic and OpenAI models. This one uses its default.'}
+          description={effortApplies ? 'How hard the model thinks before it writes. Higher is slower and uses more tokens.' : 'Applies to Anthropic and OpenAI models. This one uses its default.'}
         >
           <Select value={settings.effort} onValueChange={(v) => update({ effort: v as Effort })} disabled={!effortApplies}>
             <SelectTrigger id="effort" className="w-52">
@@ -67,11 +70,11 @@ export function ModelSettings({ api, settings }: { api: DallianceApi; settings: 
           </Select>
         </Row>
         <Row
-          label="Show costs"
+          label="Show token usage"
           htmlFor="costs"
-          description="Each run's credits in the Activity pane, and the notebook's total. Credits show a few seconds after a run ends."
+          description="Tokens used by each run and cell title, with a total in the Activity pane. Your provider reports actual charges."
         >
-          <Select value={settings.showCosts ? 'show' : 'hide'} onValueChange={(v) => update({ showCosts: v === 'show' })}>
+          <Select value={settings.showUsage ? 'show' : 'hide'} onValueChange={(v) => update({ showUsage: v === 'show' })}>
             <SelectTrigger id="costs" className="w-52">
               <SelectValue />
             </SelectTrigger>
