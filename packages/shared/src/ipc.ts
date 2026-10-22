@@ -1,4 +1,4 @@
-import type { PlanKey, PlanOption, PlanUsage, SubscriptionView } from './cloud'
+import type { ProviderId } from './models'
 import type { Correction, CreatedVariable, Notebook, Output, Pins, Provenance } from './notebook'
 
 /** One line in a cell's activity log: what the agent did while writing the cell. */
@@ -23,8 +23,8 @@ export type RunEvent =
   | { type: 'question'; requestId: string; question: string; options: string[] }
   | { type: 'approval'; requestId: string; title: string; detail: string }
   /**
-   * A short name for the cell arrived. It can land before or after the run ends. With Show costs on, `cost` is
-   * what naming it cost, which counts toward the notebook's total.
+   * A short name for the cell arrived. It can land before or after the run ends. `cost` reports its
+   * token usage, which counts toward the notebook total even when the display is off.
    */
   | { type: 'title'; title: string; prompt: string; cost?: RunCost }
 
@@ -37,7 +37,7 @@ export interface RunCellRequest {
   corrections: Correction[]
   /** Files attached to the cell, as paths inside the notebook's folder. */
   attachments: string[]
-  /** Ask the small model for a title while the cell runs. */
+  /** Ask the selected model for a title while a generated cell runs. */
   nameIt?: boolean
   previousCells: { kind: 'prompt' | 'note'; text: string; code?: string }[]
 }
@@ -52,8 +52,6 @@ export interface RunStep {
   reasoning: string | null
   /** The tokens the call used. */
   usage: StepUsage
-  /** The gateway's id for the call, which Dalliance Cloud bills by. Null when the gateway sent none. */
-  generationId: string | null
 }
 
 /** Tokens one model call used, as the provider reported them. A count the provider left out is 0. */
@@ -70,13 +68,8 @@ export interface StepUsage {
   reasoningTokens: number
 }
 
-/**
- * What a run's model calls cost, for Show costs. See docs/agent-harness.md. Dalliance Cloud counts the credits after
- * each call, so the run only names its calls; the renderer asks for the credits by generation id through
- * `countCredits()`. `tokens` is what the calls used, for when the credits never arrive.
- */
+/** Tokens used by a run or a title request. */
 export interface RunCost {
-  generationIds: string[]
   tokens: number
 }
 
@@ -96,11 +89,11 @@ export interface CellRunResult {
   activity: ActivityItem[]
   /** Every model call of a generated run, in order. Empty for a plain run of saved code. */
   steps: RunStep[]
-  /** What the model calls cost. Only with Show costs on, and only for a run that called a model. */
+  /** Reported token usage. Absent when no model ran, collected even when its display is off. */
   cost?: RunCost
   /** How a generated run made the code. Absent for a plain run of saved code, which keeps the cell's record. */
   provenance?: Provenance | null
-  /** Why the run failed, when the problem was not a Python error (signed out, stopped, the agent gave up). */
+  /** Why the run failed, when the problem was not a Python error (missing key, stopped, the agent gave up). */
   error: string | null
 }
 
@@ -132,17 +125,19 @@ export function offeredEffort(effort: unknown): Effort {
 }
 
 export interface SettingsView {
-  /** A gateway id like `anthropic/claude-sonnet-5.5`. Models run on Dalliance Cloud. See docs/cloud.md. */
+  /** Provider and native model ID, such as `anthropic/claude-sonnet-5-5`. */
   model: string
   effort: Effort
   pythonPath: string | null
   approvalMode: 'interactive' | 'background'
-  /** Whether a small model names cells for the outline. */
+  /** Whether the selected model names generated cells for the outline. */
   autoTitles: boolean
   /** Whether the agent proposes follow-up prompts under a finished cell. */
   suggestNext: boolean
-  /** Whether the Activity pane shows what each run cost, and the notebook's total. Off by default. */
-  showCosts: boolean
+  /** Whether the Activity pane shows token usage for runs and the notebook total. Off by default. */
+  showUsage: boolean
+  /** Last selected model for each provider. Contains no keys. */
+  providerModels: Partial<Record<ProviderId, string>>
   /** True once the first-run setup was finished or skipped. */
   onboarded: boolean
 }
@@ -154,11 +149,11 @@ export interface SettingsUpdate {
   approvalMode?: 'interactive' | 'background'
   autoTitles?: boolean
   suggestNext?: boolean
-  showCosts?: boolean
+  showUsage?: boolean
   onboarded?: boolean
 }
 
-/** A model Dalliance Cloud runs, for the model picker. */
+/** A model in the local catalog or the user's custom selection. */
 export interface ModelOption {
   id: string
   name: string
@@ -297,29 +292,10 @@ export type MenuAction =
 /** The side panes, as the menu names them. */
 export type PaneName = 'brief' | 'variables' | 'history' | 'files' | 'pinned' | 'activity'
 
-/** The Dalliance account, as the renderer sees it. The session itself stays in the main process. */
-export interface AccountView {
-  /** Null when signed out. */
-  user: { name: string; email: string } | null
-  /** True until the first answer about the stored session. */
-  checking: boolean
-  /** True while the sign-in page is open in the browser, so the renderer can offer the code field. */
-  waiting: boolean
-  /** Why the account couldn't be checked or a code didn't work. The last known user stays. */
-  error: string | null
-}
-
-/** The plan, as the renderer sees it. The main process talks to Dalliance Cloud. */
-export interface BillingView {
-  plans: PlanOption[]
-  /** Null when signed out or without a plan. */
-  subscription: SubscriptionView | null
-  /** Credits used this billing period, against what the plan includes. Null without a plan. */
-  usage: PlanUsage | null
-  /** True until the first answer from Dalliance Cloud. */
-  loading: boolean
-  /** True once checkout opened in the browser, until a plan arrives. */
-  checkingOut: boolean
+/** Key status only. Saved key values never return to the renderer. */
+export interface ProviderKeysView {
+  configured: Record<ProviderId, boolean>
+  persistent: boolean
   error: string | null
 }
 
@@ -393,24 +369,9 @@ export interface DallianceApi {
   saveDraft(state: DraftState): void
   setDocumentState(state: { path: string | null; dirty: boolean }): void
   onMenu(listener: (action: MenuAction) => void): () => void
-  getAccount(): Promise<AccountView>
-  /** Opens the sign-in page in the browser. */
-  signIn(): Promise<AccountView>
-  /** Redeems the code the sign-in page shows when the browser couldn't open the app. */
-  redeemSignInCode(code: string): Promise<AccountView>
-  signOut(): Promise<AccountView>
-  onAccount(listener: (account: AccountView) => void): () => void
-  getBilling(): Promise<BillingView>
-  /** Opens checkout for a plan in the browser. */
-  startCheckout(plan: PlanKey): Promise<BillingView>
-  /** Opens the billing portal in the browser: invoices, the card, cancelling. */
-  openBillingPortal(): Promise<BillingView>
-  onBilling(listener: (billing: BillingView) => void): () => void
-  /**
-   * The credits Dalliance Cloud counted for these calls, waiting until every one has landed or 90 seconds pass.
-   * Null when none were counted, or in builds without Dalliance Cloud.
-   */
-  countCredits(generationIds: string[]): Promise<number | null>
+  getProviderKeys(): Promise<ProviderKeysView>
+  /** An empty key removes the provider's saved key. */
+  setProviderKey(provider: ProviderId, key: string): Promise<ProviderKeysView>
   /** A newer release, once a check has found one. Null until then, and always in development. */
   getUpdate(): Promise<UpdateView | null>
   /** Opens the website's download in the browser, which serves the newest release. */
@@ -457,16 +418,8 @@ export const IPC = {
   menu: 'menu',
   /** Sent by the preload when the page subscribes to menu actions, so the main process knows it can send one. */
   menuReady: 'menu-ready',
-  getAccount: 'get-account',
-  signIn: 'sign-in',
-  redeemSignInCode: 'redeem-sign-in-code',
-  signOut: 'sign-out',
-  accountChanged: 'account-changed',
-  getBilling: 'get-billing',
-  startCheckout: 'start-checkout',
-  openBillingPortal: 'open-billing-portal',
-  billingChanged: 'billing-changed',
-  countCredits: 'count-credits',
+  getProviderKeys: 'get-provider-keys',
+  setProviderKey: 'set-provider-key',
   getUpdate: 'get-update',
   downloadUpdate: 'download-update',
   updateFound: 'update-found',

@@ -8,8 +8,6 @@ pnpm --filter @dalliance/desktop test                 # the desktop app
 pnpm --filter @dalliance/desktop test:watch           # watch mode
 pnpm --filter @dalliance/desktop exec vitest run src/store   # one folder
 pnpm turbo run test --filter @dalliance/shared        # the shared package
-pnpm --filter @dalliance/cloud test                   # the cloud site
-pnpm --filter @dalliance/backend test                 # the backend
 ```
 
 ## What runs where
@@ -20,9 +18,7 @@ pnpm --filter @dalliance/backend test                 # the backend
 | `apps/desktop/src/**/*.test.tsx` | jsdom | Nothing |
 | `apps/desktop/electron/**/*.test.ts` | Node, via `// @vitest-environment node` | Nothing, except the three below |
 | `electron/kernel/python-kernel.test.ts`, `electron/kernel/kernel-protocol.test.ts` | Node | A system Python 3.9+. Skips without one. CI provides Python 3.12 on Ubuntu and macOS |
-| `electron/e2e.test.ts` | Node | `DALLIANCE_E2E=1`, `AI_GATEWAY_API_KEY`, the network. Costs a few cents |
-| `apps/cloud/src/**/*.test.ts` | Node | Nothing. The gateway and Convex are faked |
-| `packages/backend/contract.test.ts`, `packages/backend/convex/*.test.ts` | Node | Nothing. `usage.test.ts` fakes Convex and Better Auth |
+| `electron/e2e.test.ts` | Node | `DALLIANCE_E2E=1`, a selected provider API key, the network. Bills your provider account |
 
 `apps/desktop/vitest.config.ts` is separate from `vite.config.ts`, so tests never start Electron. The website, `apps/web`, has no tests. See [website.md](website.md#download-log) for how the download route was checked.
 
@@ -46,7 +42,7 @@ const kernel = new FakeKernel((code) => ({ ok: true, outputs: [{ type: 'text', t
 
 `prompts` records what the model was sent on each call, so a test can check the context. The existing tests cover retries, the finish gate, approvals, blocking through the event bus, aborts, the explore timeout, questions answered in words, leaked markup, and the append-only history. Every new tool or rule in the loop needs a test here.
 
-`prompt.test.ts`, `title.test.ts` and `workspace.test.ts` test those modules directly. `title.test.ts` also checks that titles use GPT-6 Luna through Dalliance Cloud, and that there's no title model signed out. `model.test.ts` checks the default model and `agentProviderOptions()`: summarized thinking, effort, caching and one tool per step for Anthropic models, reasoning summaries for OpenAI ones, and the effort each Claude model takes. `cost.test.ts` checks that the AI SDK's usage reads with missing counts as zero, that the gateway's generation id is found, and that a run names its calls with their tokens. `run-cell.test.ts` also checks that every step asks for caching, and that `friendlyError()` shows Dalliance Cloud's refusals as written and reads a 401 as a sign-in the service turned down.
+`prompt.test.ts`, `title.test.ts`, `workspace.test.ts` and `model.test.ts` check prompts, titles on the selected provider, file access, direct API endpoints and provider keys, model selection, and reasoning/caching options. `cost.test.ts` checks provider-reported token totals. `run-cell.test.ts` checks streaming, errors, the append-only history and tool policy. `provider-keys.test.ts` checks encrypted persistence, key deletion, session-only storage, redaction and the Python environment.
 
 The `the record of how a cell was made` block in `run-cell.test.ts` runs a generation through every part of the record: models per step, the rationale and its fallback, attempts with their errors and changes, files read by the code and by the agent, approvals, secret-file blocks and the hashes. `provenance.test.ts` tests the pieces on their own: `describeChange()`, `statedRationale()`, the bounds on files and approvals, and read paths.
 
@@ -58,16 +54,14 @@ These run in Node with Electron mocked, and need nothing installed.
 
 | File | Covers |
 | --- | --- |
-| `electron/session.test.ts` | `NotebookSession`'s kernel lifecycle with a fake `launchKernel`: a notebook opened during the launch warm-up gets a kernel in its own folder, a caller waiting on a stale start gets the current kernel, a start under way is reused, and a kernel that finishes starting after quit is shut down. With the model mocked, that a run names its calls for Show costs, and is counted with Show costs off too. With a `FakeKernel`, that a save pins the Python, the kernel's packages and the hashed files the cells read, forgets what ran after a restart, uses the kernel's last answer while a cell runs, and that `checkPins()` finds a changed package and file. Also the `.env` guard on `read_file`, and, with `python-env` and `PythonKernel` mocked, that the environment view's listing runs in userData and passes on why it failed |
-| `electron/settings.test.ts` | `SettingsStore` reads what an earlier run saved, gives a setting the file leaves out its default, runs models on Dalliance Cloud with the default model when none is given, keeps `settings.json` private (mode 600), and moves a file that doesn't parse or isn't an object aside before starting from the defaults |
+| `electron/session.test.ts` | `NotebookSession`'s kernel lifecycle with a fake `launchKernel`: a notebook opened during the launch warm-up gets a kernel in its own folder, a caller waiting on a stale start gets the current kernel, a start under way is reused, and a kernel that finishes starting after quit is shut down. With the model mocked, that a run names its calls for Show token usage, and is counted with Show token usage off too. With a `FakeKernel`, that a save pins the Python, the kernel's packages and the hashed files the cells read, forgets what ran after a restart, uses the kernel's last answer while a cell runs, and that `checkPins()` finds a changed package and file. Also the `.env` guard on `read_file`, and, with `python-env` and `PythonKernel` mocked, that the environment view's listing runs in userData and passes on why it failed |
+| `electron/settings.test.ts` | Preferences persist, missing settings take defaults, model selection and provider memories stay valid, private file permissions, and corrupt files are preserved before defaults are used |
 | `electron/pins.test.ts` | `pinNotebook()` and `comparePins()` with a fake disk: a kernel that ran every cell replaces the pins, one that ran none leaves them untouched, one that ran some merges them, a file over the size limit is pinned by size and compared by size, a path outside the folder is never read, and each kind of change is found |
 | `electron/file-hash.test.ts` | `FileHasher`: the SHA-256 and size, nothing for a missing file or a folder, a note over the size limit, a file read again only once its size or modification time changes, one read shared between callers, and a file that couldn't be read tried again |
 | `electron/draft.test.ts` | `DraftStore`: a notebook comes back as it was after a reload, unsaved changes come back after a relaunch, a saved notebook reopens from its file, a file from a newer version or one that's no longer a notebook is reported, and Don't Save forgets the draft |
 | `electron/ipc-sender.test.ts` | `isAppUrl` and `isTrustedSender`: IPC is answered only from the top frame of the app window showing the app's own page |
 | `electron/open-files.test.ts` | `notebookFromArgv` and `OpenQueue`: the last `.ipynb` on a command line that exists is found, a file the OS asks to open waits until the window can take it, a later one replaces it, and a reload asks the page again |
 | `electron/atomic-write.test.ts` | `writeFileAtomic` and `writeFileAtomicSync`, each: new and replaced files, file modes, writing through a symlink, a missing folder, and no temporary file left behind when the rename fails |
-| `electron/cloud/billing.test.ts` | `Billing.credits()` with a fake Convex client: it keeps counting until every call is in, gives what came after the wait, and asks nothing signed out |
-| `electron/cloud/config.test.ts` | `signInCode()` reads only the exact sign-in link, and `deepLinkFromArgv()` finds a link a second launch passed |
 | `electron/menu.test.ts` | The View menu names each pane the way the overview does, with its Cmd+number key left to the renderer. The Kernel menu's Verify Notebook… sends `verify` |
 
 ### The kernel
@@ -97,7 +91,7 @@ const { api, requests, responses } = fakeApi(async (request, emit) => {
 setApi(api)
 ```
 
-`notebook-store.test.ts` tests actions and the run queue, including a plain rerun keeping the record of how the code was made while the next generation replaces it, a prompt or code edited while its cell runs, which is kept and used next time, and turning an empty prompt cell into a note without an Undo. `App.test.tsx` renders the whole app with Testing Library and drives it like a user: running cells, answering questions, D D and Undo, M on a cell with code and Undo bringing it back as it was, a failed save or open that stays on screen instead of being dropped, a cell that fails to draw behind the error boundary while the rest of the notebook stays up, table folding, suggestions, history, the brief, pinning, the model picker, titles, the Settings screen and Cmd+A. `App.test.tsx` checks the record is kept through a plain rerun and never shown. `Welcome.test.tsx` covers the setup and start page. `ModelSettings.test.tsx` checks that models run on the Dalliance account, with no provider or key to choose. `store/verify.test.ts` runs Verify through the queue: one restart, saved code top to bottom without the model, saved outputs and records left alone, figures, Stop mid-run and during the restart, a restart that fails, a name only the agent's explore made, seed warnings, keeping the new outputs with Undo, and a cell deleted or a notebook loaded mid-run. `VerifyReport.test.tsx` drives it in the app: the confirmation, the report's rows, saved and new side by side, Keep the new outputs, and Stop from the report. `notebook-store.test.ts` also covers a saved model that Dalliance Cloud doesn't offer going back to the default, and the notebook's pins: checked on open without waiting, never for a notebook without them, a check another notebook overtook dropped, and the pins a save recorded kept without marking the notebook changed. `PinChangesBanner.test.tsx` covers the banner: nothing when nothing changed, the first changes in words with the rest behind a button, folded again for a new check, and dismissed.
+`notebook-store.test.ts` tests actions and the run queue, including a plain rerun keeping the record of how the code was made while the next generation replaces it, a prompt or code edited while its cell runs, which is kept and used next time, and turning an empty prompt cell into a note without an Undo. `App.test.tsx` renders the whole app with Testing Library and drives it like a user: running cells, answering questions, D D and Undo, M on a cell with code and Undo bringing it back as it was, a failed save or open that stays on screen instead of being dropped, a cell that fails to draw behind the error boundary while the rest of the notebook stays up, table folding, suggestions, history, the brief, pinning, the model picker, titles, the Settings screen and Cmd+A. `App.test.tsx` checks the record is kept through a plain rerun and never shown. `Welcome.test.tsx` covers the setup and start page. `ModelSettings.test.tsx` checks simultaneous provider connections, independent key replacement and removal, the combined model catalog, model selection across connected providers, field clearing and generic errors. `store/verify.test.ts` runs Verify through the queue: one restart, saved code top to bottom without the model, saved outputs and records left alone, figures, Stop mid-run and during the restart, a restart that fails, a name only the agent's explore made, seed warnings, keeping the new outputs with Undo, and a cell deleted or a notebook loaded mid-run. `VerifyReport.test.tsx` drives it in the app: the confirmation, the report's rows, saved and new side by side, Keep the new outputs, and Stop from the report. `notebook-store.test.ts` also covers custom model selections remaining intact when absent from the catalog, and the notebook's pins: checked on open without waiting, never for a notebook without them, a check another notebook overtook dropped, and the pins a save recorded kept without marking the notebook changed. `PinChangesBanner.test.tsx` covers the banner: nothing when nothing changed, the first changes in words with the rest behind a button, folded again for a new check, and dismissed.
 
 The store is a module-level singleton. Call `setApi()` and `actions.load()` at the start of each test so state from the last one doesn't leak in.
 
@@ -105,21 +99,8 @@ The store is a module-level singleton. Call `setApi()` and `actions.load()` at t
 
 `e2e.test.ts` writes an `orders.csv`, creates a managed Python environment in the temp folder, starts a real kernel, and runs three cells at low effort: load the CSV, answer a question with a chart, and rerun saved code without the model. It's the only test that proves the prompts work with a real model. It uses the default model unless `DALLIANCE_E2E_MODEL` names another.
 
-It calls AI Gateway directly with `AI_GATEWAY_API_KEY`, the way Dalliance Cloud's proxy does, so it needs no account and no running cloud site. This is the only place a gateway key appears on the app's side, and it's test-only: the app never reads it.
+It calls the selected provider directly with its standard API key environment variable. See [providers.md](providers.md#verification) for the opt-in command. Normal tests never need credentials or network model calls. Live checks exercise real Python, tools, charts, image input and saved-code reruns. They cost money and stay outside CI.
 
-```bash
-DALLIANCE_E2E=1 pnpm --filter @dalliance/desktop exec vitest run electron/e2e.test.ts
-```
-
-It reads `AI_GATEWAY_API_KEY` from `apps/desktop/.env`.
-
-### The cloud site and the backend
-
-`apps/cloud` tests the model proxy with the gateway and Convex faked. `zdr.test.ts` checks which models qualify for zero data retention, the ten-minute refresh, that a failed refresh keeps the last list, and that every call carries the flag whatever the app sent. `route.test.ts` drives `/api/ai` itself: a call reaches the gateway with the flag on, a model or a gateway fallback without a zero-data-retention provider is refused before it reaches the gateway, `ZERO_DATA_RETENTION=off` drops the flag but still filters the list, and the gateway's paid-plan refusal reads as a message about the service. See [billing.md](billing.md#zero-data-retention).
-
-`packages/backend/convex/usage.test.ts` checks `usage:credits`: only the signed-in user's calls, the user from the token and never the arguments, null signed out, rows that haven't landed left out, and the deployment's rate.
-
-`packages/backend/contract.test.ts` checks that every function the app calls through `cloudApi` exists under the name the app uses. `contract.ts` checks their arguments and return types at typecheck. See [cloud.md](cloud.md#the-contract).
 
 ## Checking UI changes by eye
 

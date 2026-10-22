@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "The web brand dalliance.io and the cloud site share: the mark, the palette and theme, and the class strings for type and buttons.",
+  "description": "The Dalliance website mark, palette, theme, and typography.",
   "exports": {
     "./brand": "./src/brand.ts",
     "./mark": "./src/mark.ts",
@@ -21,5 +21,6 @@
   },
   "peerDependencies": {
     "react": "catalog:"
-  }
+  },
+  "license": "Apache-2.0"
 }

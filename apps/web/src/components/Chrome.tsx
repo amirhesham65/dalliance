@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { site } from '@/lib/site'
-import { button, buttonLarge, gutter, label, sheet } from '@dalliance/brand/ui'
+import { button, buttonLarge, buttonQuiet, gutter, label, sheet } from '@dalliance/brand/ui'
 import { InstallCommand } from './InstallCommand'
 import { StickyBar } from './StickyBar'
 import { Wordmark } from './Wordmark'
@@ -15,11 +15,15 @@ export function SiteHeader() {
       </div>
       <StickyBar>
         <Wordmark />
-        <div className="flex items-center gap-5">
+        <div className="flex items-center gap-2 sm:gap-5">
           {/* No room beside the download button on a phone, where the footer links it instead */}
           <Link className="text-[14px] font-medium text-ink-subtle no-underline hover:text-ink max-sm:hidden" href="/blog">
             Blog
           </Link>
+          <a className={`${buttonQuiet} max-sm:size-8 max-sm:p-0`} href={site.sourceUrl} target="_blank" rel="noreferrer" aria-label="GitHub">
+            <GitHubLogo />
+            <span className="max-sm:hidden">GitHub</span>
+          </a>
           <a className={button} href="/download?from=bar">
             <AppleLogo />
             Download for macOS
@@ -58,10 +62,21 @@ export function Act({ from, centred = false }: { from: string; centred?: boolean
           <AppleLogo />
           Download for macOS
         </a>
-        <span className="text-[13px] text-ink-subtle">{site.status}</span>
+        <a className={`${buttonQuiet} h-10 gap-2 px-4 text-[15px] [&_svg]:mr-0`} href={site.sourceUrl} target="_blank" rel="noreferrer">
+          <GitHubLogo />
+          GitHub
+        </a>
       </div>
       <InstallCommand centred={centred} />
     </>
+  )
+}
+
+function GitHubLogo() {
+  return (
+    <svg className="size-4 shrink-0 sm:mr-2" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M12 .75a11.25 11.25 0 0 0-3.558 21.923c.563.105.773-.24.773-.535 0-.267-.01-1.155-.016-2.096-3.13.68-3.791-1.327-3.791-1.327-.512-1.3-1.25-1.646-1.25-1.646-1.023-.7.078-.686.078-.686 1.13.08 1.725 1.16 1.725 1.16 1.006 1.724 2.64 1.225 3.284.937.102-.728.394-1.225.716-1.507-2.499-.284-5.126-1.25-5.126-5.563 0-1.23.44-2.234 1.16-3.023-.117-.285-.503-1.43.11-2.98 0 0 .945-.303 3.095 1.155A10.78 10.78 0 0 1 12 6.183c.956.004 1.919.129 2.818.379 2.148-1.458 3.09-1.155 3.09-1.155.616 1.55.23 2.695.114 2.98.723.789 1.159 1.793 1.159 3.023 0 4.324-2.632 5.276-5.139 5.554.404.35.764 1.04.764 2.096 0 1.513-.014 2.733-.014 3.105 0 .298.203.645.774.535A11.25 11.25 0 0 0 12 .75Z" />
+    </svg>
   )
 }
 
@@ -85,6 +100,7 @@ export function SiteFooter() {
           <Link href="/">Home</Link>
           <Link href="/blog">Blog</Link>
           <Link href="/privacy">Privacy</Link>
+          <a href={site.sourceUrl} target="_blank" rel="noreferrer">Source</a>
         </nav>
       </footer>
     </div>

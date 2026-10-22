@@ -1,9 +1,8 @@
-import { ArrowLeft, Bot, type LucideIcon, SquareTerminal, Sparkles, UserRound } from 'lucide-react'
+import { ArrowLeft, Bot, type LucideIcon, SquareTerminal, Sparkles } from 'lucide-react'
 import { Tabs } from 'radix-ui'
 import { Kbd } from '@/components/ui/kbd'
 import { useEffect } from 'react'
 import { SETTINGS_SECTIONS, type SettingsSection, actions, getApi, useNotebook } from '@/store/notebook-store'
-import { AccountSettings } from './AccountSettings'
 import { AgentSettings } from './AgentSettings'
 import { ModelSettings } from './ModelSettings'
 import { PythonSettings } from './PythonSettings'
@@ -12,7 +11,6 @@ const SECTIONS: Record<SettingsSection, { label: string; icon: LucideIcon }> = {
   models: { label: 'Models', icon: Sparkles },
   agent: { label: 'Agent', icon: Bot },
   python: { label: 'Python', icon: SquareTerminal },
-  account: { label: 'Account', icon: UserRound },
 }
 
 /**
@@ -87,9 +85,6 @@ export function SettingsScreen() {
           </Tabs.Content>
           <Tabs.Content value="python" className="mx-auto w-full max-w-[640px] px-10 py-10 outline-none">
             <PythonSettings api={api} settings={settings} />
-          </Tabs.Content>
-          <Tabs.Content value="account" className="mx-auto w-full max-w-[640px] px-10 py-10 outline-none">
-            <AccountSettings api={api} />
           </Tabs.Content>
         </div>
       </Tabs.Root>

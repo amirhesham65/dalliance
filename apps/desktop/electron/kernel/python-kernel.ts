@@ -1,3 +1,4 @@
+import { pythonEnv } from '../secrets'
 import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -64,7 +65,7 @@ export class PythonKernel implements Kernel {
     this.error = null
     this.stderrTail = ''
 
-    const env = { ...process.env, ...this.options.env, MPLBACKEND: 'Agg', PYTHONUNBUFFERED: '1' }
+    const env = { ...pythonEnv({ ...process.env, ...this.options.env }), MPLBACKEND: 'Agg', PYTHONUNBUFFERED: '1' }
     const child = spawn(this.options.python, ['-u', script], {
       cwd: this.options.cwd,
       env,

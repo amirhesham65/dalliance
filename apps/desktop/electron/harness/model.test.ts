@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
-import { DEFAULT_MODEL, agentProviderOptions, claudeReasoning } from './model'
+import { generateText } from 'ai'
+import { describe, expect, it, vi } from 'vitest'
+import { DEFAULT_MODEL, agentProviderOptions, claudeReasoning, resolveModel, listModels } from './model'
 
 describe('DEFAULT_MODEL', () => {
   it('is Sonnet 5.5', () => {
-    expect(DEFAULT_MODEL).toBe('anthropic/claude-sonnet-5.5')
+    expect(DEFAULT_MODEL).toBe('anthropic/claude-sonnet-5-5')
   })
 })
 
@@ -15,9 +16,9 @@ describe('agentProviderOptions', () => {
   })
 
   it('gives Sonnet 5.5 adaptive thinking and every effort level, xhigh included', () => {
-    // A live call through the gateway accepted xhigh on Sonnet 5.5, where Opus 4.6 turned it down
+    // Sonnet 5.5 accepts xhigh; the 4.6 models use the next lower supported effort
     for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
-      expect(agentProviderOptions({ model: 'anthropic/claude-sonnet-5.5', effort })?.anthropic).toMatchObject({
+      expect(agentProviderOptions({ model: 'anthropic/claude-sonnet-5-5', effort })?.anthropic).toMatchObject({
         thinking: { type: 'adaptive', display: 'summarized' },
         effort,
       })
@@ -58,4 +59,53 @@ describe('claudeReasoning', () => {
       expect(claudeReasoning(model)).toEqual({ adaptive: true, efforts: ['low', 'medium', 'high', 'xhigh', 'max'] })
     },
   )
+})
+
+describe('direct providers', () => {
+  it.each([
+    ['anthropic/claude-sonnet-5.5', 'anthropic', 'claude-sonnet-5-5'],
+    ['google/gemini-3.8-flash', 'google', 'gemini-3.8-flash'],
+    ['openai/gpt-6.1-sol', 'openai', 'gpt-6.1-sol'],
+  ])('resolves %s using only that provider key', (id, provider, nativeId) => {
+    const requested: string[] = []
+    const { model } = resolveModel({ model: id, effort: 'medium', key: (name) => { requested.push(name); return 'test-provider-key' } })
+    expect(requested).toEqual([provider])
+    expect(typeof model !== 'string' && model.modelId).toBe(nativeId)
+    expect(typeof model !== 'string' && model.provider).toContain(provider)
+  })
+
+  it('explains the missing key without switching providers', () => {
+    expect(() => resolveModel({ model: 'google/gemini-custom', effort: 'medium', key: () => null })).toThrow('Add your Google API key')
+    expect(() => resolveModel({ model: 'other/model', effort: 'medium', key: () => 'test-key' })).toThrow('Choose an Anthropic, Google, or OpenAI model')
+  })
+
+  it('lists only configured providers', () => {
+    const list = listModels((provider) => provider === 'google' ? 'test-key' : null)
+    expect(list.models.length).toBeGreaterThan(0)
+    expect(list.models.every((model) => model.id.startsWith('google/'))).toBe(true)
+    expect(listModels(() => null)).toEqual({ models: [], error: null })
+    const connected = listModels((provider) => provider === 'google' ? null : 'test-key')
+    expect(new Set(connected.models.map((model) => model.id.split('/')[0]))).toEqual(new Set(['anthropic', 'openai']))
+  })
+
+  it.each([
+    ['anthropic/claude-sonnet-5-5', 'https://api.anthropic.com/v1/messages', 'x-api-key'],
+    ['google/gemini-3.8-flash', 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent', 'x-goog-api-key'],
+    ['openai/gpt-6.1-sol', 'https://api.openai.com/v1/responses', 'authorization'],
+  ])('sends %s directly to its provider endpoint', async (id, endpoint, header) => {
+    const requests: { url: string; headers: Headers }[] = []
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      requests.push({ url: String(url), headers: new Headers(init.headers) })
+      return Response.json({ error: { message: 'Test refusal', type: 'authentication_error', code: 'invalid_api_key' } }, { status: 401 })
+    })
+    try {
+      const { model } = resolveModel({ model: id, effort: 'low', key: () => 'test-provider-key' })
+      await expect(generateText({ model, prompt: 'Test', maxRetries: 0 })).rejects.toThrow()
+      expect(requests).toHaveLength(1)
+      expect(requests[0].url).toBe(endpoint)
+      expect(requests[0].headers.get(header)).toBe(header === 'authorization' ? 'Bearer test-provider-key' : 'test-provider-key')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })

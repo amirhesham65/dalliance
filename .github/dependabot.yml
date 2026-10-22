@@ -8,14 +8,6 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
-    ignore:
-      # Pinned by the Convex components. See docs/README.md
-      - dependency-name: better-auth
-        update-types: [version-update:semver-minor, version-update:semver-major]
-      - dependency-name: '@better-auth/*'
-        update-types: [version-update:semver-minor, version-update:semver-major]
-      - dependency-name: '@polar-sh/sdk'
-        update-types: [version-update:semver-major]
   - package-ecosystem: github-actions
     directory: /
     schedule:

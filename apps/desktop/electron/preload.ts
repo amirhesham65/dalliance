@@ -54,16 +54,8 @@ const api: DallianceApi = {
     ipcRenderer.send(IPC.menuReady)
     return off
   },
-  getAccount: () => ipcRenderer.invoke(IPC.getAccount),
-  signIn: () => ipcRenderer.invoke(IPC.signIn),
-  redeemSignInCode: (code) => ipcRenderer.invoke(IPC.redeemSignInCode, code),
-  signOut: () => ipcRenderer.invoke(IPC.signOut),
-  onAccount: (listener) => subscribe(IPC.accountChanged, listener),
-  getBilling: () => ipcRenderer.invoke(IPC.getBilling),
-  startCheckout: (plan) => ipcRenderer.invoke(IPC.startCheckout, plan),
-  openBillingPortal: () => ipcRenderer.invoke(IPC.openBillingPortal),
-  onBilling: (listener) => subscribe(IPC.billingChanged, listener),
-  countCredits: (generationIds) => ipcRenderer.invoke(IPC.countCredits, generationIds),
+  getProviderKeys: () => ipcRenderer.invoke(IPC.getProviderKeys),
+  setProviderKey: (provider, key) => ipcRenderer.invoke(IPC.setProviderKey, provider, key),
   getUpdate: () => ipcRenderer.invoke(IPC.getUpdate),
   downloadUpdate: () => ipcRenderer.invoke(IPC.downloadUpdate),
   onUpdate: (listener) => subscribe(IPC.updateFound, listener),

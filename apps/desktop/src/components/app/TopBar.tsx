@@ -1,3 +1,4 @@
+import { providerOf } from '@dalliance/shared/models'
 import { ChevronDown, FileInput, FilePlus, FolderOpen, FolderPlus, PanelLeft, Settings } from 'lucide-react'
 import { useState } from 'react'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
@@ -148,7 +149,7 @@ const EFFORTS: { value: Effort; label: string }[] = [
   { value: 'high', label: 'High' },
 ]
 
-/** Which model writes the cells, and how hard it thinks. Searches every model Dalliance Cloud offers. */
+/** Which model writes the cells, and how hard it thinks. Searches models for configured providers. */
 function ModelChip() {
   const settings = useNotebook((s) => s.settings)
   const list = useNotebook((s) => s.models)
@@ -157,10 +158,14 @@ function ModelChip() {
   const api = getApi()
   if (!settings || !api) return null
   const update = async (u: Parameters<typeof api.updateSettings>[0]) => {
-    useNotebook.setState({ settings: await api.updateSettings(u) })
+    try {
+      useNotebook.setState({ settings: await api.updateSettings(u) })
+    } catch (err) {
+      actions.notifyFailure("Couldn't change the model", err)
+    }
   }
   const choose = (id: string) => {
-    void update({ model: id })
+    void update({ model: id.includes('/') ? id : `${providerOf(settings.model) ?? 'anthropic'}/${id}` })
     setOpen(false)
     setQuery('')
   }
@@ -247,7 +252,7 @@ function ModelChip() {
             ))}
           </div>
           <p className="px-2 pt-1.5 text-[11.5px] text-faint">
-            {effortApplies ? 'Higher effort is slower and uses more credits.' : 'Effort applies to Anthropic and OpenAI models. This one uses its default.'}
+            {effortApplies ? 'Higher effort is slower and uses more tokens.' : 'Effort applies to Anthropic and OpenAI models. This one uses its default.'}
           </p>
           <div className="mt-1 border-t pt-1">
             <MenuButton

@@ -5,11 +5,11 @@ export const site = {
   ...brand,
   // `||`, not `??`: a variable set but left blank, as Vercel allows, counts as unset
   url: (process.env.NEXT_PUBLIC_SITE_URL?.trim() || 'https://dalliance.io').replace(/\/$/, ''),
-  title: 'Dalliance · The Coding Agent for Researchers',
-  headline: 'The Coding Agent for Researchers',
+  title: 'Dalliance · The Open-source Coding Agent for Researchers',
+  headline: 'The Open-source Coding Agent for Researchers',
   tagline: 'Like a Jupyter notebook, but you write each cell in plain language. Dalliance writes the Python, runs it and keeps the code that works.',
   description:
-    'Dalliance is a coding agent for researchers. It works like a Jupyter notebook, but you write each cell in plain language and it writes, runs and checks the Python.',
+    'Dalliance is an open-source coding agent for researchers. It works like a Jupyter notebook, but you write each cell in plain language and it writes, runs and checks the Python.',
   keywords: [
     'coding agent for researchers',
     'research notebook',
@@ -25,6 +25,7 @@ export const site = {
     'macOS data analysis',
   ],
   status: 'Early preview',
+  sourceUrl: 'https://github.com/amirhesham65/dalliance',
   // The latest release in the public releases repo, which the release workflow publishes to. See docs/releasing.md
   downloadUrl: 'https://github.com/amirhesham65/dalliance-releases/releases/latest/download/Dalliance.dmg',
 } as const

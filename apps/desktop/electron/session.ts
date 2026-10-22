@@ -272,13 +272,16 @@ export class NotebookSession {
       return fail(err instanceof Error ? err.message : String(err))
     }
 
-    // Name the cell with the small model while the cell runs. It never holds up the run.
-    if (request.nameIt && this.options.settings.autoTitles) {
+    const controller = new AbortController()
+    this.controller = controller
+
+    // Name generated cells with the selected provider. Saved-code runs make no model requests.
+    if (request.generate && request.nameIt && this.options.settings.autoTitles) {
       const small = titleModel(config)
       if (small) {
         let call: ModelCall | null = null
-        void generateTitle(request.prompt, small, undefined, (c) => (call = c)).then(async (title) => {
-          if (!title) return
+        void generateTitle(request.prompt, small, controller.signal, (c) => (call = c)).then(async (title) => {
+          if (!title || controller.signal.aborted) return
           const cost = call ? costOf([call]) : undefined
           emit({ type: 'title', title, prompt: request.prompt, ...(cost ? { cost } : {}) })
         })
@@ -288,8 +291,6 @@ export class NotebookSession {
     // What the cell's runs read goes into the notebook's pins on save. Hash it now, so the save finds it ready
     const tracked = this.tracking(kernel, request.cellId)
 
-    const controller = new AbortController()
-    this.controller = controller
     const ask = (event: (requestId: string) => RunEvent) =>
       new Promise<string | boolean | null>((resolve) => {
         const requestId = `r${++this.nextRequest}`
@@ -330,8 +331,8 @@ export class NotebookSession {
         prepareImage: this.options.prepareImage,
         signal: controller.signal,
       })
-      // Counted whether or not Show costs is on, so turning it on shows the runs made while it was off
-      const cost = costOf(result.steps.map((s) => ({ model: s.modelId ?? config.model, usage: s.usage, generationId: s.generationId })))
+      // Counted whether or not Show token usage is on, so turning it on shows the runs made while it was off
+      const cost = costOf(result.steps.map((s) => ({ model: s.modelId ?? config.model, usage: s.usage })))
       return cost ? { ...result, cost } : result
     } catch (err) {
       return fail(controller.signal.aborted ? 'Stopped.' : friendlyError(err))

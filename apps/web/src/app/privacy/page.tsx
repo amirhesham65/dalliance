@@ -4,7 +4,7 @@ import { feedAlternate } from '@/lib/blog'
 import { site } from '@/lib/site'
 import { headline, labelMono, mastheadRuled, sheet, support } from '@dalliance/brand/ui'
 
-const description = 'What this site counts, what Dalliance keeps on your Mac, what your account holds, and what goes to the model.'
+const description = 'What this site counts, what Dalliance keeps on your Mac, what goes to the model.'
 
 export const metadata: Metadata = {
   title: 'Privacy',
@@ -30,17 +30,8 @@ const sections = [
     label: 'On your Mac',
     rows: [
       { k: 'Your work.', v: 'Notebooks, data and code stay local. Python runs on your Mac.' },
-      { k: 'Sign-in.', v: 'Your session is encrypted with the macOS Keychain and stays in the app.' },
+      { k: 'API keys.', v: 'Keys are encrypted on this device using the operating system’s secure storage. When secure storage is unavailable, keys last only until you quit the app. Saved keys are never displayed again.' },
       { k: 'Logs.', v: 'Kept in the app data folder. Never uploaded.' },
-    ],
-  },
-  {
-    id: 'account',
-    label: 'Your account',
-    rows: [
-      { k: 'Who you are.', v: 'Your email address. You sign in with a link sent to it.' },
-      { k: 'Your plan.', v: 'Polar handles checkout, payment and invoices as the merchant of record. Dalliance keeps your subscription and never sees your card.' },
-      { k: 'Usage.', v: 'For each model call: when it ran, the model, and what it cost in credits. Never the prompt or the answer.' },
     ],
   },
   {
@@ -48,9 +39,9 @@ const sections = [
     label: 'Model requests',
     rows: [
       { k: 'What is sent.', v: 'Your prompt and the context the agent reads for it, such as variable names, data previews, outputs and files in the notebook folder.' },
-      { k: 'Where.', v: "Through Dalliance Cloud to Vercel AI Gateway, which sends it to the model's provider. Every call runs with zero data retention, so the provider doesn't keep it, and Dalliance doesn't log it." },
+      { k: 'Where.', v: "Directly to Anthropic, Google, or OpenAI using your API key. Retention and training policies depend on that provider and your account settings. Dalliance does not receive your requests or keys." },
       { k: 'Reruns.', v: 'Unchanged cells never call the model.' },
-      { k: 'Titles.', v: 'A small model names each cell. You can turn this off.' },
+      { k: 'Titles.', v: 'The selected model names generated cells using the same provider and key. You can turn this off.' },
       { k: '.env files.', v: "The agent's file reader skips them. Code it runs can still open them." },
     ],
   },
@@ -70,7 +61,7 @@ export default function Privacy() {
       <SiteHeader />
       <div className={sheet}>
         <div className={mastheadRuled}>
-          <p className={`${labelMono} mb-4`}>Updated 3 October 2026</p>
+          <p className={`${labelMono} mb-4`}>Updated 22 October 2026</p>
           <h1 className={headline}>Privacy</h1>
           <p className={support}>This site counts visits without cookies. The app keeps your work on your Mac and sends nothing about how you use it.</p>
         </div>

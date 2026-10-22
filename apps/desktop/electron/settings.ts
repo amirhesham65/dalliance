@@ -2,18 +2,20 @@ import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { type Effort, type SettingsUpdate, type SettingsView, offeredEffort } from '@dalliance/shared/ipc'
+import { DEFAULT_MODELS, normalizeModel, providerOf, type ProviderId } from '@dalliance/shared/models'
 import { writeFileAtomicSync } from './atomic-write'
-import { type CloudAccess, DEFAULT_MODEL, type ModelConfig } from './harness/model'
+import { DEFAULT_MODEL, type ModelConfig } from './harness/model'
 
 interface Stored {
   model: string
+  providerModels: Partial<Record<ProviderId, string>>
   effort: Effort
   pythonPath: string | null
   approvalMode: 'interactive' | 'background'
   autoTitles: boolean
   suggestNext: boolean
-  /** Whether the Activity pane shows what runs cost. Off until the user turns it on. */
-  showCosts: boolean
+  /** Whether the Activity pane shows token usage. Off until the user turns it on. */
+  showUsage: boolean
   onboarded: boolean
   /** The folder in use: where new notebooks go, and where the kernel and the agent work. Null for the default one. */
   workspaceDir: string | null
@@ -27,12 +29,13 @@ const MAX_RECENT = 8
 
 const DEFAULTS: Stored = {
   model: DEFAULT_MODEL,
+  providerModels: {},
   effort: 'medium',
   pythonPath: null,
   approvalMode: 'interactive',
   autoTitles: true,
   suggestNext: true,
-  showCosts: false,
+  showUsage: false,
   onboarded: false,
   workspaceDir: null,
   projectsDir: null,
@@ -42,11 +45,11 @@ const DEFAULTS: Stored = {
 export class SettingsStore {
   private data: Stored
   private readonly file: string
-  /** How models reach Dalliance Cloud, for modelConfig(). */
-  private readonly cloud: CloudAccess
+  /** Provider keys are resolved only in the main process. */
+  private readonly key: ModelConfig['key']
 
-  constructor(dir: string, cloud: CloudAccess) {
-    this.cloud = cloud
+  constructor(dir: string, key: ModelConfig['key'] = () => null) {
+    this.key = key
     mkdirSync(dir, { recursive: true })
     this.file = path.join(dir, 'settings.json')
     this.data = structuredClone(DEFAULTS)
@@ -59,8 +62,15 @@ export class SettingsStore {
         this.setAside(err)
         return
       }
-      // A setting the file doesn't have takes its default
-      this.data = { ...structuredClone(DEFAULTS), ...stored }
+      // Copy only recognized settings. Retired fields and unexpected key fields are never saved again.
+      for (const name of Object.keys(DEFAULTS) as (keyof Stored)[]) {
+        if (name in stored) Object.assign(this.data, { [name]: stored[name] })
+      }
+      this.data.model = normalizeModel(typeof this.data.model === 'string' ? this.data.model : DEFAULT_MODEL)
+      if (!providerOf(this.data.model)) this.data.model = DEFAULT_MODEL
+      if (!this.data.providerModels || typeof this.data.providerModels !== 'object' || Array.isArray(this.data.providerModels)) this.data.providerModels = {}
+      this.data.providerModels = Object.fromEntries(Object.entries(this.data.providerModels).filter(([provider, model]) => typeof model === 'string' && providerOf(model) === provider).map(([provider, model]) => [provider, normalizeModel(model as string)]))
+      this.data.providerModels[providerOf(this.data.model)!] = this.data.model
       // Extra high and Max aren't offered for now, so a saved one reads as High
       this.data.effort = offeredEffort(this.data.effort)
     }
@@ -85,7 +95,7 @@ export class SettingsStore {
   }
 
   modelConfig(): ModelConfig {
-    return { model: this.data.model, effort: this.data.effort, cloud: this.cloud }
+    return { model: this.data.model, effort: this.data.effort, key: this.key }
   }
 
   get pythonPath() {
@@ -104,8 +114,8 @@ export class SettingsStore {
     return this.data.suggestNext
   }
 
-  get showCosts() {
-    return this.data.showCosts
+  get showUsage() {
+    return this.data.showUsage
   }
 
   /** The folder last worked in, if it is still there. */
@@ -149,24 +159,32 @@ export class SettingsStore {
   view(): SettingsView {
     return {
       model: this.data.model,
+      providerModels: { ...this.data.providerModels },
       effort: this.data.effort,
       pythonPath: this.data.pythonPath,
       approvalMode: this.data.approvalMode,
       autoTitles: this.data.autoTitles,
       suggestNext: this.data.suggestNext,
-      showCosts: this.data.showCosts,
+      showUsage: this.data.showUsage,
       onboarded: this.data.onboarded,
     }
   }
 
   update(update: SettingsUpdate): SettingsView {
-    if (update.model !== undefined) this.data.model = update.model.trim() || DEFAULT_MODEL
+    if (update.model !== undefined) {
+      if (typeof update.model !== 'string') throw new Error('Choose a valid model.')
+      const model = normalizeModel(update.model.trim() || DEFAULT_MODELS[providerOf(this.data.model) ?? 'anthropic'])
+      const provider = providerOf(model)
+      if (!provider || !/^[^/]+\/[^\s/]+$/.test(model)) throw new Error('Choose an Anthropic, Google, or OpenAI model.')
+      this.data.model = model
+      this.data.providerModels[provider] = model
+    }
     if (update.effort) this.data.effort = offeredEffort(update.effort)
     if (update.pythonPath !== undefined) this.data.pythonPath = update.pythonPath?.trim().replace(/^~(?=$|\/)/, homedir()) || null
     if (update.approvalMode) this.data.approvalMode = update.approvalMode
     if (update.autoTitles !== undefined) this.data.autoTitles = update.autoTitles
     if (update.suggestNext !== undefined) this.data.suggestNext = update.suggestNext
-    if (update.showCosts !== undefined) this.data.showCosts = update.showCosts
+    if (update.showUsage !== undefined) this.data.showUsage = update.showUsage
     if (update.onboarded !== undefined) this.data.onboarded = update.onboarded
     this.save()
     return this.view()

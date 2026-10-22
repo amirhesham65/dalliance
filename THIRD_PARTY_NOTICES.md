@@ -2,9 +2,9 @@
 
 Dalliance includes material from others under their own licenses.
 
-## Code from Dalliance's open-source releases
+## Code contributions
 
-Dalliance was published under the Apache License 2.0 until October 2026. Versions released then stay under that license. Contributions made to it under that license remain under it, and are included here as the license allows:
+Dalliance is licensed under the Apache License 2.0. Contributions include:
 
 - Varadaraj Borkar: drawing a line between cells, renaming a notebook from its name, the Python libraries pane, choosing a working folder, and dismissing the workspace notice (September 2026).
 

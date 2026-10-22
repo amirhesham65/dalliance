@@ -5,7 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SettingsStore } from './settings'
 
-const access = { baseURL: 'https://cloud.example/api/ai', signedIn: () => true, token: async () => 'jwt' }
+const access = () => 'test-key'
 const dir = () => mkdtempSync(path.join(tmpdir(), 'dalliance-settings-'))
 const store = (folder: string) => new SettingsStore(folder, access)
 
@@ -24,18 +24,30 @@ describe('SettingsStore', () => {
     const folder = dir()
     writeFileSync(path.join(folder, 'settings.json'), JSON.stringify({ autoTitles: false }))
     const settings = store(folder)
-    expect(settings.view()).toMatchObject({ suggestNext: true, showCosts: false, autoTitles: false })
+    expect(settings.view()).toMatchObject({ suggestNext: true, showUsage: false, autoTitles: false })
 
-    settings.update({ suggestNext: false, showCosts: true })
-    expect(store(folder).view()).toMatchObject({ suggestNext: false, showCosts: true, autoTitles: false })
+    settings.update({ suggestNext: false, showUsage: true })
+    expect(store(folder).view()).toMatchObject({ suggestNext: false, showUsage: true, autoTitles: false })
   })
 
-  it('runs models on Dalliance Cloud, with the default model when none is given', () => {
+  it('resolves the selected model and key, with a default when none is given', () => {
     const settings = store(dir())
-    expect(settings.modelConfig()).toEqual({ model: 'anthropic/claude-sonnet-5.5', effort: 'medium', cloud: access })
+    expect(settings.modelConfig()).toEqual({ model: 'anthropic/claude-sonnet-5-5', effort: 'medium', key: access })
     settings.update({ model: ' google/gemini-3.8-flash ' })
     expect(settings.modelConfig().model).toBe('google/gemini-3.8-flash')
-    expect(settings.update({ model: '' }).model).toBe('anthropic/claude-sonnet-5.5')
+    expect(settings.update({ model: '' }).model).toBe('google/gemini-3.8-flash')
+  })
+
+  it('remembers model selections by provider and never saves key material in settings', () => {
+    const folder = dir()
+    const settings = store(folder)
+    settings.update({ model: 'anthropic/claude-opus-5.5' })
+    settings.update({ model: 'google/gemini-custom' })
+    const restored = store(folder)
+    expect(restored.view().providerModels).toMatchObject({ anthropic: 'anthropic/claude-opus-5-5', google: 'google/gemini-custom' })
+    expect(restored.view().model).toBe('google/gemini-custom')
+    expect(readFileSync(path.join(folder, 'settings.json'), 'utf8')).not.toContain('test-key')
+    expect(() => settings.update({ model: 'unsupported/model' })).toThrow('Choose an Anthropic')
   })
 
   it('offers only low, medium and high effort for now, reading a saved higher one as high', () => {
@@ -64,7 +76,7 @@ describe('SettingsStore', () => {
     writeFileSync(path.join(folder, 'settings.json'), contents)
 
     const settings = store(folder)
-    expect(settings.view()).toMatchObject({ model: 'anthropic/claude-sonnet-5.5', onboarded: false })
+    expect(settings.view()).toMatchObject({ model: 'anthropic/claude-sonnet-5-5', onboarded: false })
     expect(warn).toHaveBeenCalledOnce()
 
     const aside = readdirSync(folder).filter((f) => f.startsWith('settings.json.corrupt-'))

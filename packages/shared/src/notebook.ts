@@ -164,7 +164,7 @@ export interface PromptCell {
   prompt: string
   /** Files the user attached, as paths inside the notebook's folder, usually `uploads/…`. The agent is told about them. */
   attachments: string[]
-  /** A short name for the outline, written by a small model. */
+  /** A short name for the outline, written by the selected model. */
   title: string | null
   /** The prompt the title was written for. A changed prompt shows itself until it's named again. */
   titleFrom: string | null

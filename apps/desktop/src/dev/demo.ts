@@ -2,9 +2,10 @@
  * A pretend desktop bridge for looking at the UI in a plain browser: open the renderer with ?demo.
  * Nothing here runs inside Electron, where window.dalliance is the real bridge.
  */
-import { ON_PLAN, SIGNED_IN, SIGNED_OUT, fakeApi, fakeSettings, provenance, result } from '@/test/fake-api'
-import type { AccountView, BillingView, PythonState, RunEvent } from '@dalliance/shared/ipc'
+import { KEYS_ADDED, NO_KEYS, fakeApi, fakeSettings, provenance, result } from '@/test/fake-api'
+import type { PythonState, RunEvent } from '@dalliance/shared/ipc'
 import { type Notebook, type Output, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
+import { DEFAULT_MODELS, MODELS, normalizeModel, providerOf } from '@dalliance/shared/models'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
 // Rendered by the real kernel from heroNotebook()'s first cell, at 2x like every figure
 import heroChart from './hero-chart.png?inline'
@@ -54,7 +55,7 @@ function sampleNotebook(): Notebook {
   survival.provenance = provenance({
     prompt: survival.prompt,
     madeAt: new Date(now - 3 * 60_000).toISOString(),
-    steps: [1, 2, 3, 4, 5].map((step) => ({ step, model: 'anthropic/claude-sonnet-5.5' })),
+    steps: [1, 2, 3, 4, 5].map((step) => ({ step, model: 'anthropic/claude-sonnet-5-5' })),
     rationale: {
       from: 'summaries',
       text: [
@@ -84,7 +85,7 @@ function sampleNotebook(): Notebook {
   load.provenance = provenance({
     prompt: load.prompt,
     madeAt: new Date(now - 24 * 60_000).toISOString(),
-    steps: [1, 2].map((step) => ({ step, model: 'anthropic/claude-sonnet-5.5' })),
+    steps: [1, 2].map((step) => ({ step, model: 'anthropic/claude-sonnet-5-5' })),
     rationale: { from: 'interpretation', text: [load.answer] },
     attemptCount: 1,
     attempts: [{ code: load.code, error: null, changed: null }],
@@ -334,36 +335,18 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' | 'hero' = 'n
   if (mode === 'setup') settings = { ...settings, onboarded: false }
   api.getSettings = async () => settings
   api.updateSettings = async (update) => {
-    settings = { ...settings, ...update }
+    const model = update.model !== undefined ? normalizeModel(update.model || DEFAULT_MODELS[providerOf(settings.model) ?? 'anthropic']) : settings.model
+    const provider = providerOf(model)!
+    settings = { ...settings, ...update, model, providerModels: { ...settings.providerModels, [provider]: model } }
     return settings
   }
-  // A first launch is signed out. Signing in takes a moment, as the browser round trip would, and lands on a plan
-  if (mode === 'setup') {
-    let account: AccountView = SIGNED_OUT
-    let billing: BillingView = { ...ON_PLAN, subscription: null, usage: null }
-    const accounts = new Set<(a: AccountView) => void>()
-    const billings = new Set<(b: BillingView) => void>()
-    api.getAccount = async () => account
-    api.getBilling = async () => billing
-    api.onAccount = (l) => {
-      accounts.add(l)
-      return () => accounts.delete(l)
-    }
-    api.onBilling = (l) => {
-      billings.add(l)
-      return () => billings.delete(l)
-    }
-    api.signIn = async () => {
-      account = { ...SIGNED_OUT, waiting: true }
-      setTimeout(() => {
-        account = SIGNED_IN
-        billing = ON_PLAN
-        accounts.forEach((l) => l(account))
-        billings.forEach((l) => l(billing))
-      }, 900)
-      return account
-    }
+  let providerKeys = structuredClone(mode === 'setup' ? NO_KEYS : KEYS_ADDED)
+  api.getProviderKeys = async () => providerKeys
+  api.setProviderKey = async (provider, key) => {
+    providerKeys = { ...providerKeys, configured: { ...providerKeys.configured, [provider]: Boolean(key.trim()) } }
+    return providerKeys
   }
+  api.listModels = async () => ({ models: MODELS.filter((model) => providerKeys.configured[providerOf(model.id)!]), error: null })
   // A first launch finds no Python; setting one up streams a few lines and succeeds
   let python: PythonState = mode === 'setup' ? { python: null, version: null, source: null, managedEnvExists: false, missingPackages: [] } : { python: '/usr/bin/python3', version: '3.12.4', source: 'system', managedEnvExists: false, missingPackages: [] }
   const pythonLogs = new Set<(line: string) => void>()
@@ -381,23 +364,6 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' | 'hero' = 'n
     return python
   }
   if (mode === 'setup') api.recentNotebooks = async () => []
-  // A spread of makers like the gateway's, one of them without a logo
-  api.listModels = async () => ({
-    error: null,
-    models: [
-      { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', maker: 'Anthropic' },
-      { id: 'anthropic/claude-opus-5', name: 'Claude Opus 5', maker: 'Anthropic' },
-      { id: 'openai/gpt-6', name: 'GPT-6', maker: 'OpenAI' },
-      { id: 'openai/gpt-6-luna', name: 'GPT-6 Luna', maker: 'OpenAI' },
-      { id: 'google/gemini-3-pro', name: 'Gemini 3 Pro', maker: 'Google' },
-      { id: 'spacexai/grok-4.20-non-reasoning', name: 'Grok 4.20', maker: 'xAI' },
-      { id: 'deepseek/deepseek-v4', name: 'DeepSeek V4', maker: 'DeepSeek' },
-      { id: 'mistral/mistral-large-3', name: 'Mistral Large 3', maker: 'Mistral' },
-      { id: 'moonshotai/kimi-k3', name: 'Kimi K3', maker: 'Moonshot AI' },
-      { id: 'zai/glm-5', name: 'GLM 5', maker: 'Z.ai' },
-      { id: 'thinkingmachines/inkling', name: 'Inkling', maker: 'Thinking Machines' },
-    ],
-  })
   setApi(api)
   actions.load(sample, file)
   useNotebook.setState({ kernel: { status: 'idle', python: '3.12.4', cwd: folder, error: null } })

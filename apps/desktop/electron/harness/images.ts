@@ -3,7 +3,7 @@
  * attaches an image file, so the model looks at a chart instead of trusting that it came out right.
  *
  * Images stay in the run's history, which is append-only and resent on every step, and every step goes
- * through the Dalliance Cloud proxy, whose request body Vercel caps at about 4.5 MB. So images are shrunk,
+ * to the provider on every step. Images are shrunk to bound request size and token usage,
  * and bounded per result and per run.
  */
 

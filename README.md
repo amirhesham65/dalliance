@@ -20,7 +20,7 @@ Dalliance writes the Python, runs it on a live kernel and keeps the code that wo
 
 </div>
 
-This is the private repo for Dalliance: the desktop app, the website, and Dalliance Cloud, the service that runs its models.
+Dalliance is an open-source desktop notebook for working with data in plain language. This repo contains the app and dalliance.io.
 
 ## What it is
 
@@ -31,7 +31,7 @@ General coding agents are built to ship software. Research needs answers you can
 - **Reproducible by default.** Verify reruns every cell from a clean start. Each save pins the Python version, the package versions and a hash of every file the cells read. Every cell keeps the record of how it was made, and the last 12 versions. An unchanged prompt reruns its saved code with no model call.
 - **It's plain `.ipynb`.** Jupyter, GitHub and reviewers open it as it is.
 - **Python runs on your Mac.** The agent reads only the notebook's folder, never `.env` files, and by default asks before code runs shell commands or uses the network.
-- **Models run on a Dalliance plan.** Sign in with a Dalliance account, and every model call goes through Dalliance Cloud with zero data retention, paid in credits. Claude Sonnet 5.5 by default.
+- **Bring your own API key.** Connect Anthropic, Google, or OpenAI in Settings > Models. Requests go directly to your selected provider, under your own billing and data policies. Keys are encrypted on your device.
 
 ## The repo
 
@@ -39,10 +39,8 @@ General coding agents are built to ship software. Research needs answers you can
 | --- | --- | --- |
 | `apps/desktop` | `@dalliance/desktop` | The Electron app: React renderer, Python kernel, the agent harness |
 | `apps/web` | `@dalliance/web` | dalliance.io, Next.js |
-| `apps/cloud` | `@dalliance/cloud` | cloud.dalliance.io, Next.js: sign-in and billing pages, the auth proxy, and the model proxy with zero data retention |
-| `packages/backend` | `@dalliance/backend` | The Convex backend: Better Auth accounts, Polar billing, the usage ledger |
-| `packages/shared` | `@dalliance/shared` | The notebook model, `.ipynb` conversion, the IPC contract, and the contract between the app, the cloud site and the backend |
-| `packages/brand` | `@dalliance/brand` | The web brand both sites share: the mark, the palette and theme, shared class strings |
+| `packages/shared` | `@dalliance/shared` | The notebook model, `.ipynb` conversion, IPC, and provider model catalog |
+| `packages/brand` | `@dalliance/brand` | The website brand: the mark, the palette and theme, shared class strings |
 
 ## Getting started
 
@@ -53,9 +51,9 @@ pnpm install
 pnpm dev
 ```
 
-That runs the desktop app with hot reload. It signs in to `https://cloud.dalliance.io`, so running a prompt needs a Dalliance account with a plan. The website, the cloud site and the backend start on their own: `pnpm --filter @dalliance/web dev` on `:3100`, `pnpm --filter @dalliance/cloud dev` on `:3200`, and `npx convex dev` in `packages/backend`.
+That runs the desktop app with hot reload. Add your Anthropic, Google, or OpenAI API key in Settings > Models, choose a model, and set up Python from the app. No hosted backend is needed. Opening notebooks and running saved Python need no API key.
 
-To run the cloud site and the backend yourself, see [docs/deploying.md](docs/deploying.md) and [docs/accounts.md](docs/accounts.md#running-it-locally). `DALLIANCE_CLOUD_URL` in `apps/desktop/.env` points a development build at them.
+Run the website separately with `pnpm --filter @dalliance/web dev` on port 3100. See [docs/providers.md](docs/providers.md) for model routing, key storage, and optional live tests.
 
 ## Checks
 
@@ -71,4 +69,4 @@ CI runs the same on every pull request, on Ubuntu and macOS. [docs/development.m
 
 ## License
 
-Proprietary. All rights reserved. See [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

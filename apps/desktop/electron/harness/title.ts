@@ -1,9 +1,6 @@
 import { type LanguageModel, generateText } from 'ai'
-import { type ModelCall, generationIdOf, stepUsage } from './cost'
-import { type ModelConfig, cloudGateway } from './model'
-
-/** The small, cheap model that names cells, whatever model writes the code, on the user's plan. */
-export const TITLE_MODEL = 'openai/gpt-6-luna'
+import { type ModelCall, stepUsage } from './cost'
+import { type ModelConfig, resolveModel } from './model'
 
 const INSTRUCTIONS = `You name cells in a data notebook. Given a cell's prompt, reply with a title of 2 to 5 words that says what the cell computes or shows.
 - Sentence case, like "Monthly revenue by plan" or "Return rate by category".
@@ -18,11 +15,14 @@ export interface TitleModel {
   providerOptions?: ProviderOptions
 }
 
-/** Null when signed out. */
+/** No title request without the selected provider's key. */
 export function titleModel(config: ModelConfig): TitleModel | null {
-  if (!config.cloud.signedIn()) return null
-  // Luna reasons before it answers; low effort keeps a title to a second or so
-  return { model: cloudGateway(config.cloud)(TITLE_MODEL), providerOptions: { openai: { reasoningEffort: 'low' } } }
+  try {
+    const resolved = resolveModel({ ...config, effort: 'low' })
+    return resolved
+  } catch {
+    return null
+  }
 }
 
 /** Tidy what the model sent back: first line, no quotes, prefix or trailing punctuation, at most 6 words. */
@@ -39,8 +39,8 @@ export function cleanTitle(raw: string): string | null {
 }
 
 /**
- * A short title for the outline. Null when signed out, the model fails or it takes too long. `onCall` gets the
- * call's tokens once it answers, for Show costs.
+ * A short title for the outline. Null without a key, the model fails or it takes too long. `onCall` gets the
+ * call's tokens once it answers, for Show token usage.
  */
 export async function generateTitle(
   prompt: string,
@@ -49,7 +49,7 @@ export async function generateTitle(
   onCall?: (call: ModelCall) => void,
 ): Promise<string | null> {
   try {
-    const { text, usage, providerMetadata } = await generateText({
+    const { text, usage } = await generateText({
       model,
       providerOptions,
       instructions: INSTRUCTIONS,
@@ -60,7 +60,7 @@ export async function generateTitle(
       timeout: 10_000,
       abortSignal: signal,
     })
-    onCall?.({ model: typeof model === 'string' ? model : model.modelId, usage: stepUsage(usage), generationId: generationIdOf(providerMetadata) })
+    onCall?.({ model: typeof model === 'string' ? model : model.modelId, usage: stepUsage(usage) })
     return cleanTitle(text)
   } catch {
     return null

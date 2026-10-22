@@ -1,4 +1,4 @@
-import { GatewayError } from '@ai-sdk/gateway'
+import { redactSecrets } from '../secrets'
 import {
   APICallError,
   type LanguageModel,
@@ -8,11 +8,10 @@ import {
   parsePartialJson,
   stepCountIs,
 } from 'ai'
-import { REFUSAL_TYPE } from '@dalliance/shared/cloud'
 import type { ActivityItem, CellRunResult, RunCellRequest, RunEvent, RunStep } from '@dalliance/shared/ipc'
 import type { Output } from '@dalliance/shared/notebook'
 import type { Kernel } from '../kernel/kernel'
-import { generationIdOf, stepUsage } from './cost'
+import { stepUsage } from './cost'
 import type { EventBus } from './events'
 import { clip, formatVariables } from './format'
 import { buildCellPrompt, buildSystemPrompt } from './prompt'
@@ -177,7 +176,6 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
             modelId: part.response.modelId || deps.modelId || null,
             reasoning: reasoning.trim() || null,
             usage: stepUsage(usage),
-            generationId: generationIdOf(part.providerMetadata),
           }
           steps.push(record)
           await deps.bus.emit('step', {
@@ -425,43 +423,21 @@ const errorMessage = (err: unknown): string => {
  */
 function statusOf(err: unknown): number | undefined {
   if (RetryError.isInstance(err)) return statusOf(err.lastError)
-  if (APICallError.isInstance(err) || GatewayError.isInstance(err)) return err.statusCode
+  if (APICallError.isInstance(err)) return err.statusCode
   const match = errorMessage(err).match(/\b(?:status(?: code)?|http(?:\/[\d.]+)?)[\s:=]*([1-5]\d\d)\b|\b([45]\d\d) (?:unauthorized|forbidden|not found|too many requests)\b/i)
   return match ? Number(match[1] ?? match[2]) : undefined
 }
 
 const NETWORK = /\b(?:fetch failed|cannot connect to api|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|network error)\b/i
 
-/**
- * A refusal from Dalliance Cloud's proxy: signed out, out of credits, a model it doesn't offer. Its message is
- * written for the user, so it's shown as is. The gateway provider wraps an error type it doesn't know, like the
- * proxy's `dalliance_account`, in a generic error, so the proxy's own response is read from the cause.
- */
-function accountRefusal(err: unknown): string | null {
-  for (let e: unknown = err, depth = 0; e != null && depth < 5; depth++) {
-    if (RetryError.isInstance(e)) e = e.lastError
-    if (APICallError.isInstance(e) && e.responseBody) {
-      try {
-        const body = JSON.parse(e.responseBody) as { error?: { type?: unknown; message?: unknown } }
-        if (body.error?.type === REFUSAL_TYPE && typeof body.error.message === 'string') return body.error.message
-      } catch {
-        // Not JSON, so not the proxy's
-      }
-    }
-    e = e instanceof Error ? e.cause : null
-  }
-  return null
-}
-
 export function friendlyError(err: unknown): string {
-  const refusal = accountRefusal(err)
-  if (refusal) return refusal
-  const message = errorMessage(err)
+  const message = redactSecrets(errorMessage(err))
   const detail = clip(message, 200)
   const status = statusOf(err)
   if (status === 401 || status === 403 || (status == null && /\b(?:unauthorized|authentication (?:error|failed))\b/i.test(message))) {
-    return `Dalliance Cloud didn't accept your sign-in. Sign in again in Settings > Account. (${detail})`
+    return 'The provider rejected the API key or access to this model. Check your key and model access in Settings > Models.'
   }
+  if (/insufficient_quota|credit balance|billing|quota exceeded/i.test(message)) return 'Your provider account has no available quota. Check billing and limits with your provider.'
   if (status === 429 || (status == null && /\brate[ -]limit/i.test(message))) return 'The model provider is rate limiting requests. Try again in a minute.'
   if ((status === 404 || (status == null && /\bnot found\b/i.test(message))) && /\bmodel\b/i.test(message)) return `The model wasn't found. Check the model name in Settings. (${detail})`
   if (status === 529 || /\boverloaded\b/i.test(message)) return 'The model provider is overloaded right now. Try again in a minute.'

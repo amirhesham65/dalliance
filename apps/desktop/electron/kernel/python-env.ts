@@ -1,3 +1,4 @@
+import { pythonEnv } from '../secrets'
 import { execFile, spawn } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
@@ -47,7 +48,7 @@ export function managedPython(envDir: string): string {
 /** Runs a program and resolves with its output. Rejects when it can't start or exits non-zero. */
 export type Exec = (file: string, args: string[], options: { timeout: number }) => Promise<{ stdout: string; stderr: string }>
 
-const realExec: Exec = (file, args, options) => run(file, args, options)
+const realExec: Exec = (file, args, options) => run(file, args, { ...options, env: pythonEnv(process.env) })
 
 /** What Python discovery reads from the machine. Tests pass fakes. */
 export interface DiscoveryDeps {
@@ -217,7 +218,7 @@ class CommandError extends Error {
 
 function stream(cmd: string, args: string[], onLog: (line: string) => void): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { env: { ...process.env, PIP_DISABLE_PIP_VERSION_CHECK: '1' } })
+    const child = spawn(cmd, args, { env: { ...pythonEnv(process.env), PIP_DISABLE_PIP_VERSION_CHECK: '1' } })
     // Kept for the error, so a caller can tell why it failed
     const tail: string[] = []
     const forward = (chunk: Buffer) => {

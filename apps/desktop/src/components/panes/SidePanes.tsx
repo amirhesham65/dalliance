@@ -380,14 +380,14 @@ const LOG_ICON: Record<LogEntry['kind'], ReactNode> = {
 }
 
 /**
- * What happened in this session, newest first. Click an entry to jump to its cell. With Show costs on, each run
- * says what it cost, and the top says what the notebook has cost so far.
+ * What happened in this session, newest first. Click an entry to jump to its cell. With Show token usage on, each run
+ * shows its token usage, and the top shows the notebook total.
  */
 function ActivityPane() {
   const log = useNotebook((s) => s.log)
   const cells = useNotebook((s) => s.notebook.cells)
-  const showCosts = useNotebook((s) => s.settings?.showCosts === true)
-  const total = useNotebook((s) => (showCosts ? spendText(s.spend) : null))
+  const showUsage = useNotebook((s) => s.settings?.showUsage === true)
+  const total = useNotebook((s) => (showUsage ? spendText(s.spend) : null))
   const now = useNow()
   return (
     <Pane
@@ -403,7 +403,7 @@ function ActivityPane() {
       }
     >
       {total && (
-        <p aria-label="This notebook's cost" className="mx-4 mb-2 border-b pb-2 text-xs leading-[1.5] text-muted-foreground tabular-nums">
+        <p aria-label="This notebook's token usage" className="mx-4 mb-2 border-b pb-2 text-xs leading-[1.5] text-muted-foreground tabular-nums">
           This notebook: {total}
         </p>
       )}
@@ -424,7 +424,7 @@ function ActivityPane() {
                   <span className="flex h-[1.45em] shrink-0 items-center [&_svg]:size-3.5">{LOG_ICON[e.kind]}</span>
                   <span className={cn('min-w-0 flex-1', e.kind === 'failed' ? 'text-foreground' : 'text-muted-foreground')}>
                     {e.text}
-                    {showCosts && e.cost && <span className="block text-xs text-faint tabular-nums">{costText(e.cost)}</span>}
+                    {showUsage && e.cost && <span className="block text-xs text-faint tabular-nums">{costText(e.cost)}</span>}
                   </span>
                   <span className="shrink-0 text-xs leading-[1.45rem] text-faint tabular-nums">{ago(e.at, now)}</span>
                 </button>

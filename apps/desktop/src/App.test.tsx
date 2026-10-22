@@ -1,10 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import type { CellRunResult, DallianceApi, SettingsView } from '@dalliance/shared/ipc'
+import type { CellRunResult, SettingsView } from '@dalliance/shared/ipc'
 import { type PromptCell, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { actions, setApi, useNotebook } from '@/store/notebook-store'
-import { SIGNED_IN, SIGNED_OUT, fakeApi, fakeSettings, provenance, result } from '@/test/fake-api'
+import { KEYS_ADDED, NO_KEYS, fakeApi, fakeSettings, provenance, result } from '@/test/fake-api'
 import App from './App'
 
 // These tests type and run whole cells, which takes longer than the 5s default on a loaded machine
@@ -120,11 +120,11 @@ describe('App', () => {
 
   it('shows why a run could not start', async () => {
     const user = userEvent.setup()
-    setApi(fakeApi(() => result({ ok: false, outputs: [], executionCount: null, error: 'Add an AI Gateway key in Settings to run prompts.' })).api)
+    setApi(fakeApi(() => result({ ok: false, outputs: [], executionCount: null, error: 'Add an provider API key in Settings to run prompts.' })).api)
     render(<App />)
     await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Plot revenue')
     await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Add an AI Gateway key')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Add an provider API key')
   })
 
   it('deletes a cell with D D and brings it back with Undo', async () => {
@@ -683,7 +683,7 @@ describe('question cells', () => {
     expect(within(pane).getByText('Answer to Second.')).toBeInTheDocument()
   })
 
-  it('picks a model from any maker the gateway offers', async () => {
+  it('picks a model from any configured provider', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result())
     const updates: unknown[] = []
@@ -703,15 +703,15 @@ describe('question cells', () => {
   it('opens Settings as its own screen, with a tab per section', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result())
-    api.getAccount = async () => SIGNED_OUT
+    api.getProviderKeys = async () => NO_KEYS
     setApi(api)
     render(<App />)
 
-    // The banner for a signed-out account goes straight to Account
+    // The missing-key banner opens Models.
     await user.click(await screen.findByRole('button', { name: 'Open Settings' }))
-    expect(screen.getByRole('tab', { name: 'Account' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Models' })).toHaveAttribute('aria-selected', 'true')
     await user.click(screen.getByRole('tab', { name: 'Models' }))
-    expect(screen.getByRole('textbox', { name: 'Model' })).toHaveValue('anthropic/claude-sonnet-5.5')
+    expect(screen.getByRole('textbox', { name: 'Model' })).toHaveValue('anthropic/claude-sonnet-5-5')
 
     await user.click(screen.getByRole('tab', { name: 'Python' }))
     expect(screen.getByRole('button', { name: 'Set up' })).toBeInTheDocument()
@@ -747,40 +747,40 @@ describe('question cells', () => {
   it('lets the notice over the workspace be dismissed', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result())
-    api.getAccount = async () => SIGNED_OUT
+    api.getProviderKeys = async () => NO_KEYS
     setApi(api)
     render(<App />)
 
-    expect(await screen.findByText('Sign in to Dalliance to run prompts.')).toBeInTheDocument()
+    expect(await screen.findByText('Add your provider API key in Settings to generate cells.')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Dismiss notice' }))
-    expect(screen.queryByText('Sign in to Dalliance to run prompts.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Add your provider API key in Settings to generate cells.')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Open Settings' })).not.toBeInTheDocument()
   })
 
-  it('asks for a sign-in only when signed out', async () => {
+  it('asks for a key only when the selected provider has none', async () => {
     setApi(fakeApi(() => result()).api)
     render(<App />)
-    await waitFor(() => expect(useNotebook.getState().account?.user).not.toBeNull())
-    expect(screen.queryByText('Sign in to Dalliance to run prompts.')).not.toBeInTheDocument()
+    await waitFor(() => expect(useNotebook.getState().providerKeys).not.toBeNull())
+    expect(screen.queryByText('Add your provider API key in Settings to generate cells.')).not.toBeInTheDocument()
 
-    act(() => useNotebook.setState({ account: SIGNED_OUT }))
-    expect(screen.getByText('Sign in to Dalliance to run prompts.')).toBeInTheDocument()
+    act(() => useNotebook.setState({ providerKeys: NO_KEYS }))
+    expect(screen.getByText('Add your provider API key in Settings to generate cells.')).toBeInTheDocument()
   })
 
   it('shows the notice again when its message changes, or when the problem comes back', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result())
-    api.getAccount = async () => SIGNED_OUT
+    api.getProviderKeys = async () => NO_KEYS
     setApi(api)
     render(<App />)
 
     await user.click(await screen.findByRole('button', { name: 'Dismiss notice' }))
-    expect(screen.queryByText('Sign in to Dalliance to run prompts.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Add your provider API key in Settings to generate cells.')).not.toBeInTheDocument()
 
-    // Signing in, then Python turns out to be missing a package: a new message
+    // Adding a key, then Python turns out to be missing a package: a new message
     await waitFor(() => expect(useNotebook.getState().python).not.toBeNull())
     const python = useNotebook.getState().python!
-    act(() => useNotebook.setState({ account: SIGNED_IN, python: { ...python, missingPackages: ['pandas'] } }))
+    act(() => useNotebook.setState({ providerKeys: KEYS_ADDED, python: { ...python, missingPackages: ['pandas'] } }))
     expect(screen.getByText('Python is missing pandas. Cells that need them will fail.')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Dismiss notice' }))
     expect(screen.queryByText(/Python is missing/)).not.toBeInTheDocument()
@@ -1168,13 +1168,12 @@ describe('accessibility', () => {
   })
 })
 
-describe('Show costs', () => {
+describe('Show token usage', () => {
   /** Runs one cell with these settings, returning this cost, then opens the Activity pane. */
-  async function runWithCost(settings: Partial<SettingsView>, cost: CellRunResult['cost'], countCredits?: DallianceApi['countCredits']) {
+  async function runWithCost(settings: Partial<SettingsView>, cost: CellRunResult['cost']) {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result({ answer: 'Done.', cost }))
     api.getSettings = async () => ({ ...fakeSettings(), ...settings })
-    if (countCredits) api.countCredits = countCredits
     setApi(api)
     render(<App />)
     await waitFor(() => expect(useNotebook.getState().settings).not.toBeNull())
@@ -1185,41 +1184,17 @@ describe('Show costs', () => {
     return screen.getByRole('list', { name: 'Run log' })
   }
 
-  it('counts credits for each run and the notebook, never dollars', async () => {
-    let arrive!: (credits: number) => void
-    const asked: string[][] = []
-    const countCredits = (ids: string[]) => {
-      asked.push(ids)
-      return new Promise<number | null>((resolve) => (arrive = resolve))
-    }
-    const log = await runWithCost({ showCosts: true }, { generationIds: ['gen_1', 'gen_2'], tokens: 900 }, countCredits)
-    expect(asked).toEqual([['gen_1', 'gen_2']])
-    expect(log).toHaveTextContent('Counting credits')
-    expect(screen.getByLabelText("This notebook's cost")).toHaveTextContent('This notebook: counting credits')
-    await act(async () => arrive(4.24))
-    expect(within(log).getByText('4.2 credits')).toBeInTheDocument()
-    expect(screen.getByLabelText("This notebook's cost")).toHaveTextContent('This notebook: 4.2 credits')
-    expect(log).not.toHaveTextContent('$')
-  })
-
-  it('shows tokens for credits that never came', async () => {
-    const log = await runWithCost({ showCosts: true }, { generationIds: ['gen_1'], tokens: 12_345 }, async () => null)
+  it('shows reported tokens for each run and the notebook total', async () => {
+    const log = await runWithCost({ showUsage: true }, { tokens: 12_345 })
     expect(log).toHaveTextContent('12,345 tokens')
-    expect(screen.getByLabelText("This notebook's cost")).toHaveTextContent('This notebook: 12,345 tokens not counted')
+    expect(screen.getByLabelText("This notebook's token usage")).toHaveTextContent('This notebook: 12,345 tokens')
   })
 
-  it('shows nothing about cost with the setting off', async () => {
-    const log = await runWithCost({ showCosts: false }, { generationIds: ['gen_1'], tokens: 900 }, async () => 4)
-    expect(log).toHaveTextContent('Wrote “Revenue by month”')
-    expect(log).not.toHaveTextContent(/tokens|credits/)
-    expect(screen.queryByLabelText("This notebook's cost")).not.toBeInTheDocument()
-  })
-
-  it('shows what runs cost while it was off, once it is turned on', async () => {
-    const log = await runWithCost({ showCosts: false }, { generationIds: ['gen_1'], tokens: 900 }, async () => 4)
-    expect(log).not.toHaveTextContent(/credits/)
-    act(() => useNotebook.setState((s) => ({ settings: { ...s.settings!, showCosts: true } })))
-    expect(screen.getByRole('list', { name: 'Run log' })).toHaveTextContent('4 credits')
-    expect(screen.getByLabelText("This notebook's cost")).toBeInTheDocument()
+  it('hides token usage until the setting is turned on', async () => {
+    const log = await runWithCost({ showUsage: false }, { tokens: 900 })
+    expect(log).not.toHaveTextContent(/tokens/)
+    expect(screen.queryByLabelText("This notebook's token usage")).not.toBeInTheDocument()
+    act(() => useNotebook.setState((s) => ({ settings: { ...s.settings!, showUsage: true } })))
+    expect(screen.getByRole('list', { name: 'Run log' })).toHaveTextContent('900 tokens')
   })
 })

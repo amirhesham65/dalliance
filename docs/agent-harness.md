@@ -8,8 +8,8 @@ The agent lives in `apps/desktop/electron/harness/`. It follows Vercel's [Build 
 | `tools.ts` | The nine tools and the `guarded()` wrapper |
 | `images.ts` | What the model is shown: the image budget, `toModelOutput()` and the note on which charts it sees |
 | `prompt.ts` | `buildSystemPrompt()` and `buildCellPrompt()` |
-| `model.ts` | The gateway provider on Dalliance Cloud, effort options, the model list for the picker |
-| `title.ts` | The small model that names cells |
+| `model.ts` | Direct provider adapters, effort options, and the local model catalog |
+| `title.ts` | Optional titles using the selected model |
 | `cost.ts` | The calls a run made and their tokens, for the Show costs setting |
 | `approval.ts` | Whether an install, or code that runs commands or uses the network, needs a person |
 | `events.ts` | The event bus extensions hook into |
@@ -97,11 +97,11 @@ An empty summary falls back to the generic label, and to "Explored the data" or 
 
 ### Images
 
-The agent sees what it makes. When `run_cell` or `explore` draws figures, the tool's result carries them as images as well as text, and `view_image` attaches an image file from the workspace. `toModelOutput()` in `images.ts` turns such a result, a `SeenOutput` of `{ text, images }`, into the AI SDK's content parts: the text, then one `file` part per image. A result without images stays plain text. Every maker the proxy offers reads images (see [cloud.md](cloud.md#zero-data-retention)). Images inside a tool result were checked through the gateway with Anthropic, OpenAI, Google, xAI, Mistral, Moonshot, DeepSeek, Alibaba and Meta models.
+The agent sees what it makes. When `run_cell` or `explore` draws figures, the tool's result carries them as images as well as text, and `view_image` attaches an image file from the workspace. `toModelOutput()` in `images.ts` turns such a result, a `SeenOutput` of `{ text, images }`, into the AI SDK's content parts: the text, then one `file` part per image. A result without images stays plain text. The catalog models support image input. Custom models must support it too, see [providers.md](providers.md).
 
 The text numbers the figures, `[chart 1, shown to the user in the notebook]`, and a line from `attachNote()` says which are attached: "The chart is attached as an image.", or how many were left out and why. After a successful run with charts, the reply asks the model to check each one before finishing. The system prompt says the same, and that a chart is only described from what the model sees in it.
 
-Images stay in the history, which is append-only and resent on every step, and each step goes through the Dalliance Cloud proxy, whose request body Vercel caps at about 4.5 MB. So `imageBudget()` bounds them, fresh for each run:
+Images stay in the append-only history and are resent on every step. To bound request size and token use, `imageBudget()` bounds them, fresh for each run:
 
 | Limit | Value |
 | --- | --- |
@@ -162,56 +162,35 @@ Some rules in the system prompt shape the product, so change them knowingly:
 
 Two constraints shape the loop.
 
-**History is append-only.** With adaptive thinking on, Anthropic's API rejects requests that change earlier turns, also through the gateway. So there's no `pruneMessages` and no rewriting of past tool results. The 24-step cap and the output bounds keep a run small instead. `run-cell.test.ts` has a test that checks every request only appends to the one before it.
+**History is append-only.** With adaptive thinking on, Anthropic's API rejects requests that change earlier turns. So there's no `pruneMessages` and no rewriting of past tool results. The 24-step cap and the output bounds keep a run small instead. `run-cell.test.ts` has a test that checks every request only appends to the one before it.
 
 **The system prompt is cached.** It carries `cacheControl: { type: 'ephemeral' }`, so repeated cells reuse the cached prefix. Anything in it that changes per cell breaks the cache. The Python version, tool names and model id are stable within a session. `AGENTS.md`, variables, files and earlier cells can change, so they go in the cell prompt.
 
-**The history is cached too.** For `anthropic/*` models, `agentProviderOptions()` in `model.ts` adds a top-level `cacheControl`, which the gateway passes on to Anthropic. The API then puts a breakpoint on the last block of every request, so each step reads the steps before it from the cache instead of paying for the whole tool history again. No message is marked, so the history stays append-only. Each step adds two blocks, well inside the API's 20-block lookback. The `caching` block in `run-cell.test.ts` checks that every step asks for it and that no message but the system prompt is marked.
+**The history is cached too.** For `anthropic/*` models, `agentProviderOptions()` in `model.ts` adds a top-level `cacheControl`, which the Anthropic adapter passes on to its API. The API then puts a breakpoint on the last block of every request, so each step reads the steps before it from the cache instead of paying for the whole tool history again. No message is marked, so the history stays append-only. Each step adds two blocks, well inside the API's 20-block lookback. The `caching` block in `run-cell.test.ts` checks that every step asks for it and that no message but the system prompt is marked.
 
 ## Models
 
-Every model runs through Dalliance Cloud, on the signed-in account's plan. There are no API keys and no provider to choose. See [cloud.md](cloud.md).
+Models call Anthropic, Google, or OpenAI directly with a user-supplied key. `ModelConfig` is `{ model, effort, key }`, with an internal provider-prefixed ID and a main-process key resolver. `resolveModel()` creates the explicit provider adapter, strips the prefix, and fails before generation if the selected key is missing. See [providers.md](providers.md).
 
-`ModelConfig` is `{ model, effort, cloud }`. `model` is a gateway id, and the default is `anthropic/claude-sonnet-5.5` (`DEFAULT_MODEL`). The default effort is `medium`. For now the app offers only `low`, `medium` and `high`, `OFFERED_EFFORTS` in `packages/shared/src/ipc.ts`: both pickers list those three, and `SettingsStore` reads a saved `xhigh` or `max` as `high` through `offeredEffort()`. The per-maker mapping below still covers all five levels, so bringing the others back only means widening that list. `cloud` is a `CloudAccess`: the proxy's URL, whether someone is signed in, and a token fetcher. `SettingsStore.modelConfig()` builds it.
+`agentProviderOptions()` maps reasoning by model capability. Anthropic gets automatic caching and `disableParallelToolUse`, plus adaptive thinking and effort where supported. OpenAI reasoning families get effort and reasoning summaries. Google uses its defaults. The UI offers low, medium and high effort; saved higher levels read as high. Models without an applicable mapping use defaults.
 
-`resolveModel()` builds the AI Gateway provider on `<cloud>/api/ai` with `cloudGateway()`, whose `fetch` puts a fresh Convex JWT on every request, so a long run outlives any one token. Signed out, it throws a `ModelSetupError` before the run starts: "Sign in to Dalliance to run prompts on your plan. Settings > Account." The session shows its message as the run's error. Effort maps per maker in `agentProviderOptions({ model, effort })`:
+`listModels(key)` filters the local catalog to configured providers. The picker loads it without a network request. Custom model IDs are never reset just because the catalog does not include them. Provider logos come from `src/assets/makers/`.
 
-- `anthropic/*` models get the top-level `cacheControl` described in [Context and caching](#context-and-caching), and `thinking: { type: 'adaptive', display: 'summarized' }` and `effort` where the model takes them. `display: 'summarized'` makes the API send a summary of the model's thinking, which the run keeps per step (see [The event bus](#the-event-bus)). Adaptive thinking decides per step whether to think at all, so at `low` or `medium` an easy step often has none. `claudeReasoning()` decides from the model id, with gateway dots read as dashes:
-
-  | Models | Thinking | Effort |
-  | --- | --- | --- |
-  | Opus 4.7 and later, Sonnet 5 and later, Fable, and any Claude id it doesn't know | Adaptive | All five levels. Sonnet 5.5 is one it doesn't know; a live call through the gateway showed it takes `xhigh`, which Opus 4.6 turns down there |
-  | Opus 4.6, Sonnet 4.6 | Adaptive | `low` to `max`, no `xhigh`. `xhigh` becomes `high` |
-  | Opus 4.5 | None | `low` to `high`. Anything above becomes `high` |
-  | Sonnet 4.5, Haiku 4.5, Opus 4.1, Opus 4, Sonnet 4, Claude 3 | None | None. The API rejects `effort` on these, and they don't take adaptive thinking |
-
-  An effort a model doesn't take steps down to the nearest level it does. Every Anthropic model also gets `disableParallelToolUse: true`, which the provider sends as `tool_choice: { type: 'auto', disable_parallel_tool_use: true }`: one tool call per step, so the loop stays a sequence of run, look, fix.
-
-  There's no refusal fallback. When a model's safety classifier declines a request, the step ends with the refusal. The gateway drops Anthropic's `fallbacks` option, and the model it would pick isn't published, so it couldn't be held to the models the proxy offers.
-- `openai/*` models get `reasoningEffort`, and `reasoningSummary: 'auto'` for the same per-step summaries. `high`, `xhigh` and `max` all map to `high`. OpenAI leaves out a summary when there was little reasoning, even with some reasoning tokens.
-- Every other maker runs with its defaults.
-
-`listModels(cloud)` feeds the model picker. It calls `getAvailableModels()` through the proxy, keeps language models, and returns `{ models, error }`. There are no prices, since the plan pays in credits. The proxy only lists models with zero data retention that read images, see [cloud.md](cloud.md#zero-data-retention). Signed out, the list is empty with the sign-in message as its `error`. A list is cached for 10 minutes. `MAKERS` maps gateway prefixes to display names. Logos come from `src/assets/makers/`, see [renderer.md](renderer.md#model-maker-logos).
-
-`friendlyError()` in `run-cell.ts` rewrites auth, rate limit, unknown model, overload, server and network errors into short messages, pointing at Settings where the fix is there. A Dalliance Cloud refusal comes first: the proxy answers in the gateway's error shape with the type `dalliance_account` (`REFUSAL_TYPE`), and the message is shown as written. The gateway provider wraps that unknown type in a generic error, so `accountRefusal()` reads the proxy's response body from the error's causes. Any other 401 or 403 says "Dalliance Cloud didn't accept your sign-in. Sign in again in Settings > Account." It goes by the HTTP status on the AI SDK's `APICallError` or the gateway's `GatewayError`, looking through `RetryError` to the last attempt. Without a status it only trusts one the message spells out, like `status code 401` or `429 Too Many Requests`, so a number like `40132 tokens` is never read as an auth error.
+`friendlyError()` explains invalid keys or access, quota exhaustion, rate limits, unavailable models, overload, server failures, and network problems. It reads HTTP statuses from AI SDK errors and their retry wrappers, never from arbitrary token counts. Known key values are redacted before a message reaches the renderer.
 
 ## Titles
 
-`title.ts` names cells with a small model, whatever model writes the code: `openai/gpt-6-luna` (`TITLE_MODEL`) with low reasoning effort, through Dalliance Cloud on the user's plan. `titleModel()` returns null when signed out, and the cell keeps showing its prompt.
+`title.ts` names generated cells with the selected model and the same provider key, at low effort. It never requires another provider's key. Missing keys or any title failure return null, leaving the prompt as the outline label. Saved-code runs and Verify request no titles.
 
-The call has a 10 second timeout, one retry and 1,024 output tokens, since reasoning counts toward output. `cleanTitle()` keeps the first line, strips quotes, prefixes like `Title:`, trailing punctuation and `@`, and caps it at 6 words. Any failure returns `null`, and the cell keeps showing its prompt. The session starts the title request alongside the run and never waits on it. Settings can turn titles off with `autoTitles`.
+The call has a 10 second timeout, one retry and 1,024 output tokens. `cleanTitle()` keeps the first line, strips quotes, prefixes, trailing punctuation and `@`, and caps the title at 6 words. The session starts the title alongside generation and does not wait for it. Settings can turn titles off with `autoTitles`.
 
-## Costs
+## Token usage
 
-Show costs (`showCosts` in Settings, off by default) shows the credits each run used on the user's plan, never dollars. The app doesn't price anything itself: Dalliance Cloud records each call's cost by the gateway's generation id, and the app asks for the credits afterwards.
+Show token usage, `showUsage` in Settings, is off by default. `costOf()` sums the input and output tokens of each model call into `RunCost`, `{ tokens }`. Counts are collected regardless of the setting, so turning it on later shows earlier runs in the current notebook session.
 
-`NotebookSession` hands the renderer a `RunCost` for each run and each cell name: `{ generationIds, tokens }`, built by `costOf()` in `cost.ts` from the run's calls. `generationIds` are the gateway's ids, which the proxy passes through in the provider metadata (`generationIdOf()`). `tokens` is the input and output tokens of those calls, shown when the credits never arrive. It builds one whether or not Show costs is on, so turning the setting on shows the runs made while it was off; the renderer only shows costs with it on.
+`stepUsage()` reads provider-reported counts. Input tokens already include cache reads and writes; output tokens already include reasoning. Those details are never added on top. Missing counts are zero.
 
-`stepUsage()` reads the AI SDK's usage. Its `inputTokens` already counts cache reads and writes, and `outputTokens` already counts reasoning, so reasoning tokens are never added on top.
-
-The renderer calls `countCredits(generationIds)`, and `Billing.credits()` follows the service's `usage:credits` query live until every call has its row, or 90 seconds pass. Rows land a few seconds after each call, so the Activity pane shows the run as counting until then. Credits that never arrive show as the run's tokens. See [cloud.md](cloud.md#credits-per-run).
-
-`generateTitle()` reports the title call through `onCall`, and its cost rides on the `title` event. It counts toward the notebook's total rather than the run's, since it can land after the run ends.
+Title usage rides on the `title` event and counts toward the notebook total, rather than the run. Usage is local and synchronous. Actual charges are shown by the provider.
 
 ## Approvals
 
@@ -247,7 +226,7 @@ Settings exposes `interactive` and `background`. `delegated` exists in the code 
 
 `cacheReadTokens` is the quickest check that [caching](#context-and-caching) works: after the first step of a cell it should be most of `inputTokens`.
 
-`generateCell()` also returns every step's `{ step, modelId, reasoning, usage, generationId }` as `steps` on `CellRunResult`, and the cell's record takes the model of each step and its stated rationale from them. `usage` is the same counts as a `StepUsage`, with 0 where the provider doesn't say, and `generationId` is the gateway's id for the call, null when the gateway sent none. [Costs](#costs) names the calls by it. A plain run of saved code has none. The request options, summaries included, are the same for every step of a run, so the prompt cache holds.
+`generateCell()` returns each step's `{ step, modelId, reasoning, usage }` in `CellRunResult.steps`. The cell record keeps the models and stated rationale. Token counts use `StepUsage`, with zero for missing counts. Plain saved-code runs have no model steps. The request options, summaries included, are the same for every step of a run, so the prompt cache holds.
 
 `installExtensions()` in `extensions.ts` registers the built-in ones. `NotebookSession` calls it once, on its own bus:
 

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { buildProvenance, describeChange, newTrail, noteApproval, readPath, statedRationale } from './provenance'
 
 const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0 }
-const step = (n: number, reasoning: string | null, modelId = 'anthropic/claude-sonnet-5.5') => ({ step: n, modelId, fallback: false, reasoning, usage, generationId: null })
+const step = (n: number, reasoning: string | null, modelId = 'anthropic/claude-sonnet-5-5') => ({ step: n, modelId, fallback: false, reasoning, usage })
 
 describe('describeChange', () => {
   it('lists the lines that changed, removed before added', () => {

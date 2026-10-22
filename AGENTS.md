@@ -7,7 +7,7 @@
 
 ## Secrets
 
-- Never print, log, commit or paste secrets: `.env.local` files, `npx convex env` values, keys and webhook secrets. Refer to them by name.
+- Never print, log, commit or paste secrets: `.env.local` files, provider API keys, signing keys and deployment secrets. Refer to them by name.
 
 ## Authorship
 

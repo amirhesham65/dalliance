@@ -29,7 +29,7 @@ A process forked by a cell has no writer thread, so it writes its lines to fd 3 
 
 Requests can't be read by a cell either. At startup the script reads requests from a copy of fd 0 and puts `/dev/null` on fd 0 and `sys.stdin`. Reading stdin in a cell, or in a subprocess it starts, returns nothing. `input()` raises `EOFError` saying cells can't read input.
 
-The child's environment is `process.env` plus `MPLBACKEND=Agg` and `PYTHONUNBUFFERED=1`. The app holds no model keys, so there's nothing to strip: models run on Dalliance Cloud with the account's token, which stays in `Account` and never reaches the environment.
+The child's environment is `process.env` with provider API key variables removed, plus `MPLBACKEND=Agg` and `PYTHONUNBUFFERED=1`. `pythonEnv()` applies the same filtering to Python discovery, package listing and installs. Keys entered in Settings stay in the main process and are never exported to the environment. See [providers.md](providers.md#key-storage).
 
 Requests:
 

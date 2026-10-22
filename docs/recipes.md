@@ -77,12 +77,12 @@ Checklists for the changes that touch several files. Each one ends with the test
 2. Add `item(label, action, accelerator)` to the template in `electron/menu.ts`. Use `registerAccelerator: false` if the renderer handles the key itself.
 3. Handle it in the `handleMenu()` switch in `src/App.tsx`.
 
-## Add a model maker
+## Add a catalog model
 
-1. Add the gateway prefix and the display name to `MAKERS` in `electron/harness/model.ts`.
-2. Drop a single-colour SVG into `src/assets/makers/`, named after the display name lowercased with only letters and digits.
-3. If the gateway prefix doesn't match that file name, add it to `ALIASES` in `src/lib/makers.ts`.
-4. Check it in `makers.test.ts`.
+1. Add a provider-prefixed native ID, name and maker to `MODELS` in `packages/shared/src/models.ts`. Only add models that support tools, images and streaming.
+2. Check whether `agentProviderOptions()` needs a capability-specific option. Unknown custom IDs should not receive unsupported reasoning settings.
+3. Check the direct provider adapter with an intercepted request in `model.test.ts`, then use the opt-in live suite when a key is available. Keys never belong in test fixtures or commits.
+4. Update `DEFAULT_MODELS` only when deliberately changing the provider's default. Custom model selections are never reset by catalog changes.
 
 ## Add a harness policy
 
@@ -91,11 +91,3 @@ Rules like "never read this file" or "log this event" belong on the event bus, n
 1. Register a handler in `installExtensions()` in `electron/harness/extensions.ts`. `NotebookSession` calls it once for its bus.
 2. For a block, return `{ block: true, reason }` from a `tool_call` handler. The model sees `Blocked: <reason>` as the tool result.
 3. Test it in `run-cell.test.ts` the way "lets an extension block a tool call" does.
-
-## Call a new Convex function from the app
-
-1. Write the function in `packages/backend/convex/`, and annotate its arguments and return type with types from `packages/shared/src/cloud.ts`. Add a type there if it's new.
-2. Add a typed reference to `cloudApi` in `packages/shared/src/cloud-api.ts`, with `makeFunctionReference` and the function's `module:name`.
-3. Add a `Matches` line to `Contract` in `packages/backend/contract.ts`, and a name check to `contract.test.ts`.
-4. Call it from `electron/cloud/billing.ts` through `cloudApi`, never `anyApi`.
-5. Add it to the table in [cloud.md](cloud.md#the-contract), and deploy Convex before the cloud site and before an app release that calls it. See [deploying.md](deploying.md#shipping-a-change).

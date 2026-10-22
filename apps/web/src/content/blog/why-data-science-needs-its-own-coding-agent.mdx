@@ -88,7 +88,7 @@ Each save pins the Python version, the package versions and a SHA-256 of every f
 Every cell keeps its record: the prompt, your corrections, the model and the files it read. History restores any of the last 12 versions. It's all plain .ipynb, so Jupyter, GitHub and your reviewers open it as is.
 
 **4. Your data stays yours.**
-Python runs locally on your machine. The agent can only read the notebook's folder, never .env files, and by default asks before code uses the network or runs shell commands. Every model runs with zero data retention, so nothing you send is stored or used for training.
+Python runs locally on your machine. The agent can only read the notebook's folder, never .env files, and by default asks before code uses the network or runs shell commands. Model requests go directly to Anthropic, Google, or OpenAI using your own API key. Retention and training policies depend on your provider account.
 
 ## Why not just run more experiments?
 

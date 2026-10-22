@@ -11,7 +11,8 @@ import { type Notebook, newPromptCell } from '@dalliance/shared/notebook'
 import { FakeKernel } from './kernel/fake-kernel'
 import type { KernelInfo } from './kernel/kernel'
 import { NotebookSession } from './session'
-import type { SettingsStore } from './settings'
+import { SettingsStore } from './settings'
+import * as titles from './harness/title'
 
 // Only the sessions below that don't pass launchKernel reach these: the real launcher with a fake Python
 vi.mock('./kernel/python-env', async (importOriginal) => ({
@@ -222,14 +223,14 @@ describe('what a run cost', () => {
       }),
     })
 
-  const run = async (showCosts: boolean) => {
+  const run = async (showUsage: boolean) => {
     agent.model = finishing()
     const s = new NotebookSession({
       settings: {
         workspaceDir: null,
         setWorkspaceDir: () => {},
-        modelConfig: () => ({ model: 'anthropic/claude-haiku-4.5', effort: 'medium', cloud: { baseURL: 'https://cloud.example/api/ai', signedIn: () => true, token: async () => 'jwt' } }),
-        showCosts,
+        modelConfig: () => ({ model: 'anthropic/claude-haiku-4.5', effort: 'medium', key: () => 'test-key' }),
+        showUsage,
         autoTitles: false,
         suggestNext: true,
         approvalMode: 'interactive',
@@ -243,16 +244,16 @@ describe('what a run cost', () => {
     return s.runCell({ cellId: 'c1', prompt: 'Nothing', code: '', generate: true, corrections: [], attachments: [], previousCells: [] }, contents)
   }
 
-  it("names the run's calls for Show costs", async () => {
+  it("names the run's calls for Show token usage", async () => {
     const result = await run(true)
     expect(result.steps[0].usage).toMatchObject({ inputTokens: 1000, cacheReadTokens: 800, outputTokens: 100 })
-    expect(result.cost).toEqual({ generationIds: [], tokens: 1100 })
+    expect(result.cost).toEqual({ tokens: 1100 })
   })
 
-  it('counts the run with Show costs off too, so turning it on later shows it', async () => {
+  it('counts the run with Show token usage off too, so turning it on later shows it', async () => {
     const result = await run(false)
     expect(result.ok).toBe(true)
-    expect(result.cost).toEqual({ generationIds: [], tokens: 1100 })
+    expect(result.cost).toEqual({ tokens: 1100 })
   })
 })
 
@@ -317,5 +318,25 @@ describe("the notebook's pins", () => {
       { kind: 'package', name: 'pandas', was: '2.1.0', now: '2.2.3' },
       { kind: 'file', path: 'visits.csv', change: 'contents' },
     ])
+  })
+})
+
+
+describe('saved-code reruns', () => {
+  it('runs without provider keys and makes no title request even with automatic titles enabled', async () => {
+    const title = vi.spyOn(titles, 'titleModel')
+    const dir = mkdtempSync(path.join(tmpdir(), 'dalliance-offline-'))
+    const settings = new SettingsStore(dir)
+    const session = new NotebookSession({ settings, userData: dir, defaultWorkspace: dir, send: () => {}, launchKernel: async (cwd) => new FolderKernel(cwd) })
+    try {
+      const result = await session.runCell({ cellId: 'saved', prompt: 'Run the saved calculation', code: '1 + 1', generate: false, nameIt: true, corrections: [], attachments: [], previousCells: [] }, { isDestroyed: () => false, send: () => {} } as unknown as WebContents)
+      expect(result.ok).toBe(true)
+      expect(result.steps).toEqual([])
+      expect(result.cost).toBeUndefined()
+      expect(title).not.toHaveBeenCalled()
+    } finally {
+      title.mockRestore()
+      await session.shutdown()
+    }
   })
 })
