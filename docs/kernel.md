@@ -39,6 +39,8 @@ Requests:
 {"id": "9", "op": "environment"}
 ```
 
+The app also sends `chartTheme` on each execute: the current palette from `packages/shared/src/chart-theme.ts`. It samples the system appearance when the queued request starts. The same palette is passed at startup as JSON in `DALLIANCE_CHART_THEME` so the initial defaults already match the app. The script can run directly without that environment variable; it then keeps Matplotlib's own defaults until a request supplies a palette.
+
 Replies:
 
 ```json
@@ -141,7 +143,7 @@ How the shell is set up to fit the kernel:
 | `display_formatter.format` | Hands tables and matplotlib objects back to the kernel's own outputs, unformatted |
 | `showtraceback`, `showsyntaxerror` | Emit an `error` output with Python's usual traceback. Frames from the kernel and from IPython's package are dropped, and so are event loop frames at the top when a Stop lands in an `await` |
 | `system`, `getoutput` | `run_command()`: the command runs with stdin on `/dev/null`, its output streams as `stdout` and `stderr`, and a Stop sends `SIGINT` to its process group, then `SIGKILL` a second later, then stops the cell |
-| `%matplotlib` | Does nothing. Figures are collected after each run anyway, with the kernel's dark style. `%pylab` raises a `UsageError` |
+| `%matplotlib` | Does nothing. Figures are collected after each run anyway, with the kernel's chart defaults. `%pylab` raises a `UsageError` |
 | History | In memory only (`hist_file=":memory:"`). IPython 9's copies of every print and every error are turned off, since nothing reads them and they grow without bound |
 
 ### Shell commands and the code policy
@@ -187,7 +189,11 @@ Figures are drawn at twice their dpi, `FIGURE_SCALE`, so they stay sharp on a Re
 
 `render_figure()` keeps a PNG within 4,000 pixels on a side. A bigger figure is saved at a lower dpi, and still shows at its own size, and checked again after saving, since the tight bounding box can grow past the figure. One that would need less than 10 dpi to fit, such as a 500-inch-wide figure, is skipped with a note giving its size.
 
-`style_matplotlib()` sets a dark theme with a `#161616` background at startup, whatever the app's theme. Charts look the same in light and dark mode. Change the rcParams there if that ever needs to follow the app.
+`style_matplotlib(theme)` applies Dalliance's light or dark chart defaults at startup and before each execute, including `explore` and saved-code runs. Backgrounds match the notebook pane, labels use the app's foreground colours, grids sit behind bars and lines, and the colour cycle comes from `packages/shared/src/chart-theme.ts`, which also supplies the renderer's chart colours. Typography, line weights and spacing remain ordinary Matplotlib rcParams.
+
+Before updating a default, the kernel checks whether a cell changed that rcParam since it was last applied. A changed property is left under the notebook's control until the kernel restarts, including mutable values such as font lists. Other properties still follow the app theme. Assigning exactly the current default cannot be distinguished from leaving it alone; use figure or axes properties for a fixed appearance. Figure-specific styles and existing figures are never recoloured by the kernel.
+
+The agent preserves these defaults unless the workspace brief or cell asks for a change. Styling preferences are written into the saved Python code, preferably on the figure or axes. See [agent-harness.md](agent-harness.md#prompts). Saved outputs remain PNGs with their rendered appearance until rerun. Switching appearance never runs analysis or recolours imported images.
 
 ## Output budgets
 

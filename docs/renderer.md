@@ -247,6 +247,8 @@ New project opens `NewProjectDialog` in `components/app/`, rendered once in `App
 
 Colours are CSS variables in `src/index.css`, light under `:root` and dark under `.dark`. `main.tsx` toggles `.dark` from `prefers-color-scheme`. `@theme inline` exposes them to Tailwind, so `bg-canvas` or `text-faint` flip with the theme without a `dark:` variant.
 
+The chart palette lives in `packages/shared/src/chart-theme.ts`. `main.tsx` sets `--chart-1` through `--chart-6` from it at startup and when the system appearance changes; the sample series tokens refer to these variables. The main process reads Electron's `nativeTheme` and supplies the same palette to Python for new plots. Saved PNG outputs keep their rendered appearance until rerun. See [kernel.md](kernel.md#figures).
+
 App-specific tokens on top of shadcn's:
 
 | Token | Used for |

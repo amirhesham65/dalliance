@@ -67,6 +67,7 @@ const session = new NotebookSession({
     if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
   },
   prepareImage,
+  chartTheme: () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light'),
 })
 
 /** Paths from the renderer are only trusted to name a notebook file. Anything else goes through the Save dialog. */

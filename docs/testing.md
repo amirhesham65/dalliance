@@ -72,6 +72,8 @@ These run in Node with Electron mocked, and need nothing installed.
 
 `kernel-protocol.test.ts` drives the same script over raw pipes, with a system Python, and skips without one. It interrupts printing loops again and again and checks that no protocol line is torn and every request still gets its `done`, and that `filesRead` arrives with the `done` line on fd 3.
 
+`python-kernel.test.ts` also checks chart defaults on both execution paths when Matplotlib is installed: new figures follow light and dark appearance for saved runs and exploration, grids sit behind bars, figure-local colours survive reruns, rcParams overrides survive theme changes, restarts clear overrides, and queued requests use the appearance when they start. These checks skip without Matplotlib, so run them with a Python environment that has the plotting packages installed.
+
 `python-env.test.ts` checks the package lists and the name check `installPackages()` runs before pip, including every archive extension pip accepts, with `spawn` mocked. The mock can fail with pip's PEP 668 output, to check the Settings > Python message. Python discovery runs against a fake Mac through injected `exec`, `exists`, `list` and `path`: Homebrew over Apple's Python, the newest version winning, and `/usr/bin/python3` left alone without the Command Line Tools. Its two missing-package cases use the system Python and skip without one.
 
 ### The renderer

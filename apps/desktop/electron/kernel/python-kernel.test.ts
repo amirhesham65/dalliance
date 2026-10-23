@@ -4,12 +4,14 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Output } from '@dalliance/shared/notebook'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { CHART_THEMES, type ChartThemeName } from '@dalliance/shared/chart-theme'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { findSystemPython } from './python-env'
 import { KILLED_AFTER_INTERRUPT, PythonKernel } from './python-kernel'
 
 const python = await findSystemPython()
 const hasData = python !== null && spawnSync(python, ['-c', 'import pandas, matplotlib'], { stdio: 'ignore' }).status === 0
+const hasPlots = python !== null && spawnSync(python, ['-c', 'import matplotlib'], { stdio: 'ignore' }).status === 0
 const hasIPython = python !== null && spawnSync(python, ['-c', 'import sys, IPython; sys.exit(IPython.version_info[0] not in (8, 9))'], { stdio: 'ignore' }).status === 0
 
 /**
@@ -22,6 +24,82 @@ const PATHS = [
 ]
 
 for (const { name, env, skip } of PATHS) {
+  describe.skipIf(skip || !hasPlots)(`PythonKernel chart themes (${name})`, () => {
+    let kernel: PythonKernel
+    let theme: ChartThemeName
+
+    beforeEach(async () => {
+      theme = 'dark'
+      const dir = mkdtempSync(path.join(tmpdir(), 'dalliance-chart-'))
+      kernel = new PythonKernel({ python: python!, cwd: dir, scratchDir: dir, env, chartTheme: () => theme })
+      await kernel.start()
+      await kernel.execute('import json\nimport matplotlib as mpl\nimport matplotlib.pyplot as plt', { store: false })
+    }, 120_000)
+    afterEach(() => kernel.shutdown())
+
+    async function inspect(code: string, expression: string, store = false) {
+      const r = await kernel.execute(`${code}\nprint(json.dumps(${expression}))`, { store })
+      expect(r.ok, JSON.stringify(r.outputs.filter((o) => o.type === 'error'))).toBe(true)
+      const out = r.outputs.find((o) => o.type === 'stream' && o.name === 'stdout')
+      if (out?.type !== 'stream') throw new Error('Expected chart properties on stdout')
+      return { result: r, value: JSON.parse(out.text) }
+    }
+
+    it.each([true, false])('follows the current theme for new figures, store=%s', async (store) => {
+      for (const mode of ['dark', 'light', 'dark'] as const) {
+        theme = mode
+        const { result, value } = await inspect(
+          "fig, ax = plt.subplots()\nax.bar(['A', 'B'], [2, 3])\nax.set(title='Groups', xlabel='Group', ylabel='Count')",
+          "{'background': mpl.colors.to_hex(fig.get_facecolor()), 'axes': mpl.colors.to_hex(ax.get_facecolor()), 'text': ax.title.get_color(), 'ticks': ax.get_xticklabels()[0].get_color(), 'bar': mpl.colors.to_hex(ax.patches[0].get_facecolor()), 'cycle': mpl.rcParams['axes.prop_cycle'].by_key()['color'], 'gridBelowBars': ax.get_axisbelow() is True}",
+          store,
+        )
+        expect(value).toEqual({
+          background: CHART_THEMES[mode].background,
+          axes: CHART_THEMES[mode].background,
+          text: CHART_THEMES[mode].foreground,
+          ticks: CHART_THEMES[mode].muted,
+          bar: CHART_THEMES[mode].colors[0],
+          cycle: CHART_THEMES[mode].colors,
+          gridBelowBars: true,
+        })
+        expect(result.outputs.filter((o) => o.type === 'image')).toHaveLength(1)
+      }
+    })
+
+    it('keeps figure-specific colors and report backgrounds on ordinary reruns', async () => {
+      const code = "fig, ax = plt.subplots(facecolor='white')\nax.set_facecolor('white')\nax.bar(['A', 'B'], [2, 3], color='orange')\nax.set_title('Report', color='black')\nax.tick_params(colors='black')"
+      for (const mode of ['dark', 'light'] as const) {
+        theme = mode
+        const { value } = await inspect(code, "[mpl.colors.to_hex(fig.get_facecolor()), mpl.colors.to_hex(ax.get_facecolor()), mpl.colors.to_hex(ax.patches[0].get_facecolor()), ax.title.get_color()]", true)
+        expect(value).toEqual(['#ffffff', '#ffffff', '#ffa500', 'black'])
+      }
+    })
+
+    it('keeps rcParams overrides through theme changes, even when they match an intervening default', async () => {
+      await kernel.execute(
+        `mpl.rcParams['figure.facecolor'] = 'pink'\nmpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=${JSON.stringify(CHART_THEMES.light.colors)})\nmpl.rcParams['font.family'].append('serif')`,
+        { store: true },
+      )
+      for (const mode of ['light', 'dark', 'light'] as const) {
+        theme = mode
+        const { value } = await inspect('', "[mpl.rcParams['figure.facecolor'], mpl.rcParams['axes.facecolor'], mpl.rcParams['axes.prop_cycle'].by_key()['color'], mpl.rcParams['font.family']]")
+        expect(value).toEqual(['pink', CHART_THEMES[mode].background, CHART_THEMES.light.colors, ['sans-serif', 'serif']])
+      }
+      await kernel.restart()
+      const fresh = await kernel.execute("import matplotlib as mpl\nprint(mpl.rcParams['figure.facecolor'])", { store: false })
+      expect(fresh.outputs).toEqual([{ type: 'stream', name: 'stdout', text: `${CHART_THEMES.light.background}\n` }])
+    }, 30_000)
+
+    it('reads the theme when a queued execute starts', async () => {
+      const running = kernel.execute('import time\ntime.sleep(0.3)', { store: false })
+      const queued = kernel.execute("print(mpl.rcParams['axes.facecolor'])", { store: false })
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      theme = 'light'
+      await running
+      expect((await queued).outputs).toEqual([{ type: 'stream', name: 'stdout', text: `${CHART_THEMES.light.background}\n` }])
+    })
+  })
+
   describe.skipIf(skip)(`PythonKernel (real Python, ${name})`, () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'dalliance-kernel-'))
     const kernel = new PythonKernel({ python: python!, cwd: dir, scratchDir: dir, env })
