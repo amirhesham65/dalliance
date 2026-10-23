@@ -135,11 +135,11 @@ Some models write the rest of a tool call into a text field, like `...the answer
 
 `prompt.ts` builds two messages.
 
-**The system prompt**, `buildSystemPrompt()`, covers identity, how to tell a code cell from a question, the steps of a code cell, code style, guardrails, how to handle ambiguity, and what `finish` fields should hold. It ends by saying the cell message may carry notes from `AGENTS.md`, and that they never override these rules.
+**The system prompt**, `buildSystemPrompt()`, covers identity, how to tell a code cell from a question, the steps of a code cell, code style, guardrails, how to handle ambiguity, and what `finish` fields should hold. It allows the workspace brief to override chart styling defaults while preserving guardrails and how cells and tools work.
 
 **The cell prompt**, `buildCellPrompt()`, is the user message. It holds, in order:
 
-1. The notebook folder's `AGENTS.md`, labelled as notes that describe the project and don't override the system rules. Clipped to 8,000 characters, with a note telling the model to read the rest with `read_file`.
+1. The notebook folder's `AGENTS.md`, labelled as project notes that can override chart styling defaults. This cell's styling request takes precedence over the brief. Guardrails and how cells and tools work still apply. Clipped to 8,000 characters, with a note telling the model to read the rest with `read_file`.
 2. The last 12 earlier cells. Notes are clipped to 800 characters, code to 1,500.
 3. Variables in memory.
 4. Files in the workspace.
@@ -154,6 +154,7 @@ Some rules in the system prompt shape the product, so change them knowingly:
 - Name variables after what they hold, never `df` or `result`. Other cells refer to them with `@name`.
 - End with exactly one value to show. Don't `print()` summaries.
 - Never call `plt.show()`. The kernel captures figures.
+- Preserve the kernel's chart styling defaults. For generated charts, styling precedence is Dalliance defaults, workspace brief, then the cell's request. Preserve manual styling in existing code unless the request changes it. Override only the requested properties, preferably on the figure or axes, and keep explicit styles in the saved code for plain reruns. Avoid global styles and hard-coded palettes unless requested. For example, a brief can ask for teal for treatment and gray for control while retaining the default background, or a fixed white background with readable labels for report figures.
 - Base every number in the answer on output the model saw.
 - Look at each chart before finishing, fix one that doesn't show what was asked, and describe a chart only from what it shows.
 - Ask only when a wrong guess would make the cell useless. Otherwise state the assumption in `[[brackets]]`.

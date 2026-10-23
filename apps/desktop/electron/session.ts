@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { WebContents } from 'electron'
+import type { ChartThemeName } from '@dalliance/shared/chart-theme'
 import {
   type Brief,
   type CellRunResult,
@@ -45,6 +46,7 @@ interface SessionOptions {
   hasher?: FileHasher
   /** Shrinks an image before the agent sees it. main.ts passes one on Electron's nativeImage; tests leave it out. */
   prepareImage?: PrepareImage
+  chartTheme?: () => ChartThemeName
 }
 
 /** How long a save waits for the kernel to say what it imported before it keeps the pins it has. */
@@ -200,6 +202,7 @@ export class NotebookSession {
       cwd,
       scratchDir: path.join(this.options.userData, 'kernel'),
       onStatus,
+      chartTheme: this.options.chartTheme,
     })
     await kernel.start()
     return kernel

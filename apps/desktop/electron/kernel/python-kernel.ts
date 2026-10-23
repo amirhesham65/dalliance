@@ -5,6 +5,7 @@ import path from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Readable } from 'node:stream'
 import type { Output } from '@dalliance/shared/notebook'
+import { CHART_THEMES, type ChartThemeName } from '@dalliance/shared/chart-theme'
 import type { ExecuteOptions, ExecuteResult, FilesRead, Kernel, KernelEnvironment, KernelInfo, KernelStatus, VariableInfo } from './kernel'
 import kernelSource from './dalliance_kernel.py?raw'
 
@@ -21,6 +22,8 @@ export interface PythonKernelOptions {
   /** Where to write the kernel script. */
   scratchDir: string
   env?: NodeJS.ProcessEnv
+  /** Read when a queued execute starts, so plots follow the current app appearance. */
+  chartTheme?: () => ChartThemeName
   onStatus?: (info: KernelInfo) => void
   /** How long a run may keep going after interrupt() before the process is killed. */
   interruptGraceMs?: number
@@ -65,7 +68,12 @@ export class PythonKernel implements Kernel {
     this.error = null
     this.stderrTail = ''
 
-    const env = { ...pythonEnv({ ...process.env, ...this.options.env }), MPLBACKEND: 'Agg', PYTHONUNBUFFERED: '1' }
+    const env = {
+      ...pythonEnv({ ...process.env, ...this.options.env }),
+      MPLBACKEND: 'Agg',
+      PYTHONUNBUFFERED: '1',
+      DALLIANCE_CHART_THEME: JSON.stringify(CHART_THEMES[this.options.chartTheme?.() ?? 'light']),
+    }
     const child = spawn(this.options.python, ['-u', script], {
       cwd: this.options.cwd,
       env,
@@ -144,7 +152,8 @@ export class PythonKernel implements Kernel {
       const result = new Promise<Record<string, unknown>>((resolve, reject) => {
         this.pending.set(id, { outputs, onOutput, resolve, reject })
       })
-      this.child.stdin.write(`${JSON.stringify({ id, ...payload })}\n`)
+      const chartTheme = payload.op === 'execute' ? CHART_THEMES[this.options.chartTheme?.() ?? 'light'] : undefined
+      this.child.stdin.write(`${JSON.stringify({ id, ...payload, chartTheme })}\n`)
       const msg = await result
       return { msg, outputs }
     }

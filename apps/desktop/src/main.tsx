@@ -1,12 +1,18 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { CHART_THEMES } from '@dalliance/shared/chart-theme'
 import './index.css'
 import App from './App'
 import { actions, useNotebook } from './store/notebook-store'
 
 // Follow the system's light or dark appearance
 const dark = window.matchMedia('(prefers-color-scheme: dark)')
-const applyTheme = () => document.documentElement.classList.toggle('dark', dark.matches)
+const applyTheme = () => {
+  document.documentElement.classList.toggle('dark', dark.matches)
+  CHART_THEMES[dark.matches ? 'dark' : 'light'].colors.forEach((color, i) => {
+    document.documentElement.style.setProperty(`--chart-${i + 1}`, color)
+  })
+}
 applyTheme()
 dark.addEventListener('change', applyTheme)
 

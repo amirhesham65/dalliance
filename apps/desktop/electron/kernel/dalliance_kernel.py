@@ -617,33 +617,59 @@ def error_output(error, own_frames=False):
 # --- Figures -------------------------------------------------------------------------------
 
 
-def style_matplotlib():
-    """Dark figures that sit well on the notebook background."""
+# Remember the defaults we applied, separately from styles a cell changes.
+chart_defaults = {}
+chart_overrides = set()
+chart_theme = json.loads(os.environ.get("DALLIANCE_CHART_THEME", "null"))
+
+
+def style_matplotlib(theme):
+    """Update defaults for new figures, preserving rcParams changed by earlier cells."""
+    global chart_defaults, chart_theme
+    if not isinstance(theme, dict):
+        return
     try:
         import matplotlib
+        from copy import deepcopy
 
-        matplotlib.rcParams.update(
-            {
-                "figure.facecolor": "#161616",
-                "axes.facecolor": "#161616",
-                "savefig.facecolor": "#161616",
-                "axes.edgecolor": "#3a3a3a",
-                "axes.labelcolor": "#a3a3a3",
-                "text.color": "#e8e8e8",
-                "xtick.color": "#8a8a8a",
-                "ytick.color": "#8a8a8a",
-                "grid.color": "#262626",
-                "axes.grid": True,
-                "axes.spines.top": False,
-                "axes.spines.right": False,
-                "legend.frameon": False,
-                "font.size": 10,
-                "figure.dpi": 110,
-                "axes.prop_cycle": matplotlib.cycler(
-                    color=["#5fb3b3", "#e8793b", "#8e8eea", "#4cc764", "#e9b04a", "#d7a2f0"]
-                ),
-            }
-        )
+        defaults = {
+            "figure.facecolor": theme["background"],
+            "axes.facecolor": theme["background"],
+            "savefig.facecolor": "auto",
+            "axes.edgecolor": theme["edge"],
+            "axes.labelcolor": theme["foreground"],
+            "text.color": theme["foreground"],
+            "xtick.color": theme["muted"],
+            "ytick.color": theme["muted"],
+            "grid.color": theme["grid"],
+            "grid.linewidth": 0.7,
+            "axes.grid": True,
+            "axes.axisbelow": True,
+            "axes.linewidth": 0.8,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "axes.titlesize": 12,
+            "axes.titleweight": "medium",
+            "axes.labelsize": 10,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+            "legend.frameon": False,
+            "legend.fontsize": 9,
+            "font.family": ["sans-serif"],
+            "font.size": 10,
+            "lines.linewidth": 1.8,
+            "figure.dpi": 110,
+            "axes.prop_cycle": matplotlib.cycler(color=theme["colors"]),
+            "patch.facecolor": theme["colors"][0],
+        }
+        for key, value in defaults.items():
+            if key in chart_defaults and matplotlib.rcParams[key] != chart_defaults[key]:
+                chart_overrides.add(key)
+            if key not in chart_overrides:
+                matplotlib.rcParams[key] = value
+        # rcParams normalizes some values, and lists can be mutated by user code.
+        chart_defaults = {key: deepcopy(matplotlib.rcParams[key]) for key in defaults}
+        chart_theme = theme
     except ImportError:
         pass
 
@@ -1326,6 +1352,7 @@ def variables():
 def handle(request):
     """Run one request and return its last reply."""
     if request.get("op") == "execute":
+        style_matplotlib(request.get("chartTheme", chart_theme))
         return run(request.get("code", ""), bool(request.get("store", True)))
     if request.get("op") == "variables":
         return variables()
@@ -1339,7 +1366,7 @@ def main():
     signal.signal(signal.SIGINT, on_interrupt)
     sys.addaudithook(on_audit)
     WRITER.start()
-    style_matplotlib()
+    style_matplotlib(chart_theme)
     shell = start_ipython()
     ipython = sys.modules["IPython"].__version__ if shell is not None else None
     send({"id": None, "type": "ready", "python": sys.version.split()[0], "executable": sys.executable, "ipython": ipython})
