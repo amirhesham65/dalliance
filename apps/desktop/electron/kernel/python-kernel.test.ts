@@ -45,6 +45,17 @@ for (const { name, env, skip } of PATHS) {
       return { result: r, value: JSON.parse(out.text) }
     }
 
+    function pngBackground(outputs: Output[]) {
+      const image = outputs.find((o) => o.type === 'image')
+      if (image?.type !== 'image') throw new Error('Expected a rendered PNG')
+      const decoded = spawnSync(python!, ['-c', 'from PIL import Image; import io, sys; image = Image.open(io.BytesIO(sys.stdin.buffer.read())).convert("RGB"); print("#%02x%02x%02x" % image.getpixel((0, 0)))'], {
+        input: Buffer.from(image.data, 'base64'),
+        encoding: 'utf8',
+      })
+      expect(decoded.status, decoded.stderr).toBe(0)
+      return decoded.stdout.trim()
+    }
+
     it.each([true, false])('follows the current theme for new figures, store=%s', async (store) => {
       for (const mode of ['dark', 'light', 'dark'] as const) {
         theme = mode
@@ -63,6 +74,7 @@ for (const { name, env, skip } of PATHS) {
           gridBelowBars: true,
         })
         expect(result.outputs.filter((o) => o.type === 'image')).toHaveLength(1)
+        expect(pngBackground(result.outputs)).toBe(CHART_THEMES[mode].background)
       }
     })
 
@@ -70,8 +82,19 @@ for (const { name, env, skip } of PATHS) {
       const code = "fig, ax = plt.subplots(facecolor='white')\nax.set_facecolor('white')\nax.bar(['A', 'B'], [2, 3], color='orange')\nax.set_title('Report', color='black')\nax.tick_params(colors='black')"
       for (const mode of ['dark', 'light'] as const) {
         theme = mode
-        const { value } = await inspect(code, "[mpl.colors.to_hex(fig.get_facecolor()), mpl.colors.to_hex(ax.get_facecolor()), mpl.colors.to_hex(ax.patches[0].get_facecolor()), ax.title.get_color()]", true)
+        const { result, value } = await inspect(code, "[mpl.colors.to_hex(fig.get_facecolor()), mpl.colors.to_hex(ax.get_facecolor()), mpl.colors.to_hex(ax.patches[0].get_facecolor()), ax.title.get_color()]", true)
         expect(value).toEqual(['#ffffff', '#ffffff', '#ffa500', 'black'])
+        expect(pngBackground(result.outputs)).toBe('#ffffff')
+      }
+    })
+
+    it('preserves an explicit savefig background across theme changes', async () => {
+      await kernel.execute("mpl.rcParams['savefig.facecolor'] = 'yellow'", { store: true })
+      for (const mode of ['dark', 'light'] as const) {
+        theme = mode
+        const result = await kernel.execute("fig, ax = plt.subplots(facecolor='white')\nax.plot([1, 2])", { store: true })
+        expect(result.ok).toBe(true)
+        expect(pngBackground(result.outputs)).toBe('#ffff00')
       }
     })
 

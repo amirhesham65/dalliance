@@ -635,7 +635,7 @@ def style_matplotlib(theme):
         defaults = {
             "figure.facecolor": theme["background"],
             "axes.facecolor": theme["background"],
-            "savefig.facecolor": theme["background"],
+            "savefig.facecolor": "auto",
             "axes.edgecolor": theme["edge"],
             "axes.labelcolor": theme["foreground"],
             "text.color": theme["foreground"],

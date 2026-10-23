@@ -193,6 +193,8 @@ Figures are drawn at twice their dpi, `FIGURE_SCALE`, so they stay sharp on a Re
 
 Before updating a default, the kernel checks whether a cell changed that rcParam since it was last applied. A changed property is left under the notebook's control until the kernel restarts, including mutable values such as font lists. Other properties still follow the app theme. Assigning exactly the current default cannot be distinguished from leaving it alone; use figure or axes properties for a fixed appearance. Figure-specific styles and existing figures are never recoloured by the kernel.
 
+`savefig.facecolor` defaults to `auto`, so the saved PNG uses the figure's actual background, including an explicit white report background in dark mode. A cell can still override `savefig.facecolor` when it needs a separate export background.
+
 The agent preserves these defaults unless the workspace brief or cell asks for a change. Styling preferences are written into the saved Python code, preferably on the figure or axes. See [agent-harness.md](agent-harness.md#prompts). Saved outputs remain PNGs with their rendered appearance until rerun. Switching appearance never runs analysis or recolours imported images.
 
 ## Output budgets
