@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { actions, getApi, useNotebook } from '@/store/notebook-store'
+import { getApi } from '@/store/notebook-store'
+import { renameNotebook } from '@/store/notebook-save'
 
 /**
  * The notebook's name at the top of the overview, which is a button until it is clicked and a text field after, as
@@ -22,10 +23,9 @@ export function NotebookName({ name, path }: { name: string; path: string | null
     if (!api || !next || next === name) return cancel()
     setSaving(true)
     try {
-      const { notebook } = useNotebook.getState()
-      const result = await api.renameNotebook(path, next, notebook)
+      const result = await renameNotebook(next)
+      if (!result) return cancel()
       if ('error' in result) return setError(result.error)
-      actions.renamed(result.path, result.saved, result.pins)
       cancel()
     } catch (err) {
       setError(`Couldn't rename the notebook: ${err instanceof Error ? err.message : String(err)}`)

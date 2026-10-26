@@ -31,6 +31,8 @@ Missing settings take defaults. A renamed or retired setting is changed directly
 
 ## Session and drafts
 
+Notebooks with a file auto-save to that `.ipynb` one second after the last document change, including completed runs. Auto-save uses the same pins and atomic write as Cmd+S. It never opens a Save dialog. A recovered notebook without a path still needs to be saved or named once. Save failures show a notice and keep the document dirty; another edit or Cmd+S tries again.
+
 `DraftStore` makes a window reload or a relaunch come back to the same notebook.
 
 The renderer sends the document with `saveDraft()` 400 ms after each change and on `beforeunload`. The main process keeps it in memory and writes `session.json` 1 second after the last update, on save, on quit, and on Don't Save.
