@@ -1,5 +1,5 @@
 import { Activity, CircleAlert, ExternalLink, FolderOpen, History, LocateFixed, Pin, PinOff, Play, RefreshCw, RotateCw, ShieldCheck, Sparkles, Square, Variable } from 'lucide-react'
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { ErrorBoundary } from '@/components/app/ErrorBoundary'
 import { IconButton } from '@/components/app/IconButton'
 import { RevisionEntry } from '@/components/notebook/CellHistory'
@@ -22,9 +22,25 @@ import { Pane } from './Pane'
 /** The one side pane that is open, if any. */
 export function SidePane() {
   const pane = useNotebook((s) => s.pane)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!pane) return
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || useNotebook.getState().settingsPage) return
+      // Editors and nested controls take Escape before the pane does.
+      if ((e.target as HTMLElement).closest('input, textarea, [contenteditable], [role="dialog"], [role="alertdialog"], [role="listbox"], [role="menu"]')) return
+      e.preventDefault()
+      const restoreFocus = ref.current?.contains(document.activeElement)
+      actions.openPane(null)
+      if (restoreFocus && returnTo?.isConnected && !ref.current?.contains(returnTo)) returnTo.focus()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pane])
   if (!pane) return null
   return (
-    <div className="flex min-w-0 flex-1 flex-col [&>section]:flex-1">
+    <div ref={ref} className="flex min-w-0 flex-1 flex-col [&>section]:flex-1">
       {/* Keyed by pane, so opening another pane starts it fresh */}
       <ErrorBoundary key={pane} what="This pane" className="m-2 bg-background">
         {pane === 'brief' && <BriefPane />}

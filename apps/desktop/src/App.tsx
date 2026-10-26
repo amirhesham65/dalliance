@@ -315,16 +315,7 @@ function PaneOverlay() {
     const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const box = ref.current
     if (box && !box.contains(document.activeElement)) box.focus()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented || useNotebook.getState().settingsPage) return
-      // A field, menu or dialog takes Esc for itself first
-      if ((e.target as HTMLElement).closest('input, textarea, [contenteditable="true"], [role="dialog"], [role="listbox"], [role="menu"]')) return
-      e.preventDefault()
-      actions.openPane(null)
-    }
-    window.addEventListener('keydown', onKey)
     return () => {
-      window.removeEventListener('keydown', onKey)
       if (clickedAway.current || !returnTo?.isConnected) return
       if (!document.activeElement || document.activeElement === document.body) returnTo.focus()
     }
