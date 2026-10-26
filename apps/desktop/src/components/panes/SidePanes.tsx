@@ -195,11 +195,6 @@ function FilesPane() {
     }
   }, [path, kernelCwd, runs, added, tick])
 
-  const load = (file: string) => {
-    const id = actions.insertAfterSelected('prompt')
-    actions.setPrompt(id, `Load ${file}`)
-  }
-
   const reveal = async () => {
     try {
       await getApi()?.revealFolder()
@@ -228,7 +223,7 @@ function FilesPane() {
       {error ? (
         <p role="alert" className="px-4 py-2 text-[13px] text-destructive">Couldn't read this folder. Try Refresh.</p>
       ) : files == null ? <Empty>Reading files…</Empty> : files.length ? (
-        <FileTree key={`${path}:${kernelCwd}`} files={files} onLoad={load} />
+        <FileTree key={`${path}:${kernelCwd}`} files={files} />
       ) : (
         <Empty>No files here yet. Save the notebook in the folder with your data, or drop data files next to it.</Empty>
       )}

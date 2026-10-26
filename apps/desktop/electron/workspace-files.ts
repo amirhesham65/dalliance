@@ -3,6 +3,17 @@ import path from 'node:path'
 import type { FileEntry } from '@dalliance/shared/ipc'
 import { isBroadFolder, isWorkspaceEntry, resolveInside } from './harness/workspace'
 
+/** Only ordinary workspace files may be handed to the system file manager. */
+export async function workspaceFile(root: string, file: unknown): Promise<string> {
+  if (isBroadFolder(root) || typeof file !== 'string' || path.isAbsolute(file)) throw new Error('Choose a file inside the workspace.')
+  const target = resolveInside(root, file)
+  if (!target) throw new Error('Choose a file inside the workspace.')
+  const [realRoot, realTarget] = await Promise.all([realpath(root), realpath(target)])
+  if (isBroadFolder(realRoot) || !resolveInside(realRoot, path.relative(realRoot, realTarget))) throw new Error('Choose a file inside the workspace.')
+  if (!(await stat(realTarget)).isFile()) throw new Error('Choose a file to show in the file manager.')
+  return realTarget
+}
+
 /** The Files pane reads one folder at a time. The agent keeps its separate, bounded listing. */
 export async function listDirectory(root: string, directory: unknown = '.'): Promise<FileEntry[]> {
   if (isBroadFolder(root)) return []

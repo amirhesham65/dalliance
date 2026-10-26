@@ -31,6 +31,7 @@ import { SettingsStore } from './settings'
 import { ProviderKeys } from './provider-keys'
 import { Updates } from './updates'
 import { copyIntoUploads } from './uploads'
+import { workspaceFile } from './workspace-files'
 
 const isMac = process.platform === 'darwin'
 const TITLE_BAR_HEIGHT = 48
@@ -402,6 +403,9 @@ function registerIpc() {
   handle(IPC.revealFolder, async () => {
     const failed = await shell.openPath(session.dir)
     if (failed) throw new Error(failed)
+  })
+  handle(IPC.revealFile, async (_e, file: unknown) => {
+    shell.showItemInFolder(await workspaceFile(session.dir, file))
   })
 
   handle(IPC.saveNotebook, async (_e, current: string | null, unpinned: Notebook): Promise<SavedNotebook | null> => {

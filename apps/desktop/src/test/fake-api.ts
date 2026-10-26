@@ -64,6 +64,7 @@ export function fakeApi(onRun: RunHandler) {
     writeBrief: async (text) => ({ path: '/tmp/AGENTS.md', text }),
     listFiles: async () => [],
     revealFolder: async () => {},
+    revealFile: async () => {},
     attachFiles: async (files) => ({ paths: files.map((f) => `uploads/${f.name}`), error: null }),
     renameNotebook: async (current, name) => ({ path: `${(current ?? '/tmp/x.ipynb').replace(/[^/]*$/, '')}${name}.ipynb`, saved: current == null }),
     saveNotebook: async (_path, notebook) => ({ path: '/tmp/test.ipynb', pins: notebook.pins ?? null }),

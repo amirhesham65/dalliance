@@ -354,6 +354,8 @@ export interface DallianceApi {
   attachFiles(files: DroppedFile[]): Promise<AttachResult>
   /** Opens the folder in use in Finder, or the platform's file manager. Rejects with the reason when it can't. */
   revealFolder(): Promise<void>
+  /** Reveals and selects a workspace-relative file in the platform's file manager. */
+  revealFile(file: string): Promise<void>
   /**
    * Renames the open notebook's file, as Jupyter does. A notebook without a file is written under that name in the
    * folder in use. Unsaved edits stay unsaved. The name is checked, and a taken one comes back as an error.
@@ -409,6 +411,7 @@ export const IPC = {
   writeBrief: 'write-brief',
   listFiles: 'list-files',
   revealFolder: 'reveal-folder',
+  revealFile: 'reveal-file',
   attachFiles: 'attach-files',
   saveNotebook: 'save-notebook',
   checkPins: 'check-pins',

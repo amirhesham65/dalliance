@@ -2,7 +2,7 @@ import { ChevronRight, File, Folder, FolderOpen, Loader2 } from 'lucide-react'
 import { type KeyboardEvent, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FileEntry } from '@dalliance/shared/ipc'
 import { cn } from '@/lib/utils'
-import { getApi } from '@/store/notebook-store'
+import { actions, getApi } from '@/store/notebook-store'
 
 type Directory = { entries: FileEntry[]; error?: false } | { error: true }
 interface Row {
@@ -17,7 +17,7 @@ const OVERSCAN = 6
 const EMPTY_DIRECTORIES = new Map<string, Directory>()
 
 /** Load children on expansion and mount only the visible rows of a large tree. */
-export function FileTree({ files, onLoad }: { files: FileEntry[]; onLoad: (path: string) => void }) {
+export function FileTree({ files }: { files: FileEntry[] }) {
   const [expanded, setExpanded] = useState(() => new Set<string>())
   const [loaded, setLoaded] = useState(() => ({ source: files, directories: new Map<string, Directory>() }))
   const directories = loaded.source === files ? loaded.directories : EMPTY_DIRECTORIES
@@ -105,7 +105,10 @@ export function FileTree({ files, onLoad }: { files: FileEntry[]; onLoad: (path:
     setScrollTop(element.scrollTop)
   }
   const toggle = (entry: FileEntry) => {
-    if (entry.kind !== 'directory') return onLoad(entry.path)
+    if (entry.kind !== 'directory') {
+      void getApi()?.revealFile(entry.path).catch((error: unknown) => actions.notifyFailure("Couldn't show the file", error))
+      return
+    }
     if (expanded.has(entry.path) && directories.get(entry.path)?.error) {
       setLoaded((current) => {
         const next = new Map(current.source === files ? current.directories : EMPTY_DIRECTORIES)
@@ -138,7 +141,8 @@ export function FileTree({ files, onLoad }: { files: FileEntry[]; onLoad: (path:
         if (expanded.has(row.entry.path)) setExpanded((current) => { const next = new Set(current); next.delete(row.entry.path); return next })
         else if (row.parent) select(rows.findIndex((item) => item.entry.path === row.parent))
         break
-      case 'Enter': case ' ': toggle(row.entry); break
+      case 'Enter': toggle(row.entry); break
+      case ' ': if (row.entry.kind === 'directory') toggle(row.entry); break
       default: return
     }
     event.preventDefault()
@@ -154,11 +158,12 @@ export function FileTree({ files, onLoad }: { files: FileEntry[]; onLoad: (path:
           const children = directories.get(entry.path)
           const Icon = folder ? open ? FolderOpen : Folder : File
           const name = entry.path.split('/').at(-1) ?? entry.path
+          const fileManager = getApi()?.platform === 'darwin' ? 'Finder' : getApi()?.platform === 'win32' ? 'File Explorer' : 'file manager'
           const loading = folder && open && !children
           const status = folder && open && children ? children.error ? "Couldn't read folder. Click to retry." : !children.entries.length ? 'Empty' : null : null
           return (
-            <li key={entry.path} id={`${id}-${index}`} role="treeitem" aria-level={depth + 1} aria-posinset={position} aria-setsize={siblings} aria-expanded={folder ? open : undefined} aria-busy={folder && open && !children || undefined} aria-label={name} className="absolute right-0 left-0" style={{ top: index * ROW_HEIGHT, height: ROW_HEIGHT }}>
-              <button type="button" tabIndex={-1} aria-label={name} aria-expanded={folder ? open : undefined} onMouseDown={(event) => event.preventDefault()} onClick={() => { select(index); tree.current?.focus({ preventScroll: true }); toggle(entry) }} title={folder ? entry.path : `Start a cell that loads ${entry.path}`} className={cn('flex h-8 w-full items-center gap-2 rounded-lg pr-2 text-left text-[13px] hover:bg-hover', activeIndex === index && 'group-focus-visible/tree:bg-hover group-focus-visible/tree:ring-1 group-focus-visible/tree:ring-inset group-focus-visible/tree:ring-ring')} style={{ paddingLeft: 8 + depth * 16 + (folder ? 0 : 20) }}>
+            <li key={entry.path} id={`${id}-${index}`} role="treeitem" aria-level={depth + 1} aria-posinset={position} aria-setsize={siblings} aria-expanded={folder ? open : undefined} aria-selected={active === entry.path} aria-busy={folder && open && !children || undefined} aria-label={name} className="absolute right-0 left-0" style={{ top: index * ROW_HEIGHT, height: ROW_HEIGHT }}>
+              <button type="button" tabIndex={-1} aria-label={name} aria-expanded={folder ? open : undefined} onMouseDown={(event) => event.preventDefault()} onClick={(event) => { select(index); tree.current?.focus({ preventScroll: true }); if (folder && event.detail < 2) toggle(entry) }} onDoubleClick={() => { if (!folder) toggle(entry) }} title={folder ? entry.path : `${entry.path}\nDouble-click to show in ${fileManager}`} className={cn('flex h-8 w-full items-center gap-2 rounded-lg pr-2 text-left text-[13px] hover:bg-hover', active === entry.path && 'bg-hover', activeIndex === index && 'group-focus-visible/tree:bg-hover group-focus-visible/tree:ring-1 group-focus-visible/tree:ring-inset group-focus-visible/tree:ring-ring')} style={{ paddingLeft: 8 + depth * 16 + (folder ? 0 : 20) }}>
                 {folder && <ChevronRight className={cn('size-3 shrink-0 text-faint transition-transform', open && 'rotate-90')} />}
                 <Icon className="size-3.5 shrink-0 text-faint" />
                 <span className="truncate">{name}</span>

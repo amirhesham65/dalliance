@@ -1,10 +1,10 @@
 // @vitest-environment node
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { listFiles } from './harness/workspace'
-import { listDirectory } from './workspace-files'
+import { listDirectory, workspaceFile } from './workspace-files'
 
 async function folder() {
   const root = await mkdtemp(path.join(tmpdir(), 'dalliance-files-'))
@@ -13,6 +13,20 @@ async function folder() {
 }
 
 describe('Files pane directory listings', () => {
+  it('only reveals existing files inside the workspace', async () => {
+    const root = await folder()
+    const outside = await folder()
+    await writeFile(path.join(root, 'data.csv'), '1,2')
+    await writeFile(path.join(outside, 'other.csv'), '3,4')
+    await symlink(path.join(outside, 'other.csv'), path.join(root, 'escape.csv'))
+    expect(await workspaceFile(root, 'data.csv')).toBe(await realpath(path.join(root, 'data.csv')))
+    for (const file of ['.', '..', '../other.csv', outside, 'escape.csv', null, 1, {}]) {
+      await expect(workspaceFile(root, file)).rejects.toThrow()
+    }
+    await expect(workspaceFile(root, 'missing.csv')).rejects.toThrow()
+    await expect(workspaceFile(homedir(), 'data.csv')).rejects.toThrow('inside the workspace')
+  })
+
   it('returns every entry beyond 200 while the agent listing stays bounded', async () => {
     const root = await folder()
     await Promise.all(Array.from({ length: 350 }, (_, index) => writeFile(path.join(root, `data-${index}.csv`), 'x')))

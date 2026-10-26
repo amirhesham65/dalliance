@@ -1004,9 +1004,11 @@ describe('attaching files', () => {
 })
 
 describe('the Files pane', () => {
-  it('groups nested paths into folders and loads a file by its full path', async () => {
+  it('loads folders on expansion, selects files on one click, and reveals them on double-click', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result())
+    const reveals: string[] = []
+    api.revealFile = async (file) => { reveals.push(file) }
     const reads: string[] = []
     api.listFiles = async (directory = '.') => {
       reads.push(directory)
@@ -1033,9 +1035,15 @@ describe('the Files pane', () => {
     await user.click(archive)
     await within(files).findByRole('button', { name: 'orders.csv' })
     expect(reads).toEqual(['.', 'data', 'data/archive'])
-    await user.click(within(files).getByTitle('Start a cell that loads data/archive/orders.csv'))
-    const state = useNotebook.getState()
-    expect(state.notebook.cells.find((cell) => cell.id === state.selectedId)).toMatchObject({ prompt: 'Load data/archive/orders.csv' })
+    const cells = useNotebook.getState().notebook.cells
+    const file = within(files).getByRole('button', { name: 'orders.csv' })
+    await user.click(file)
+    expect(reveals).toEqual([])
+    expect(within(files).getByRole('treeitem', { name: 'orders.csv' })).toHaveAttribute('aria-selected', 'true')
+    expect(useNotebook.getState().notebook.cells).toBe(cells)
+    await user.dblClick(file)
+    expect(reveals).toEqual(['data/archive/orders.csv'])
+    expect(useNotebook.getState().notebook.cells).toBe(cells)
   })
 
   it('shows the folder in Finder, and says so when it can\'t', async () => {
