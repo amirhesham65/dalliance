@@ -42,7 +42,7 @@ const api: DallianceApi = {
   // Only a File from a real drop has a path. Anything else reads as '' and is left out
   attachFiles: (files) => ipcRenderer.invoke(IPC.attachFiles, files.map((f) => webUtils.getPathForFile(f as File)).filter(Boolean)),
   renameNotebook: (current, name, notebook) => ipcRenderer.invoke(IPC.renameNotebook, current, name, notebook),
-  saveNotebook: (path, notebook) => ipcRenderer.invoke(IPC.saveNotebook, path, notebook),
+  saveNotebook: (path, notebook, options) => ipcRenderer.invoke(IPC.saveNotebook, path, notebook, options),
   checkPins: (pins) => ipcRenderer.invoke(IPC.checkPins, pins),
   confirmDiscard: () => ipcRenderer.invoke(IPC.confirmDiscard),
   restoreSession: () => ipcRenderer.invoke(IPC.restoreSession),

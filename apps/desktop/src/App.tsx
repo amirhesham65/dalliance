@@ -20,6 +20,7 @@ import { useDefaultLayout } from 'react-resizable-panels'
 import type { MenuAction } from '@dalliance/shared/ipc'
 import { PANE_ORDER, actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
 import { providerOf } from '@dalliance/shared/models'
+import { saveNotebook, startAutoSave } from '@/store/notebook-save'
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => readStored('dalliance-sidebar') !== 'closed')
@@ -34,19 +35,7 @@ export default function App() {
   const settingsPage = useNotebook((s) => s.settingsPage)
   const api = getApi()
 
-  const save = useCallback(
-    async (as: boolean) => {
-      if (!api) return
-      const { path, notebook } = useNotebook.getState()
-      try {
-        const saved = await api.saveNotebook(as ? null : path, notebook)
-        if (saved) actions.markSaved(saved.path, saved.pins)
-      } catch (err) {
-        actions.notifyFailure("Couldn't save the notebook", err)
-      }
-    },
-    [api],
-  )
+  useEffect(() => startAutoSave(), [api])
 
   const handleMenu = useCallback(
     async (action: MenuAction) => {
@@ -83,9 +72,9 @@ export default function App() {
           }
           break
         case 'save':
-          return save(false)
+          return saveNotebook(false)
         case 'save-as':
-          return save(true)
+          return saveNotebook(true)
         case 'run-cell':
           if (selected) actions.runAndAdvance(selected)
           break
@@ -122,7 +111,7 @@ export default function App() {
           }
       }
     },
-    [api, save],
+    [api],
   )
 
   // Connect the store to the Electron bridge

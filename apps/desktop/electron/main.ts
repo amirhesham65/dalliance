@@ -404,10 +404,12 @@ function registerIpc() {
     if (failed) throw new Error(failed)
   })
 
-  handle(IPC.saveNotebook, async (_e, current: string | null, unpinned: Notebook): Promise<SavedNotebook | null> => {
+  handle(IPC.saveNotebook, async (_e, current: string | null, unpinned: Notebook, options?: { autoSave?: boolean }): Promise<SavedNotebook | null> => {
     if (!win) return null
+    const autoSave = options?.autoSave === true
     try {
       let file = isNotebookPath(current) ? current : null
+      if (autoSave && !file) return null
       if (!file) {
         const { canceled, filePath } = await dialog.showSaveDialog(win, {
           title: 'Save notebook',
@@ -421,6 +423,8 @@ function registerIpc() {
       const notebook = await session.pin(unpinned)
       // A crash or a full disk mid-save leaves the old file, never a truncated one
       await writeFileAtomic(file, ipynbText(notebook))
+      // The renderer reports the saved state. A newer draft or workspace may have arrived during the write.
+      if (autoSave) return { path: file, pins: notebook.pins ?? null }
       app.addRecentDocument(file)
       settings.addRecent(file)
       // Record the save now: the window may close before the renderer reports it
@@ -434,7 +438,7 @@ function registerIpc() {
       return { path: file, pins: notebook.pins ?? null }
     } finally {
       // Whether the save landed, was cancelled or failed, a later ordinary Save must not close the window
-      allowCloseAfterSave = false
+      if (!autoSave) allowCloseAfterSave = false
     }
   })
 

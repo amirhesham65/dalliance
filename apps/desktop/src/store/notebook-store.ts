@@ -129,6 +129,8 @@ export interface NotebookState {
   /** Whether the start page was opened over a notebook, so it can go back to it. */
   canReturn: boolean
   notebook: Notebook
+  /** Changes on load, including reopening the same file, so late saves cannot affect another session. */
+  documentId: number
   path: string | null
   dirty: boolean
   selectedId: string | null
@@ -213,6 +215,7 @@ export const useNotebook = create<NotebookState>(() => ({
   screen: 'notebook',
   canReturn: false,
   notebook: initial,
+  documentId: 0,
   path: null,
   dirty: false,
   selectedId: initial.cells[1].id,
@@ -501,6 +504,7 @@ export const actions = {
       screen: 'notebook',
       canReturn: false,
       notebook,
+      documentId: get().documentId + 1,
       path,
       dirty,
       selectedId: notebook.cells[0]?.id ?? null,
@@ -556,14 +560,15 @@ export const actions = {
    * The notebook file got a new name. Its edits are as saved or unsaved as they were, unless the rename wrote the
    * file, which recorded its pins too.
    */
-  renamed(path: string, saved: boolean, pins?: Pins | null) {
-    set((s) => (saved ? { path, dirty: false, ...(pins !== undefined ? { notebook: withPins(s.notebook, pins) } : {}) } : { path }))
+  renamed(path: string, saved: boolean, pins?: Pins | null, snapshot = get().notebook) {
+    if (saved) actions.markSaved(path, pins, snapshot)
+    else set({ path })
   },
 
   /** The notebook was written to `path`, with the pins the save recorded. */
-  markSaved(path: string, pins?: Pins | null) {
+  markSaved(path: string, pins?: Pins | null, snapshot = get().notebook) {
     const moved = get().path !== path
-    set((s) => ({ path, dirty: false, ...(pins !== undefined ? { notebook: withPins(s.notebook, pins) } : {}) }))
+    set((s) => ({ path, dirty: s.notebook !== snapshot, ...(pins !== undefined && s.notebook === snapshot ? { notebook: withPins(s.notebook, pins) } : {}) }))
     // Save As into another folder means another AGENTS.md
     if (moved) void actions.loadBrief()
   },

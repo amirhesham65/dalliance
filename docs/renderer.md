@@ -7,6 +7,7 @@ src/
   main.tsx                    theme, session restore, ?demo, render
   App.tsx                     menu handling, keyboard modes, the three-column layout
   store/notebook-store.ts     all document and run state, and every action
+  store/notebook-save.ts      auto-save and the queue for saves and renames
   components/
     app/                      TopBar, Sidebar (the overview), IconButton, MakerLogo
     settings/                 the Settings screen and one component per section
@@ -34,6 +35,7 @@ Saved with the notebook: `notebook`. Everything else is session state:
 | `screen` | `'welcome'` or `'notebook'`. The notebook stays loaded behind the start page |
 | `settingsPage` | The open Settings section, or null. Settings covers whichever screen is up. See [Settings](#settings) |
 | `path`, `dirty` | The file and whether it has unsaved changes |
+| `documentId` | Increases on every load, so a late save cannot change a newly opened notebook, including the same file reopened |
 | `selectedId`, `focusId` | Selection, and a cell whose editor should take focus next render |
 | `runs` | `CellRun` per queued or running cell: status text, activity, live outputs, live code, a pending question or approval |
 | `activity` | Each cell's activity from its last generation |
@@ -214,6 +216,12 @@ Opening the model picker loads the local catalog for configured providers. Custo
 A bridge call the user started should never fail silently. `actions.notifyFailure(what, err)` shows "Couldn't save the notebook." and the reason, with the `Error invoking remote method` wrapper stripped by `errorText()`. Saving, writing the brief, refreshing the variables and restarting Python all report failures this way. A new notebook the main process can't write gets a dialog with the reason from there instead, and the window stays as it was. Background calls, like the variables refresh after each run, stay quiet.
 
 `ErrorBoundary` in `components/app/` wraps every cell, the open side pane and the overview. A throw while drawing one of them shows "This cell couldn't be shown." with the error and a Retry button in its place, and the rest of the window keeps working. The side pane's boundary is keyed by pane, so opening another pane starts fresh.
+
+## Saving notebooks
+
+`App` starts `startAutoSave()` from `store/notebook-save.ts`. It watches document changes in the store and saves dirty notebooks with a path after a one-second pause. Selection, run activity and other UI state do not postpone saving. The existing unsaved dot clears once the current document reaches disk. A notebook without a path needs Cmd+S or a name first; auto-save never opens a dialog.
+
+Auto-save, Cmd+S, Save As and renaming share a queue. Each operation reads the latest document when it starts. A save only clears `dirty` for the snapshot it wrote, so edits made while it was saving get another save. Loads invalidate queued operations and late results. A failed auto-save reports the reason, leaves edits dirty, and waits for another edit or a manual save to try again.
 
 ## The notebook name
 

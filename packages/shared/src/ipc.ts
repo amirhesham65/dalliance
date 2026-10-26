@@ -357,8 +357,8 @@ export interface DallianceApi {
    * folder in use. Unsaved edits stay unsaved. The name is checked, and a taken one comes back as an error.
    */
   renameNotebook(current: string | null, name: string, notebook: Notebook): Promise<RenameResult>
-  /** Records the notebook's pins and writes it. Null when the Save dialog was cancelled. */
-  saveNotebook(path: string | null, notebook: Notebook): Promise<SavedNotebook | null>
+  /** Records pins and writes the notebook. Auto-save requires a path and never opens a dialog or closes the window. */
+  saveNotebook(path: string | null, notebook: Notebook, options?: { autoSave?: boolean }): Promise<SavedNotebook | null>
   /**
    * Compares pins with the Python, its packages and the files in the folder in use now. Empty when nothing changed.
    * Reads the interpreter, not the kernel, so a running cell doesn't hold it up.
