@@ -622,14 +622,41 @@ describe('question cells', () => {
     await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
     await waitFor(() => expect(useNotebook.getState().runs).toEqual({}))
 
-    await user.click(screen.getByRole('button', { name: /History/ }))
-    const pane = screen.getByRole('region', { name: 'History' })
+    await user.click(screen.getByRole('button', { name: 'Cell history' }))
+    const pane = screen.getByRole('dialog', { name: 'Cell history' })
     expect(within(pane).getByText('Earlier')).toBeInTheDocument()
     await user.click(within(pane).getByRole('button', { name: 'Restore' }))
 
     expect(prompt).toHaveValue('Total sales')
     const cell = useNotebook.getState().notebook.cells[1]
     expect(cell).toMatchObject({ code: 'orders.total.sum()', state: 'edited' })
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Cell history' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cell history' })).toHaveFocus()
+  })
+
+  it('shows revisions across the notebook in time order regardless of selection', async () => {
+    const user = userEvent.setup()
+    setApi(fakeApi(() => result()).api)
+    const first = newPromptCell('Total sales', 'total = 1')
+    const second = newPromptCell('Average sale', 'average = 2')
+    const revision = (cell: PromptCell, at: number) => ({ at, prompt: cell.prompt, code: cell.code, interpretation: null, answer: null, edited: false })
+    first.history = [revision(first, 200), { ...revision(first, 100), code: 'total = 0' }]
+    second.history = [revision(second, 300)]
+    const note = newNoteCell('# Notes')
+    actions.load({ cells: [first, note, second] }, null)
+    actions.select(note.id)
+    actions.openPane('history')
+    render(<App />)
+
+    const history = screen.getByRole('list', { name: 'Notebook history' })
+    expect(within(history).getAllByRole('button', { name: /Go to cell/ }).map((button) => button.getAttribute('aria-label'))).toEqual(['Go to cell 2', 'Go to cell 1', 'Go to cell 1'])
+    await user.click(within(history).getByRole('button', { name: 'Go to cell 2' }))
+    expect(useNotebook.getState().selectedId).toBe(second.id)
+    expect(within(history).getAllByRole('listitem')).toHaveLength(3)
+    await user.click(within(history).getByRole('button', { name: 'Restore' }))
+    expect(useNotebook.getState().notebook.cells[0]).toMatchObject({ code: 'total = 0' })
+    expect(useNotebook.getState().notebook.cells[2]).toMatchObject({ code: 'average = 2' })
   })
 
   it('writes the brief to AGENTS.md from its pane', async () => {
@@ -977,6 +1004,32 @@ describe('attaching files', () => {
 })
 
 describe('the Files pane', () => {
+  it('groups nested paths into folders and loads a file by its full path', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    api.listFiles = async () => [
+      { path: 'readme.txt', size: '12 B' },
+      { path: 'data/archive/orders.csv', size: '1 KB' },
+      { path: 'data/refunds.csv', size: '2 KB' },
+      { path: 'other/orders.csv', size: '3 KB' },
+    ]
+    setApi(api)
+    actions.openPane('files')
+    render(<App />)
+
+    const files = await screen.findByRole('list', { name: 'Workspace files' })
+    const folder = within(files).getByRole('button', { name: 'data' })
+    expect(folder).toHaveAttribute('aria-expanded', 'true')
+    await user.click(folder)
+    expect(folder).toHaveAttribute('aria-expanded', 'false')
+    expect(within(files).queryByRole('button', { name: /refunds.csv/ })).not.toBeInTheDocument()
+    expect(within(files).getAllByRole('button', { name: /orders.csv/ })).toHaveLength(1)
+    await user.click(folder)
+    await user.click(within(files).getByTitle('Start a cell that loads data/archive/orders.csv'))
+    const state = useNotebook.getState()
+    expect(state.notebook.cells.find((cell) => cell.id === state.selectedId)).toMatchObject({ prompt: 'Load data/archive/orders.csv' })
+  })
+
   it('shows the folder in Finder, and says so when it can\'t', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result())

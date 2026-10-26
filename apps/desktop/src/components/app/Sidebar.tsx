@@ -260,8 +260,7 @@ function PaneMenu() {
   const failures = useNotebook((s) => s.log.filter((e) => e.kind === 'failed').length)
   const events = useNotebook((s) => s.log.length)
   const versions = useNotebook((s) => {
-    const cell = s.notebook.cells.find((c) => c.id === s.selectedId)
-    return cell?.kind === 'prompt' ? cell.history.length : 0
+    return s.notebook.cells.reduce((total, cell) => total + (cell.kind === 'prompt' ? cell.history.length : 0), 0)
   })
   const badge: Record<PaneKind, string> = {
     brief: brief?.text?.trim() ? '' : 'empty',
