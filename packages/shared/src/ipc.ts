@@ -219,6 +219,7 @@ export interface Brief {
 export interface FileEntry {
   path: string
   size: string
+  kind: 'file' | 'directory'
 }
 
 export interface RecentNotebook {
@@ -344,7 +345,8 @@ export interface DallianceApi {
   recentNotebooks(): Promise<RecentNotebook[]>
   readBrief(): Promise<Brief>
   writeBrief(text: string): Promise<Brief>
-  listFiles(): Promise<FileEntry[]>
+  /** Immediate entries in a workspace-relative folder, with no count limit. Defaults to the workspace root. */
+  listFiles(directory?: string): Promise<FileEntry[]>
   /**
    * Copies dropped files into `uploads` in the folder in use, under a free name, and returns their paths inside it. A
    * file already in the folder is used where it is. Never throws: what couldn't be copied comes back as `error`.
@@ -352,6 +354,8 @@ export interface DallianceApi {
   attachFiles(files: DroppedFile[]): Promise<AttachResult>
   /** Opens the folder in use in Finder, or the platform's file manager. Rejects with the reason when it can't. */
   revealFolder(): Promise<void>
+  /** Reveals and selects a workspace-relative file in the platform's file manager. */
+  revealFile(file: string): Promise<void>
   /**
    * Renames the open notebook's file, as Jupyter does. A notebook without a file is written under that name in the
    * folder in use. Unsaved edits stay unsaved. The name is checked, and a taken one comes back as an error.
@@ -407,6 +411,7 @@ export const IPC = {
   writeBrief: 'write-brief',
   listFiles: 'list-files',
   revealFolder: 'reveal-folder',
+  revealFile: 'reveal-file',
   attachFiles: 'attach-files',
   saveNotebook: 'save-notebook',
   checkPins: 'check-pins',

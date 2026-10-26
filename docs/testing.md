@@ -50,6 +50,8 @@ The `the record of how a cell was made` block in `run-cell.test.ts` runs a gener
 
 ### The main process
 
+`electron/workspace-files.test.ts` checks the Files pane's directory listing beyond 200 entries, empty folders, deep paths, hidden and dependency folders, and traversal and symlink boundaries. It also checks that only existing workspace files can be revealed in the file manager. The agent's listing stays bounded separately.
+
 These run in Node with Electron mocked, and need nothing installed.
 
 | File | Covers |
@@ -77,6 +79,8 @@ These run in Node with Electron mocked, and need nothing installed.
 `python-env.test.ts` checks the package lists and the name check `installPackages()` runs before pip, including every archive extension pip accepts, with `spawn` mocked. The mock can fail with pip's PEP 668 output, to check the Settings > Python message. Python discovery runs against a fake Mac through injected `exec`, `exists`, `list` and `path`: Homebrew over Apple's Python, the newest version winning, and `/usr/bin/python3` left alone without the Command Line Tools. Its two missing-package cases use the system Python and skip without one.
 
 ### The renderer
+
+`components/panes/FileTree.test.tsx` checks virtualization with 5,000 files, keyboard access to the last file, folder errors and retries, and replies overtaken by a refresh. `App.test.tsx` checks that folders start collapsed and load their contents only as they expand. It also checks that single-click selects a file and double-click reveals it without creating notebook cells.
 
 `src/test/setup.ts` prepares jsdom:
 

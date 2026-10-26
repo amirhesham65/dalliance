@@ -170,6 +170,8 @@ Between two cells, `CellInserter` in `NotebookView.tsx` draws a 1px line in `for
 
 A note shows as its rendered Markdown. The preview takes keyboard focus, and Enter or a double-click opens the editor. It has no button role, so its headings stay headings to a screen reader.
 
+Each prompt cell has a Cell history button beside Delete. It opens a scrollable popover with the current and earlier working versions, code previews and Restore. It works independently of the notebook-wide History pane.
+
 ### Rendering cost
 
 A notebook can hold dozens of cells with 100-row tables, and every keystroke replaces the cells array. What keeps typing cheap:
@@ -196,8 +198,8 @@ All in `components/panes/`. One is open at a time, set by `actions.openPane()` o
 | --- | --- |
 | Brief | The workspace's `AGENTS.md` as a document, editable in place. Starts from a template. `- [ ]` tasks toggle on click |
 | Variables & Environment | Two views under a switch. Variables from the kernel through `listVariables()`. Environment is the Python's version and its libraries with versions, through `listPackages()`, searchable. The libraries are read when the view is first shown. After a run, a restart or a Python change, `environmentChanged()` reads them again at once if the view is on screen, and otherwise marks them stale so the view reads them when it's next shown, never spawning a Python nobody looks at. `loadEnvironment()` called during a read queues one more read after it, and only the last answer lands |
-| History | The selected cell's revisions. Restore brings one back without calling the model |
-| Files | Workspace files, reloaded after every run. Clicking a data file adds a prompt cell to load it. A button in its header opens the folder in Finder, named for the platform's file manager |
+| History | Saved working versions across all prompt cells, newest first, with cell labels that jump to the source cell. Restore brings a version back without calling the model. The overview badge counts versions across the notebook |
+| Files | Workspace files in expandable folders, initially collapsed and sorted with folders first. Each folder loads its immediate entries on expansion, including empty folders, without a file-count or depth limit. Refresh and completed runs reload the root and open folders. Lists over 100 visible entries mount only the viewport's rows and a few nearby rows. Arrow keys, Home and End navigate the tree. A single click selects a file; a double-click or Enter reveals and selects it in Finder, or the platform's file manager. Clicking files never creates notebook cells. The loading indicator waits 200 ms to avoid flashing during fast reads. Failed folder reads offer a retry. The header opens the workspace in Finder, named for the platform's file manager |
 | Pinned | Result cards for pinned cells, in pin order |
 | Activity | The session log. Click an entry to jump to its cell. With `settings.showUsage` on, each run shows its token usage and the top shows the notebook's total. See [Token usage](#token-usage) |
 

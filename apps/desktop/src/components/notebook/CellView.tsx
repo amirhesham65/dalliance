@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowRight, ArrowUp, Check, ChevronRight, Copy, Loader2, Pin, PinOff, Play, RefreshCw, Trash2, TriangleAlert, X } from 'lucide-react'
+import { ArrowDown, ArrowRight, ArrowUp, Check, ChevronRight, Copy, History, Loader2, Pin, PinOff, Play, RefreshCw, Trash2, TriangleAlert, X } from 'lucide-react'
 import { type KeyboardEvent, type ReactNode, memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { IconButton } from '@/components/app/IconButton'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,7 @@ import type { ActivityItem } from '@dalliance/shared/ipc'
 import { type Cell, type NoteCell, type PromptCell, needsGeneration, parseInterpretation, tablesOpen } from '@dalliance/shared/notebook'
 import { type CellRun, actions, useNotebook } from '@/store/notebook-store'
 import { AttachmentChips } from './Attachments'
+import { CellHistory } from './CellHistory'
 import { HighlightedEditor } from './HighlightedEditor'
 import { InlineText } from './InlineText'
 import { MarkdownText } from './MarkdownText'
@@ -114,6 +115,17 @@ function CellActions({ cell, children }: { cell: Cell; children?: ReactNode }) {
       <IconButton label="Move down" size="icon-xs" onClick={() => actions.moveCell(cell.id, 1)}>
         <ArrowDown />
       </IconButton>
+      {cell.kind === 'prompt' && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <IconButton label="Cell history" size="icon-xs"><History /></IconButton>
+          </PopoverTrigger>
+          <PopoverContent aria-label="Cell history" align="end" collisionPadding={12} className="scrollbar-thin max-h-[min(60vh,480px,var(--radix-popover-content-available-height))] w-[400px] max-w-[calc(100vw-24px)] overflow-y-auto p-4 font-sans">
+            <h2 className="mb-3 text-sm font-medium">Cell history</h2>
+            <CellHistory cell={cell} />
+          </PopoverContent>
+        </Popover>
+      )}
       <IconButton label="Delete cell" size="icon-xs" onClick={() => actions.deleteCell(cell.id)}>
         <Trash2 />
       </IconButton>

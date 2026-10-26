@@ -622,14 +622,41 @@ describe('question cells', () => {
     await user.click(screen.getByRole('button', { name: 'Run cell 1' }))
     await waitFor(() => expect(useNotebook.getState().runs).toEqual({}))
 
-    await user.click(screen.getByRole('button', { name: /History/ }))
-    const pane = screen.getByRole('region', { name: 'History' })
+    await user.click(screen.getByRole('button', { name: 'Cell history' }))
+    const pane = screen.getByRole('dialog', { name: 'Cell history' })
     expect(within(pane).getByText('Earlier')).toBeInTheDocument()
     await user.click(within(pane).getByRole('button', { name: 'Restore' }))
 
     expect(prompt).toHaveValue('Total sales')
     const cell = useNotebook.getState().notebook.cells[1]
     expect(cell).toMatchObject({ code: 'orders.total.sum()', state: 'edited' })
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Cell history' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cell history' })).toHaveFocus()
+  })
+
+  it('shows revisions across the notebook in time order regardless of selection', async () => {
+    const user = userEvent.setup()
+    setApi(fakeApi(() => result()).api)
+    const first = newPromptCell('Total sales', 'total = 1')
+    const second = newPromptCell('Average sale', 'average = 2')
+    const revision = (cell: PromptCell, at: number) => ({ at, prompt: cell.prompt, code: cell.code, interpretation: null, answer: null, edited: false })
+    first.history = [revision(first, 200), { ...revision(first, 100), code: 'total = 0' }]
+    second.history = [revision(second, 300)]
+    const note = newNoteCell('# Notes')
+    actions.load({ cells: [first, note, second] }, null)
+    actions.select(note.id)
+    actions.openPane('history')
+    render(<App />)
+
+    const history = screen.getByRole('list', { name: 'Notebook history' })
+    expect(within(history).getAllByRole('button', { name: /Go to cell/ }).map((button) => button.getAttribute('aria-label'))).toEqual(['Go to cell 2', 'Go to cell 1', 'Go to cell 1'])
+    await user.click(within(history).getByRole('button', { name: 'Go to cell 2' }))
+    expect(useNotebook.getState().selectedId).toBe(second.id)
+    expect(within(history).getAllByRole('listitem')).toHaveLength(3)
+    await user.click(within(history).getByRole('button', { name: 'Restore' }))
+    expect(useNotebook.getState().notebook.cells[0]).toMatchObject({ code: 'total = 0' })
+    expect(useNotebook.getState().notebook.cells[2]).toMatchObject({ code: 'average = 2' })
   })
 
   it('writes the brief to AGENTS.md from its pane', async () => {
@@ -977,6 +1004,48 @@ describe('attaching files', () => {
 })
 
 describe('the Files pane', () => {
+  it('loads folders on expansion, selects files on one click, and reveals them on double-click', async () => {
+    const user = userEvent.setup()
+    const { api } = fakeApi(() => result())
+    const reveals: string[] = []
+    api.revealFile = async (file) => { reveals.push(file) }
+    const reads: string[] = []
+    api.listFiles = async (directory = '.') => {
+      reads.push(directory)
+      if (directory === 'data/archive') return [{ path: 'data/archive/orders.csv', size: '1 KB', kind: 'file' }]
+      if (directory === 'data') return [
+        { path: 'data/archive', size: '', kind: 'directory' },
+        { path: 'data/refunds.csv', size: '2 KB', kind: 'file' },
+      ]
+      return [{ path: 'readme.txt', size: '12 B', kind: 'file' }, { path: 'data', size: '', kind: 'directory' }]
+    }
+    setApi(api)
+    actions.openPane('files')
+    render(<App />)
+
+    const files = await screen.findByRole('tree', { name: 'Workspace files' })
+    const folder = within(files).getByRole('button', { name: 'data' })
+    expect(folder).toHaveAttribute('aria-expanded', 'false')
+    expect(reads).toEqual(['.'])
+    expect(within(files).queryByRole('button', { name: /refunds.csv/ })).not.toBeInTheDocument()
+    await user.click(folder)
+    expect(await within(files).findByRole('button', { name: 'refunds.csv' })).toBeInTheDocument()
+    const archive = within(files).getByRole('button', { name: 'archive' })
+    expect(archive).toHaveAttribute('aria-expanded', 'false')
+    await user.click(archive)
+    await within(files).findByRole('button', { name: 'orders.csv' })
+    expect(reads).toEqual(['.', 'data', 'data/archive'])
+    const cells = useNotebook.getState().notebook.cells
+    const file = within(files).getByRole('button', { name: 'orders.csv' })
+    await user.click(file)
+    expect(reveals).toEqual([])
+    expect(within(files).getByRole('treeitem', { name: 'orders.csv' })).toHaveAttribute('aria-selected', 'true')
+    expect(useNotebook.getState().notebook.cells).toBe(cells)
+    await user.dblClick(file)
+    expect(reveals).toEqual(['data/archive/orders.csv'])
+    expect(useNotebook.getState().notebook.cells).toBe(cells)
+  })
+
   it('shows the folder in Finder, and says so when it can\'t', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result())

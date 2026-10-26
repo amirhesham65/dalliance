@@ -292,10 +292,12 @@ export function installDemo(mode: 'notebook' | 'welcome' | 'setup' | 'hero' = 'n
     brief.text = text
     return { ...brief }
   }
-  api.listFiles = async () => [
-    { path: 'patients.csv', size: '61.3 KB' },
-    { path: 'adverse_events.csv', size: '144.8 KB' },
-    { path: 'protocol/statistical_analysis_plan.pdf', size: '812.0 KB' },
+  api.listFiles = async (directory = '.') => directory === 'protocol' ? [
+    { path: 'protocol/statistical_analysis_plan.pdf', size: '812.0 KB', kind: 'file' },
+  ] : [
+    { path: 'patients.csv', size: '61.3 KB', kind: 'file' },
+    { path: 'adverse_events.csv', size: '144.8 KB', kind: 'file' },
+    { path: 'protocol', size: '', kind: 'directory' },
   ]
   api.recentNotebooks = async () => [
     { path: file, name: file.slice(folder.length + 1, -'.ipynb'.length), folder: folder.split('/').at(-1)!, openedAt: Date.now() - 60_000 },

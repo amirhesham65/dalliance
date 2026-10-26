@@ -45,3 +45,7 @@ release
 
 # Agent worktrees
 .claude/worktrees
+
+# Local browser artifacts
+/.playwright-cli/
+/output/playwright/

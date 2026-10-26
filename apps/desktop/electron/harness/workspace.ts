@@ -5,6 +5,10 @@ import path from 'node:path'
 import { IMAGE_TYPES } from './images'
 
 const SKIP = new Set(['node_modules', '.git', '__pycache__', '.venv', 'venv', '.ipynb_checkpoints', '.DS_Store'])
+
+export function isWorkspaceEntry(name: string): boolean {
+  return !SKIP.has(name) && !name.startsWith('.')
+}
 const MAX_LINES = 500
 const MAX_LINE_CHARS = 500
 /** 500 full lines would be 250 KB, so the whole result has a cap too. */
@@ -46,7 +50,7 @@ export async function listFiles(root: string, max = 200): Promise<string[]> {
     entries.sort((a, b) => a.name.localeCompare(b.name))
     for (const e of entries) {
       if (found.length >= max) return
-      if (SKIP.has(e.name) || e.name.startsWith('.')) continue
+      if (!isWorkspaceEntry(e.name)) continue
       const abs = path.join(dir, e.name)
       if (e.isDirectory()) await walk(abs, depth + 1)
       else {
