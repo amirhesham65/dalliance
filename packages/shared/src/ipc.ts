@@ -219,6 +219,7 @@ export interface Brief {
 export interface FileEntry {
   path: string
   size: string
+  kind: 'file' | 'directory'
 }
 
 export interface RecentNotebook {
@@ -344,7 +345,8 @@ export interface DallianceApi {
   recentNotebooks(): Promise<RecentNotebook[]>
   readBrief(): Promise<Brief>
   writeBrief(text: string): Promise<Brief>
-  listFiles(): Promise<FileEntry[]>
+  /** Immediate entries in a workspace-relative folder, with no count limit. Defaults to the workspace root. */
+  listFiles(directory?: string): Promise<FileEntry[]>
   /**
    * Copies dropped files into `uploads` in the folder in use, under a free name, and returns their paths inside it. A
    * file already in the folder is used where it is. Never throws: what couldn't be copied comes back as `error`.

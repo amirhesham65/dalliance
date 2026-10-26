@@ -390,7 +390,7 @@ function registerIpc() {
   )
   handle(IPC.readBrief, () => session.readBrief())
   handle(IPC.writeBrief, (_e, text: string) => session.writeBrief(text))
-  handle(IPC.listFiles, () => session.files())
+  handle(IPC.listFiles, (_e, directory: unknown) => session.files(directory))
   // The paths come from the preload, which reads them off File objects from a real drop. The window can't name one.
   handle(IPC.attachFiles, async (_e, sources: unknown): Promise<AttachResult> => {
     if (!Array.isArray(sources) || !sources.every((s) => typeof s === 'string')) return { paths: [], error: "Couldn't attach those files." }

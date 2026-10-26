@@ -1007,24 +1007,32 @@ describe('the Files pane', () => {
   it('groups nested paths into folders and loads a file by its full path', async () => {
     const user = userEvent.setup()
     const { api } = fakeApi(() => result())
-    api.listFiles = async () => [
-      { path: 'readme.txt', size: '12 B' },
-      { path: 'data/archive/orders.csv', size: '1 KB' },
-      { path: 'data/refunds.csv', size: '2 KB' },
-      { path: 'other/orders.csv', size: '3 KB' },
-    ]
+    const reads: string[] = []
+    api.listFiles = async (directory = '.') => {
+      reads.push(directory)
+      if (directory === 'data/archive') return [{ path: 'data/archive/orders.csv', size: '1 KB', kind: 'file' }]
+      if (directory === 'data') return [
+        { path: 'data/archive', size: '', kind: 'directory' },
+        { path: 'data/refunds.csv', size: '2 KB', kind: 'file' },
+      ]
+      return [{ path: 'readme.txt', size: '12 B', kind: 'file' }, { path: 'data', size: '', kind: 'directory' }]
+    }
     setApi(api)
     actions.openPane('files')
     render(<App />)
 
-    const files = await screen.findByRole('list', { name: 'Workspace files' })
+    const files = await screen.findByRole('tree', { name: 'Workspace files' })
     const folder = within(files).getByRole('button', { name: 'data' })
-    expect(folder).toHaveAttribute('aria-expanded', 'true')
-    await user.click(folder)
     expect(folder).toHaveAttribute('aria-expanded', 'false')
+    expect(reads).toEqual(['.'])
     expect(within(files).queryByRole('button', { name: /refunds.csv/ })).not.toBeInTheDocument()
-    expect(within(files).getAllByRole('button', { name: /orders.csv/ })).toHaveLength(1)
     await user.click(folder)
+    expect(await within(files).findByRole('button', { name: 'refunds.csv' })).toBeInTheDocument()
+    const archive = within(files).getByRole('button', { name: 'archive' })
+    expect(archive).toHaveAttribute('aria-expanded', 'false')
+    await user.click(archive)
+    await within(files).findByRole('button', { name: 'orders.csv' })
+    expect(reads).toEqual(['.', 'data', 'data/archive'])
     await user.click(within(files).getByTitle('Start a cell that loads data/archive/orders.csv'))
     const state = useNotebook.getState()
     expect(state.notebook.cells.find((cell) => cell.id === state.selectedId)).toMatchObject({ prompt: 'Load data/archive/orders.csv' })

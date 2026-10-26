@@ -177,9 +177,10 @@ function HistoryPane() {
 function FilesPane() {
   const path = useNotebook((s) => s.path)
   const kernelCwd = useNotebook((s) => s.kernel.cwd)
-  const runs = useNotebook((s) => s.log.length)
+  const runs = useNotebook((s) => s.log[0]?.id)
   const added = useNotebook((s) => s.filesVersion)
   const [files, setFiles] = useState<FileEntry[] | null>(null)
+  const [error, setError] = useState(false)
   const [tick, setTick] = useState(0)
 
   // Cells can write files, so look again after each run
@@ -187,8 +188,8 @@ function FilesPane() {
     let live = true
     void getApi()
       ?.listFiles()
-      .then((f) => live && setFiles(f))
-      .catch(() => live && setFiles([]))
+      .then((f) => { if (live) { setFiles(f); setError(false) } })
+      .catch(() => { if (live) { setFiles([]); setError(true) } })
     return () => {
       live = false
     }
@@ -211,6 +212,7 @@ function FilesPane() {
     <Pane
       title="Files"
       icon={<FolderOpen />}
+      bodyClassName="overflow-hidden"
       onClose={close}
       actions={
         <>
@@ -223,7 +225,9 @@ function FilesPane() {
         </>
       }
     >
-      {files == null ? null : files.length ? (
+      {error ? (
+        <p role="alert" className="px-4 py-2 text-[13px] text-destructive">Couldn't read this folder. Try Refresh.</p>
+      ) : files == null ? <Empty>Reading files…</Empty> : files.length ? (
         <FileTree key={`${path}:${kernelCwd}`} files={files} onLoad={load} />
       ) : (
         <Empty>No files here yet. Save the notebook in the folder with your data, or drop data files next to it.</Empty>

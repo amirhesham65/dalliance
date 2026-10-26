@@ -28,7 +28,7 @@ import type { Kernel, KernelEnvironment, KernelInfo } from './kernel/kernel'
 import { installPackages, pythonStatus, setupManagedEnv } from './kernel/python-env'
 import { installedPackages } from './kernel/python-packages'
 import { PythonKernel } from './kernel/python-kernel'
-import { isBroadFolder, listFiles } from './harness/workspace'
+import { listDirectory } from './workspace-files'
 import { folderForNewNotebook } from './notebook-files'
 import { comparePins, pinNotebook, pinnedPath } from './pins'
 import type { SettingsStore } from './settings'
@@ -102,13 +102,9 @@ export class NotebookSession {
     return this.readBrief()
   }
 
-  /** Files in the notebook's folder, as the agent sees them. None for a broad folder like Documents. */
-  async files(): Promise<FileEntry[]> {
-    if (isBroadFolder(this.workspace)) return []
-    return (await listFiles(this.workspace))
-      .map((line) => line.match(/^(.*) \(([^)]+)\)$/))
-      .filter((m): m is RegExpMatchArray => m != null)
-      .map((m) => ({ path: m[1], size: m[2] }))
+  /** Immediate entries for the Files pane, loaded on expansion without a file or depth limit. */
+  async files(directory?: unknown): Promise<FileEntry[]> {
+    return listDirectory(this.workspace, directory)
   }
 
   /** Variables for the sidebar. Empty until the kernel is running. */
