@@ -1092,6 +1092,54 @@ describe('switching notebooks', () => {
   })
 })
 
+describe('dismissing side panes', () => {
+  it.each(['Brief', 'Variables & Environment', 'History', 'Files', 'Pinned', 'Activity'])(
+    'closes the docked %s pane with Escape',
+    async (name) => {
+      const user = userEvent.setup()
+      setApi(fakeApi(() => result()).api)
+      render(<App />)
+      const trigger = within(screen.getByRole('list', { name: 'Panes' })).getByRole('button', { name: new RegExp(`^${name}`) })
+      await user.click(trigger)
+      expect(screen.getByRole('region', { name })).toBeInTheDocument()
+      await user.keyboard('{Escape}')
+      expect(screen.queryByRole('region', { name })).not.toBeInTheDocument()
+      expect(trigger).toHaveFocus()
+    },
+  )
+
+  it('returns focus to the opener when Escape is pressed inside a docked pane', async () => {
+    const user = userEvent.setup()
+    setApi(fakeApi(() => result()).api)
+    render(<App />)
+    const trigger = screen.getByRole('button', { name: /^Variables/ })
+    await user.click(trigger)
+    await user.click(within(screen.getByRole('region', { name: 'Variables & Environment' })).getByRole('tab', { name: 'Variables' }))
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('region', { name: 'Variables & Environment' })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('lets editors and dialogs use Escape before closing the pane', async () => {
+    const user = userEvent.setup()
+    setApi(fakeApi(() => result()).api)
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: /^Variables/ }))
+    await user.click(screen.getByRole('textbox', { name: 'Prompt' }))
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('region', { name: 'Variables & Environment' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Untitled' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Variables & Environment' })).toBeInTheDocument()
+    await user.click(screen.getByRole('heading', { name: 'Sales review' }))
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('region', { name: 'Variables & Environment' })).not.toBeInTheDocument()
+  })
+})
+
 describe('narrow windows', () => {
   it('opens a side pane over the notebook, and Esc or a click outside closes it', async () => {
     const user = userEvent.setup()

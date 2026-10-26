@@ -134,7 +134,7 @@ The main process menu owns the global shortcuts. The renderer owns the rest.
 | Cmd+Enter | Editor or command mode | Run in place |
 | Alt+Enter | Editor | Run and insert a cell below |
 | Esc | Editor | Leave the editor for command mode. A note's preview takes focus back |
-| Esc | Side pane over the notebook | Close it |
+| Esc | Open side pane, docked or over the notebook | Close it, unless a text field, menu or dialog is using Escape |
 | Enter | Command mode, or a note's preview | Edit the selected cell |
 | A, B | Command mode | Insert a prompt cell above, below |
 | M, Y | Command mode | Make the cell a note, a prompt. A note keeps only the prompt, so M on a cell with code, outputs or history offers Undo |
