@@ -1,6 +1,6 @@
 # Development
 
-You need Node 24, pnpm 10 and Python 3.9 or newer. The root `package.json` pins pnpm; `corepack enable` selects it.
+You need Node 24, pnpm 10 and Python 3.9 or newer for notebook cells. Project Apps need an installed Python 3.11 or newer and prepare separate virtual environments without changing notebook Python. The root `package.json` pins pnpm; `corepack enable` selects it.
 
 ```bash
 pnpm install
@@ -22,6 +22,9 @@ This is one pnpm workspace with `apps/desktop`, `apps/web`, `packages/shared`, a
 | `pnpm typecheck` | Check every workspace package |
 | `pnpm lint` | Run oxlint |
 | `pnpm --filter @dalliance/desktop dist:mac` | Build the macOS installer |
+| `DALLIANCE_TEST_PYTHON=/path/to/python pnpm --filter @dalliance/desktop test:apps` | After a desktop build, check a real app in Electron with Python 3.11+, pandas and matplotlib. Needs a desktop display; prepares isolated app dependencies without provider keys. See [apps.md](apps.md#verification-commands) |
+
+## CI
 
 CI runs `pnpm turbo run lint typecheck test build` on Ubuntu and macOS, with Python 3.12 and pandas, NumPy, matplotlib, and IPython 8 or 9. Dependabot groups weekly dependency updates. `.github/CODEOWNERS` assigns changes to the owner.
 

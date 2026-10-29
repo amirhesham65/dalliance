@@ -13,7 +13,7 @@ const csp: Plugin = {
       tag: 'meta',
       attrs: {
         'http-equiv': 'Content-Security-Policy',
-        content: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:",
+        content: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; frame-src http://127.0.0.1:*",
       },
       injectTo: 'head-prepend',
     },

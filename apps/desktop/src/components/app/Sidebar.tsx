@@ -1,4 +1,4 @@
-import { Activity, FileText, FolderOpen, History, Pin, Variable } from 'lucide-react'
+import { Activity, AppWindow, FileText, FolderOpen, History, Pin, Variable } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
@@ -21,6 +21,7 @@ import { cellTitle } from '@/lib/notebook/text'
 import { cn } from '@/lib/utils'
 import type { Cell, PromptCell } from '@dalliance/shared/notebook'
 import { type CellRun, type PaneKind, actions, useNotebook } from '@/store/notebook-store'
+import { appActions, useApps } from '@/store/apps-store'
 
 type Progress = 'running' | 'queued' | 'done' | 'error' | 'stale' | 'edited' | 'idle'
 
@@ -221,7 +222,7 @@ function Outline() {
               <SidebarMenuItem key={cell.id}>
                 <SidebarMenuButton
                   isActive={cell.id === selectedId}
-                  onClick={() => actions.select(cell.id)}
+                  onClick={() => { appActions.notebook(); actions.select(cell.id) }}
                   className={cn('pr-6 text-[13px] text-muted-foreground data-active:font-normal data-active:text-foreground', cell.kind === 'note' && 'font-medium')}
                 >
                   <span className="truncate">{cellTitle(cell)}</span>
@@ -249,10 +250,12 @@ const PANES: { kind: PaneKind; label: string; icon: ReactNode; key: string }[] =
   { kind: 'files', label: 'Files', icon: <FolderOpen />, key: '4' },
   { kind: 'pinned', label: 'Pinned', icon: <Pin />, key: '5' },
   { kind: 'activity', label: 'Activity', icon: <Activity />, key: '6' },
+  { kind: 'apps', label: 'Apps', icon: <AppWindow />, key: '7' },
 ]
 
-/** The side panes, opened beside the overview. Cmd+1 to Cmd+6 toggle them too. */
+/** The side panes, opened beside the overview. Cmd+1 to Cmd+7 toggle them too. */
 function PaneMenu() {
+  const apps = useApps((s) => s.apps.length)
   const pane = useNotebook((s) => s.pane)
   const brief = useNotebook((s) => s.brief)
   const variables = useNotebook((s) => s.variables.length)
@@ -269,6 +272,7 @@ function PaneMenu() {
     files: '',
     pinned: pins ? String(pins) : '',
     activity: failures ? `${failures} failed` : events ? String(events) : '',
+    apps: apps ? String(apps) : '',
   }
   const mod = navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+'
   return (

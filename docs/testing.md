@@ -120,3 +120,9 @@ pnpm --filter @dalliance/desktop exec vite preview
 ```
 
 Then open `http://localhost:4173/?demo`. Check both themes, since every colour has a light and a dark value. `.claude/launch.json` has this as `renderer-preview`.
+
+## Project apps
+
+`electron/apps/project-apps.test.ts` covers disk persistence, real JSON snapshot exports, failed-export rollback, restoring versions, source ownership, symlink and traversal refusal, child-process ownership, duplicate starts, safe promotion, idle policy, capacity and shutdown races. `environment.test.ts` checks isolated setup, approvals, compatible interpreter discovery, exact-version recreation and dependency-lock reuse after notebook Python becomes unavailable; `permissions.test.ts` checks denied browser permissions. `electron/harness/run-cell.test.ts` checks app tool policy and the verification gate, including a failure after an earlier success. `src/store/notebook-store.test.ts` checks that an app setup failure clears old success text and retries generation even when no notebook code ran. `src/components/apps/Apps.test.tsx` checks embedded-frame preservation, controls, snapshot provenance, lifecycle controls and stale responses.
+
+For a real Streamlit app inside the production Electron shell, build and run `DALLIANCE_TEST_PYTHON=/path/to/python pnpm --filter @dalliance/desktop test:apps`. This opt-in check needs Python 3.11 or newer with pandas and matplotlib and a desktop display. It prepares its own isolated Streamlit environment and opens the app even when the notebook interpreter is unavailable. It also checks interaction results, parent-crash cleanup, telemetry, bridge isolation, live themes, session preservation and Stop. It uses temporary project and userData folders and no provider keys. See [apps.md](apps.md#verification-commands).

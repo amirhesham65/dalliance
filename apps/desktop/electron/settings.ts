@@ -1,3 +1,4 @@
+import { DEFAULT_APP_POLICY } from '@dalliance/shared/apps'
 import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -17,6 +18,9 @@ interface Stored {
   /** Whether the Activity pane shows token usage. Off until the user turns it on. */
   showUsage: boolean
   onboarded: boolean
+  appsIdleMinutes: number
+  appsMaxRunning: number
+  appsHistoryLimit: number
   /** The folder in use: where new notebooks go, and where the kernel and the agent work. Null for the default one. */
   workspaceDir: string | null
   /** Where new projects go. Null for the default folder. */
@@ -37,6 +41,9 @@ const DEFAULTS: Stored = {
   suggestNext: true,
   showUsage: false,
   onboarded: false,
+  appsIdleMinutes: DEFAULT_APP_POLICY.idleMinutes,
+  appsMaxRunning: DEFAULT_APP_POLICY.maxRunning,
+  appsHistoryLimit: DEFAULT_APP_POLICY.historyLimit,
   workspaceDir: null,
   projectsDir: null,
   recent: [],
@@ -73,6 +80,9 @@ export class SettingsStore {
       this.data.providerModels[providerOf(this.data.model)!] = this.data.model
       // Extra high and Max aren't offered for now, so a saved one reads as High
       this.data.effort = offeredEffort(this.data.effort)
+      for (const [name, min, max] of [['appsIdleMinutes', 0, 240], ['appsMaxRunning', 1, 10], ['appsHistoryLimit', 1, 20]] as const) {
+        if (!Number.isInteger(this.data[name]) || this.data[name] < min || this.data[name] > max) this.data[name] = DEFAULTS[name]
+      }
     }
   }
 
@@ -113,6 +123,8 @@ export class SettingsStore {
   get suggestNext() {
     return this.data.suggestNext
   }
+
+  get appPolicy() { return { idleMinutes: this.data.appsIdleMinutes, maxRunning: this.data.appsMaxRunning, historyLimit: this.data.appsHistoryLimit } }
 
   get showUsage() {
     return this.data.showUsage
@@ -167,10 +179,16 @@ export class SettingsStore {
       suggestNext: this.data.suggestNext,
       showUsage: this.data.showUsage,
       onboarded: this.data.onboarded,
+      appsIdleMinutes: this.data.appsIdleMinutes, appsMaxRunning: this.data.appsMaxRunning, appsHistoryLimit: this.data.appsHistoryLimit,
     }
   }
 
   update(update: SettingsUpdate): SettingsView {
+    // Validate the whole policy before applying any part of the update.
+    for (const [name, min, max] of [['appsIdleMinutes', 0, 240], ['appsMaxRunning', 1, 10], ['appsHistoryLimit', 1, 20]] as const) {
+      const value = update[name]
+      if (value !== undefined && (!Number.isInteger(value) || value < min || value > max)) throw new Error(`Invalid ${name} setting.`)
+    }
     if (update.model !== undefined) {
       if (typeof update.model !== 'string') throw new Error('Choose a valid model.')
       const model = normalizeModel(update.model.trim() || DEFAULT_MODELS[providerOf(this.data.model) ?? 'anthropic'])
@@ -186,6 +204,7 @@ export class SettingsStore {
     if (update.suggestNext !== undefined) this.data.suggestNext = update.suggestNext
     if (update.showUsage !== undefined) this.data.showUsage = update.showUsage
     if (update.onboarded !== undefined) this.data.onboarded = update.onboarded
+    for (const name of ['appsIdleMinutes', 'appsMaxRunning', 'appsHistoryLimit'] as const) if (update[name] !== undefined) this.data[name] = update[name]!
     this.save()
     return this.view()
   }

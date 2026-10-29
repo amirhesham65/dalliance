@@ -1,4 +1,6 @@
 @import "@dalliance/brand/theme.css";
+@import "../vendor/transitions/ui-generation.css";
+@import "../vendor/transitions/text-image-generation.css";
 
 /* The Dalliance site. The palette, theme and base styles come from @dalliance/brand */
 

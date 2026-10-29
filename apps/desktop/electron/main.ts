@@ -21,7 +21,7 @@ import { writeFileAtomic } from './atomic-write'
 import { listModels } from './harness/model'
 import { DraftStore } from './draft'
 import { prepareImage } from './images'
-import { type AppPage, isTrustedSender } from './ipc-sender'
+import { type AppPage, isAppUrl, isTrustedSender } from './ipc-sender'
 import { buildMenu } from './menu'
 import { folderForNewNotebook, newNotebookPath, notebookInProject, notebookPathIn, projectPathIn, renameNotebookFile } from './notebook-files'
 import { isBroadFolder } from './harness/workspace'
@@ -32,6 +32,8 @@ import { ProviderKeys } from './provider-keys'
 import { Updates } from './updates'
 import { copyIntoUploads } from './uploads'
 import { workspaceFile } from './workspace-files'
+import { restrictAppPermissions } from './apps/permissions'
+import { verifyAppPage } from './apps/verify-app'
 
 const isMac = process.platform === 'darwin'
 const TITLE_BAR_HEIGHT = 48
@@ -69,6 +71,12 @@ const session = new NotebookSession({
   },
   prepareImage,
   chartTheme: () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light'),
+  verifyApp: verifyAppPage,
+  approveApp: async (message, detail) => {
+    if (!win) return false
+    const result = await dialog.showMessageBox(win, { type: 'question', message, detail, buttons: ['Allow', 'Cancel'], defaultId: 1, cancelId: 1 })
+    return result.response === 0
+  },
 })
 
 /** Paths from the renderer are only trusted to name a notebook file. Anything else goes through the Save dialog. */
@@ -174,10 +182,22 @@ function createWindow() {
   const onTheme = () => {
     if (!win || win.isDestroyed()) return
     win.setBackgroundColor(canvas().color)
+    win.webContents.send(IPC.appearanceChanged, nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
+    // Electron can update media-query values without notifying existing MediaQueryLists.
+    // Streamlit 1.66's afterprint handler recalculates its active system theme without rerunning Python.
+    const syncApps = () => {
+      if (!win || win.isDestroyed()) return
+      for (const frame of win.webContents.mainFrame.frames) if (session.appFollowsAppearance(frame.url)) {
+        void frame.executeJavaScript("window.dispatchEvent(new Event('afterprint'))").catch(() => {})
+      }
+    }
+    setTimeout(syncApps, 100)
     if (!isMac) win.setTitleBarOverlay({ ...canvas(), height: TITLE_BAR_HEIGHT })
   }
   nativeTheme.on('updated', onTheme)
   win.on('closed', () => nativeTheme.off('updated', onTheme))
+
+  restrictAppPermissions(win.webContents.session, (contents, url) => contents === win?.webContents && isAppUrl(url, appPage))
 
   // Links open in the default browser, never in a new Electron window
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -185,6 +205,9 @@ function createWindow() {
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (event) => event.preventDefault())
+  win.webContents.on('will-frame-navigate', (event) => {
+    if (!event.isMainFrame && event.url !== 'about:blank' && !session.allowsAppUrl(event.url)) event.preventDefault()
+  })
 
   win.on('close', (event) => {
     if (allowClose || !documentState.dirty || !win) return
@@ -211,6 +234,7 @@ function createWindow() {
   win.on('closed', () => {
     win = null
     opens.setReady(false)
+    void session.resetApps()
   })
 
   if (appPage.devServerUrl) void win.loadURL(appPage.devServerUrl)
@@ -264,6 +288,29 @@ function on<A extends unknown[]>(channel: string, listener: (event: IpcMainEvent
 
 function registerIpc() {
   handle(IPC.runCell, (event, request: RunCellRequest) => session.runCell(request, event.sender))
+  handle(IPC.listApps, () => session.listApps())
+  handle(IPC.startApp, (_event, id: string) => session.startApp(id))
+  handle(IPC.stopApp, (_event, id: string) => session.stopApp(id))
+  handle(IPC.restoreApp, (_event, id: string) => session.restoreApp(id))
+  handle(IPC.refreshAppData, (_event, id: string) => session.refreshAppData(id))
+  handle(IPC.keepAppRunning, (_event, id: string, keep: boolean) => session.keepAppRunning(id, keep))
+  on(IPC.visibleApp, (_event, id: string | null) => { try { session.setVisibleApp(id) } catch { /* Ignore malformed fire-and-forget state. */ } })
+  handle(IPC.deleteApp, async (_event, id: string) => {
+    if (!win) return false
+    const app = (await session.listApps()).find((a) => a.id === id)
+    if (!app) throw new Error('App not found.')
+    const choice = await dialog.showMessageBox(win, { type: 'warning', message: `Delete "${app.title}"?`, detail: 'This removes its code, snapshots, app-created files and version history. Notebook cells remain.', buttons: ['Cancel', 'Delete app'], defaultId: 0, cancelId: 0 })
+    if (choice.response !== 1) return false
+    await session.deleteApp(id)
+    return true
+  })
+  handle(IPC.clearAppHistory, async (_event, id: string) => {
+    if (!win) return false
+    const choice = await dialog.showMessageBox(win, { type: 'warning', message: 'Delete the saved versions of this app?', detail: 'The current app and its data stay. Previous versions will no longer be recoverable.', buttons: ['Cancel', 'Clear history'], defaultId: 0, cancelId: 0 })
+    if (choice.response !== 1) return false
+    await session.clearAppHistory(id)
+    return true
+  })
   on(IPC.respond, (_e, requestId: string, answer: string | boolean | null) => session.respond(requestId, answer))
   handle(IPC.interrupt, () => session.interrupt())
   handle(IPC.restartKernel, () => session.restart())
@@ -275,7 +322,10 @@ function registerIpc() {
   handle(IPC.updateSettings, async (_e, update: SettingsUpdate) => {
     const pythonChanged = update.pythonPath !== undefined && update.pythonPath !== settings.pythonPath
     const view = settings.update(update)
-    if (pythonChanged) await session.restart()
+    if (update.appsIdleMinutes !== undefined || update.appsMaxRunning !== undefined || update.appsHistoryLimit !== undefined) await session.applyAppPolicy()
+    if (pythonChanged) {
+      await session.restart()
+    }
     return view
   })
   handle(IPC.pythonState, () => session.pythonState())
@@ -575,9 +625,14 @@ if (primary) {
   })
 
   // Not in before-quit: the close dialog can still cancel the quit, and the notebook would stay open with a dead kernel
-  app.on('will-quit', () => {
+  let shuttingDown = false
+  app.on('will-quit', (event) => {
     drafts.flush()
     updates.stop()
-    void session.shutdown()
+    if (!shuttingDown) {
+      event.preventDefault()
+      shuttingDown = true
+      void session.shutdown().finally(() => app.quit())
+    }
   })
 }

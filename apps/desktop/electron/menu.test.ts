@@ -30,6 +30,7 @@ describe('the View menu', () => {
       ['Files', 'CmdOrCtrl+4', false],
       ['Pinned', 'CmdOrCtrl+5', false],
       ['Activity', 'CmdOrCtrl+6', false],
+      ['Apps', 'CmdOrCtrl+7', false],
     ])
   })
 })

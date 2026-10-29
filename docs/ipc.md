@@ -18,6 +18,12 @@ Every handler goes through `handle()` or `on()` in `main.ts`, never `ipcMain` di
 
 | Method | Kind | Main side | Does |
 | --- | --- | --- | --- |
+| `listApps()` | invoke | `session.listApps` | Project app manifests with runtime status and bounded logs |
+| `startApp(id)`, `stopApp(id)`, `restoreApp(id)` | invoke | `session` and `ProjectApps` | Start after the code policy, stop, or restore the previous source and snapshots. Accept app ids, never arbitrary paths. See [apps.md](apps.md) |
+| `refreshAppData(id)` | invoke | `session.refreshAppData` | Re-export existing snapshots and verify an update without rewriting source |
+| `deleteApp(id)`, `clearAppHistory(id)` | invoke | confirmation dialog, `session` | Explicitly confirmed app deletion or history cleanup |
+| `keepAppRunning(id, keep)` | invoke | `ProjectApps.keepRunning` | Override automatic stopping for this session |
+| `setVisibleApp(id)` | send | `ProjectApps.visibleApp` | Foreground app id, or null when hidden; drives background deadlines |
 | `runCell(request)` | invoke | `session.runCell` | Runs or generates one cell. Resolves when the run ends |
 | `respond(requestId, answer)` | send | `session.respond` | Answers an agent question or an install approval |
 | `interrupt()` | invoke | `session.interrupt` | Aborts the agent and sends SIGINT to the kernel |
@@ -26,10 +32,10 @@ Every handler goes through `handle()` or `on()` in `main.ts`, never `ipcMain` di
 | `listVariables()` | invoke | `session.variables` | Variables for the side pane |
 | `listPackages()` | invoke | `session.environment` | The Python in use and its libraries with versions, an `EnvironmentView`. `installedPackages()` in `electron/kernel/python-packages.ts` reads the interpreter with `importlib.metadata` in its own process, so a running cell doesn't hold it up. It runs in userData, since `python -c` puts its working directory first on `sys.path` and a stray `json.py` there would shadow the standard library. A failure comes back as `error`, never a throw: no Python, a timeout after 20 seconds, or the last line Python wrote to stderr |
 | `getSettings()` | invoke | `settings.view` | `SettingsView` |
-| `updateSettings(update)` | invoke | `settings.update` | Returns the new view. Restarts the kernel if `pythonPath` changed |
+| `updateSettings(update)` | invoke | `settings.update` | Returns the new view. Restarts the notebook kernel if `pythonPath` changed, while app servers keep running. App policy changes update deadlines and prune history |
 | `listModels()` | invoke | `listModels` | The local catalog for configured providers, as a `ModelList` |
 | `pythonState()` | invoke | `session.pythonState` | Which Python, which version, missing packages |
-| `setupPython()` | invoke | `session.setupPython` | Creates the managed venv, then restarts the kernel |
+| `setupPython()` | invoke | `session.setupPython` | Creates or updates the private notebook venv's libraries, then restarts the notebook kernel. An existing environment keeps its Python version. App servers keep running |
 | `openNotebook()` | invoke | dialog, `openFile` | Open dialog, parse, restart the kernel in that folder. A kernel still starting in the old folder shuts itself down. A file the OS asked to open takes the dialog's place, see [Opening files from the OS](#opening-files-from-the-os) |
 | `newNotebook(notebook)` | invoke | `createNotebook` | Writes the notebook as `Untitled.ipynb` in the folder in use, or in the default folder when that is a broad one like Documents, restarts the kernel there, returns the path. A folder that has gone is made again. When the write fails, a dialog says why and the result is null |
 | `renameNotebook(current, name, notebook)` | invoke | `renameNotebookFile`, `notebookPathIn` | Renames the file in its folder and moves its recent entry and draft. `current` must be an absolute `.ipynb` path, as for `saveNotebook`, and any other comes back as an error. With no file yet, writes the notebook under that name where `newNotebook` would, never over a file that is there, with its pins recorded as a save would. Returns a `RenameResult`: the path, and the pins when it wrote the file, or an `error` for a bad name, a taken one, or a disk that refuses. Never throws |
@@ -61,6 +67,8 @@ Each `on*` method subscribes and returns an unsubscribe function.
 
 | Method | Channel | Payload |
 | --- | --- | --- |
+| `onAppsChanged` | `apps-changed` | No payload; refresh the current project list |
+| `onAppearanceChanged` | `appearance-changed` | `light` or `dark`, from Electron native appearance; updates the renderer without reloading |
 | `onRunEvent` | `run-event` | `(cellId, RunEvent)` |
 | `onKernelState` | `kernel-state-changed` | `KernelState` |
 | `onPythonLog` | `python-log` | One line of venv or pip output |
@@ -79,9 +87,11 @@ Each `on*` method subscribes and returns an unsubscribe function.
 | `approval` | An install is waiting | The Install / Don't install bar |
 | `title` | A short name arrived, with what it cost | Written straight onto the cell, even after the run. The cost goes to the notebook's total |
 
+`CellRunResult.appBuildError` identifies a failed app build, including a setup failure before any notebook code ran. The renderer clears earlier success text and outputs, marks the cell as failed and retries generation on the next run. The main process leaves the previously published app available. See [apps.md](apps.md#safe-updates-and-verification).
+
 ## Menu actions
 
-`electron/menu.ts` builds the native menu. Each item sends a `MenuAction` string and the renderer's `handleMenu()` in `src/App.tsx` acts on it. The View menu's Cmd+B and Cmd+1 to Cmd+6 items set `registerAccelerator: false`, because the renderer handles those keys itself and the menu only displays them.
+`electron/menu.ts` builds the native menu. Each item sends a `MenuAction` string and the renderer's `handleMenu()` in `src/App.tsx` acts on it. The View menu's Cmd+B and Cmd+1 to Cmd+7 items set `registerAccelerator: false`, because the renderer handles those keys itself and the menu only displays them.
 
 ## Opening files from the OS
 
@@ -108,7 +118,7 @@ Closing a dirty window shows Save / Don't Save / Cancel from the main process.
 
 `saveNotebook()` records the pins and writes the file. For manual saves it records the saved state in the draft store itself, then moves the kernel's working directory. The window might close before the renderer's own report arrives. Auto-save only writes the file and returns its pins. The renderer reports the result through its ordinary draft subscription, so an older background save cannot replace a newer recovery draft or move a newly opened notebook's workspace.
 
-Quitting runs the same dialog for the window. `before-quit` only flushes the draft. The kernel shuts down in `will-quit`, once every window has closed, so Cancel leaves the notebook open with its kernel alive.
+Quitting runs the same dialog for the window. `before-quit` only flushes the draft. The kernel and app servers shut down in `will-quit`, once every window has closed, so Cancel leaves the notebook open with its kernel alive. The quit handler waits for shutdown before exiting. Closing the window also stops app servers.
 
 ## Adding a call
 

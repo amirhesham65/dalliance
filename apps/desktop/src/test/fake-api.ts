@@ -11,6 +11,17 @@ export function fakeApi(onRun: RunHandler) {
   const responses: [string, unknown][] = []
   const api: DallianceApi = {
     platform: 'darwin',
+    listApps: async () => [],
+    startApp: async () => { throw new Error('App not found.') },
+    stopApp: async () => {},
+    restoreApp: async () => {},
+    refreshAppData: async () => {},
+    deleteApp: async () => true,
+    clearAppHistory: async () => true,
+    keepAppRunning: async () => {},
+    setVisibleApp: () => {},
+    onAppearanceChanged: () => () => {},
+    onAppsChanged: () => () => {},
     runCell: async (request) => {
       requests.push(request)
       return onRun(request, (event) => runListeners.forEach((l) => l(request.cellId, event)))
@@ -97,6 +108,7 @@ export function fakeSettings(): SettingsView {
     suggestNext: true,
     showUsage: false,
     onboarded: true,
+    appsIdleMinutes: 15, appsMaxRunning: 3, appsHistoryLimit: 5,
   }
 }
 

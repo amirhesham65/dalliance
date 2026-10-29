@@ -1,6 +1,6 @@
 # Architecture
 
-Dalliance runs as three processes on the user's machine. The main process calls Anthropic, Google, or OpenAI directly with the user's API key. See [providers.md](providers.md). Packaged builds also check GitHub for updates, see [releasing.md](releasing.md#update-notices).
+Dalliance's notebook runs as three processes on the user's machine. Each running project app adds a separate local Streamlit server, managed by the main process. See [apps.md](apps.md). The main process calls Anthropic, Google, or OpenAI directly with the user's API key. See [providers.md](providers.md). Packaged builds also check GitHub for updates, see [releasing.md](releasing.md#update-notices).
 
 ```mermaid
 flowchart LR
@@ -96,6 +96,7 @@ The renderer is treated as untrusted web content.
 - `electron/preload.ts` exposes one object, `window.dalliance`, and never `ipcRenderer` itself. Sandboxed preloads must be CommonJS, so Vite writes `preload.cjs`.
 - Links with `https://` open in the default browser. Every other new window is denied, and in-app navigation is blocked.
 - The main process answers IPC only from the top frame of its own window showing the app's own page. See [ipc.md](ipc.md#who-may-call).
+- Project apps load in sandboxed iframes without the privileged bridge. Their loopback origins are the only extra frame destinations permitted. App source uses the existing code policy before execution; see [apps.md](apps.md).
 - Packaged builds get a strict Content Security Policy from the `dalliance-csp` plugin in `vite.config.ts`. The dev server skips it because React Fast Refresh needs inline scripts.
 - Provider keys stay in the main process and are encrypted with Electron `safeStorage`. The renderer sees only configuration status. See [providers.md](providers.md#key-storage).
 - File paths from the renderer aren't trusted. `saveNotebook()` only writes to an absolute path ending in `.ipynb` and shows the Save dialog for anything else. `openRecent()` only opens a path already in `settings.recent`. `createProject()` takes a folder name, never a path, and makes it in the projects folder the main process keeps. `attachFiles()` takes `File` objects from a drop, and the preload reads their paths with `webUtils.getPathForFile()`, so the window can't name a file to copy. `checkPins()` only reads files inside the folder in use, by relative paths.
@@ -106,7 +107,7 @@ The agent is fenced in by the harness rather than by the OS:
 - Broad folders such as the home folder, Documents, Desktop, Downloads and iCloud Drive get no file listing at all. See `isBroadFolder()` in `electron/harness/workspace.ts`.
 - A built-in event bus extension blocks `read_file` on `.env` and `.env.*`, in any case and with either `/` or `\` separators. See `isSecretPath()` in `electron/harness/code-policy.ts`.
 - Package installs need the user's approval unless the approval mode is `background`.
-- A code policy reads the Python that `explore` and `run_cell` are about to run. Code that reads secret files (`.env`, `~/.ssh`, `~/.aws`, `.netrc`, the keychain) is blocked. Code that runs shell commands or subprocesses, or uses the network, goes through the same approval as package installs. See `inspectCode()` in `electron/harness/code-policy.ts` and `codePolicy()` in `electron/harness/extensions.ts`.
+- A code policy reads the Python that `explore`, `run_cell` and `save_app` are about to run. Code that reads secret files (`.env`, `~/.ssh`, `~/.aws`, `.netrc`, the keychain) is blocked. Code that runs shell commands or subprocesses, or uses the network, goes through the same approval as package installs. See `inspectCode()` in `electron/harness/code-policy.ts` and `codePolicy()` in `electron/harness/extensions.ts`.
 - The code policy only reads the code's text, so it's a speed bump, not a sandbox. Code that hides what it does, or a library that fetches a URL on its own, gets through. Treat the kernel as having the user's permissions.
 
 ## Where state lives

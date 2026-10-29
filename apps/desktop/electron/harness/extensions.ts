@@ -35,7 +35,7 @@ const short = (line: string) => (line.length > 120 ? `${line.slice(0, 119)}…` 
  */
 export function codePolicy(bus: EventBus) {
   bus.on('tool_call', async ({ toolName, input, approve }) => {
-    if (toolName !== 'explore' && toolName !== 'run_cell') return
+    if (toolName !== 'explore' && toolName !== 'run_cell' && toolName !== 'save_app') return
     const concerns = inspectCode(String((input as { code?: unknown } | undefined)?.code ?? ''))
     const secret = concerns.find((c) => c.kind === 'secret')
     if (secret) {

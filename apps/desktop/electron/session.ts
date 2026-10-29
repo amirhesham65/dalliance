@@ -1,6 +1,9 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { WebContents } from 'electron'
+import { appIdFromCode, type AppVerification, type AppView } from '@dalliance/shared/apps'
+import { ProjectApps } from './apps/project-apps'
+import { AppEnvironments } from './apps/environment'
 import type { ChartThemeName } from '@dalliance/shared/chart-theme'
 import {
   type Brief,
@@ -16,7 +19,7 @@ import {
 } from '@dalliance/shared/ipc'
 import type { Notebook, Pins } from '@dalliance/shared/notebook'
 import { FileHasher } from './file-hash'
-import { createApproval, normalize } from './harness/approval'
+import { approver, createApproval, normalize } from './harness/approval'
 import { EventBus } from './harness/events'
 import { installExtensions } from './harness/extensions'
 import { type ModelCall, costOf } from './harness/cost'
@@ -34,6 +37,8 @@ import { comparePins, pinNotebook, pinnedPath } from './pins'
 import type { SettingsStore } from './settings'
 
 interface SessionOptions {
+  verifyApp?: (url: string, signal: AbortSignal) => Promise<AppVerification>
+  approveApp?: (title: string, detail: string) => Promise<boolean>
   settings: SettingsStore
   userData: string
   defaultWorkspace: string
@@ -76,16 +81,90 @@ export class NotebookSession {
   private readonly hasher: FileHasher
   readonly bus = new EventBus()
   private readonly options: SessionOptions
+  private projectApps: ProjectApps
+  private retiringApps = new Set<Promise<void>>()
 
   constructor(options: SessionOptions) {
     this.options = options
     // A remembered Documents or home folder came from a notebook kept there. Without that notebook, start in the default.
     this.workspace = folderForNewNotebook(options.settings.workspaceDir ?? options.defaultWorkspace, options.defaultWorkspace)
     this.lastKernelState = { status: 'dead', python: null, cwd: this.workspace, error: null }
+    this.projectApps = this.createApps()
     this.hasher = options.hasher ?? new FileHasher()
 
     // Keep .env files private, and log every run to logs/agent.jsonl
     installExtensions(this.bus, { logDir: path.join(options.userData, 'logs') })
+  }
+
+  private createApps() {
+    const python = async () => {
+        const status = await this.pythonState()
+        if (!status.python) throw new Error('Set up Python in Settings before running an app.')
+        return status.python
+    }
+    return new ProjectApps({
+      workspace: this.workspace, python,
+      environment: new AppEnvironments(this.options.userData, this.workspace, python),
+      policy: () => this.options.settings.appPolicy,
+      changed: () => this.options.send(IPC.appsChanged),
+      verify: this.options.verifyApp,
+    })
+  }
+
+  applyAppPolicy() { return this.projectApps.applyPolicy() }
+
+  listApps(): Promise<AppView[]> { return this.projectApps.list() }
+
+  async startApp(id: string) {
+    const apps = this.projectApps
+    // Manually edited or imported apps pass the same policy as generated code before execution.
+    const code = await apps.source(id)
+    const approve = this.appApprover()
+    const gate = await this.bus.emit('tool_call', { cellId: 'apps', toolName: 'save_app', input: { code }, approve })
+    if (gate.blocked) throw new Error(gate.reason)
+    return apps.start(id, undefined, approve)
+  }
+
+  private appApprover() {
+    return approver(createApproval({ mode: this.options.settings.approvalMode }, this.trust), async (title, detail, keys) => {
+      const allowed = await this.options.approveApp?.(title, detail) ?? false
+      if (allowed) for (const key of keys) this.trust.add(normalize(key))
+      return allowed
+    })
+  }
+
+  stopApp(id: string) { return this.projectApps.stop(id) }
+  restoreApp(id: string) { return this.projectApps.restore(id) }
+  deleteApp(id: string) { return this.projectApps.remove(id) }
+  clearAppHistory(id: string) { return this.projectApps.clearHistory(id) }
+  keepAppRunning(id: string, keep: boolean) { this.projectApps.keepRunning(id, keep) }
+  setVisibleApp(id: string | null) { this.projectApps.visibleApp(id) }
+  async refreshAppData(id: string) {
+    if (this.controller || this.kernel?.info().status === 'busy') throw new Error('Wait for the running notebook cell before refreshing app data.')
+    const apps = this.projectApps
+    const kernel = await this.ensureKernel()
+    const controller = new AbortController()
+    this.controller = controller
+    try {
+      const code = await apps.source(id)
+      const approve = this.appApprover()
+      const gate = await this.bus.emit('tool_call', { cellId: 'apps', toolName: 'save_app', input: { code }, approve })
+      if (gate.blocked) throw new Error(gate.reason)
+      await apps.refresh(id, kernel, controller.signal, approve)
+      await apps.checkData(kernel)
+    } finally { if (this.controller === controller) this.controller = null }
+  }
+  appFollowsAppearance(url: string) { return this.projectApps.followsAppearance(url) }
+  allowsAppUrl(url: string) { return this.projectApps.allows(url) }
+
+  /** Changing projects or Python invalidates starts in flight before awaiting their shutdown. */
+  async resetApps() {
+    const old = this.projectApps
+    this.projectApps = this.createApps()
+    const shuttingDown = old.shutdown()
+    this.retiringApps.add(shuttingDown)
+    try { await shuttingDown } finally { this.retiringApps.delete(shuttingDown) }
+    this.options.send(IPC.appsChanged)
   }
 
   private get briefPath() {
@@ -216,7 +295,10 @@ export class NotebookSession {
 
   /** A new or opened notebook gets a fresh kernel in its own folder. The folder is remembered for the next launch. */
   async openWorkspace(dir: string | null) {
-    this.workspace = dir ?? this.options.defaultWorkspace
+    const next = dir ?? this.options.defaultWorkspace
+    const moved = next !== this.workspace
+    this.workspace = next
+    if (moved) { this.interrupt(); await this.resetApps() }
     this.options.settings.setWorkspaceDir(this.workspace)
     await this.restart()
   }
@@ -225,6 +307,7 @@ export class NotebookSession {
   async moveWorkspace(dir: string) {
     if (dir === this.workspace) return
     this.workspace = dir
+    await this.resetApps()
     this.options.settings.setWorkspaceDir(dir)
     if (this.kernel && this.kernel.info().status !== 'dead') {
       await this.kernel.execute(`import os as _os\n_os.chdir(${JSON.stringify(dir)})\ndel _os`, { store: false })
@@ -273,6 +356,7 @@ export class NotebookSession {
 
     const controller = new AbortController()
     this.controller = controller
+    const apps = this.projectApps
 
     // Name generated cells with the selected provider. Saved-code runs make no model requests.
     if (request.generate && request.nameIt && this.options.settings.autoTitles) {
@@ -300,6 +384,13 @@ export class NotebookSession {
     try {
       const pythonVersion = kernel.info().python
       const result = await runCell(request, {
+        apps: {
+          list: () => apps.list(),
+          save: async (draft, approve) => {
+            const saved = await apps.save({ ...draft, id: draft.id ?? appIdFromCode(request.code) ?? undefined }, { cellId: request.cellId, notebook: request.notebookName ? path.basename(request.notebookName) : null }, tracked, controller.signal)
+            return { id: saved.id, verification: await apps.verify(saved.id, controller.signal, approve) }
+          },
+        },
         model: model!,
         providerOptions,
         kernel: tracked,
@@ -330,6 +421,7 @@ export class NotebookSession {
         prepareImage: this.options.prepareImage,
         signal: controller.signal,
       })
+      if (!controller.signal.aborted) await apps.checkData(kernel).catch(() => {})
       // Counted whether or not Show token usage is on, so turning it on shows the runs made while it was off
       const cost = costOf(result.steps.map((s) => ({ model: s.modelId ?? config.model, usage: s.usage })))
       return cost ? { ...result, cost } : result
@@ -439,6 +531,7 @@ export class NotebookSession {
     const old = this.kernel
     this.kernel = null
     this.forgetRuns()
+    await this.projectApps.checkData(null).catch(() => {})
     await old?.shutdown()
     this.warmUp()
   }
@@ -449,6 +542,6 @@ export class NotebookSession {
     this.generation++
     const kernel = this.kernel
     this.kernel = null
-    await kernel?.shutdown()
+    await Promise.all([kernel?.shutdown(), this.projectApps.shutdown(), ...this.retiringApps])
   }
 }

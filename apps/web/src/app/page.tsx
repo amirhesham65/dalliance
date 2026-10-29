@@ -2,6 +2,7 @@ import type { StaticImageData } from 'next/image'
 import { getImageProps } from 'next/image'
 import { Act, Band, SiteFooter, SiteHeader } from '@/components/Chrome'
 import { Demo } from '@/components/demo/Demo'
+import { AppsFeature } from '@/components/AppsFeature'
 import { LatestPosts } from '@/components/LatestPosts'
 import { type Frame, Reel } from '@/components/Reel'
 import { listPosts } from '@/lib/blog'
@@ -143,6 +144,9 @@ export default async function Home() {
         />
 
         <div className={sheet}>
+          <Band title="Apps" id="apps" labelId="apps-heading">
+            <AppsFeature />
+          </Band>
           <Band title="What it does" labelId="does">
             {/* Numbered like notebook cells, hanging into the margin so the prose starts on the same line as every other band's */}
             <ol className="space-y-4 lg:-ml-10">
@@ -162,7 +166,7 @@ export default async function Home() {
           <Band title="What it needs" labelId="needs">
             <div>
               <p>
-                <strong>A Mac with Python 3.</strong> Dalliance can create a private environment with pandas, NumPy and matplotlib, or use an interpreter you already have.
+                <strong>A Mac with Python.</strong> Notebook cells need Python 3.9 or newer. Apps use a separate environment with a compatible installed Python 3.11 or newer. Dalliance can create a private notebook environment with pandas, NumPy and matplotlib, or use an interpreter you already have.
               </p>
               <p>
                 <strong>Open source. Your own API key.</strong> Connect Anthropic, Google, or OpenAI. Requests go directly to your provider, and you pay for your own API usage.

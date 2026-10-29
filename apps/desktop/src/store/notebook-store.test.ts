@@ -3,6 +3,7 @@ import type { PinChange } from '@dalliance/shared/ipc'
 import { type Pins, type PromptCell, newNoteCell, newPromptCell } from '@dalliance/shared/notebook'
 import { fakeApi, fakeSettings, provenance, result } from '@/test/fake-api'
 import { actions, setApi, useNotebook } from './notebook-store'
+import { appCellCode, appCellText } from '@dalliance/shared/apps'
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
 const cell = (i: number) => useNotebook.getState().notebook.cells[i] as PromptCell
@@ -110,6 +111,21 @@ describe('running cells', () => {
     await flush()
     expect(cell(0)).toMatchObject({ code: '', state: 'idle' })
     expect(useNotebook.getState().messages[cell(0).id]).toContain('provider API key')
+  })
+
+  it('clears an earlier app success when an update fails before any notebook code runs, and retries generation', async () => {
+    const appBuildError = 'Streamlit requires Python 3.11 or newer.'
+    const code = appCellCode('sales')
+    const { api, requests } = fakeApi(() => result({ ok: false, code, outputs: [], executionCount: null, appBuildError, error: appBuildError }))
+    setApi(api)
+    load({ ...newPromptCell('Create an app', code), state: 'done', answer: 'The app is ready.', outputs: [{ type: 'text', text: appCellText('sales') }] })
+    actions.regenerate(cell(0).id)
+    await flush()
+    expect(cell(0)).toMatchObject({ code, state: 'error', answer: null, outputs: [], generatedFrom: '' })
+    expect(useNotebook.getState().messages[cell(0).id]).toBe(appBuildError)
+    actions.run(cell(0).id)
+    await flush()
+    expect(requests[1].generate).toBe(true)
   })
 
   it('keeps a prompt edited during the run, and regenerates it next time', async () => {

@@ -21,6 +21,9 @@ import type { MenuAction } from '@dalliance/shared/ipc'
 import { PANE_ORDER, actions, getApi, useNotebook, welcomeNotebook } from '@/store/notebook-store'
 import { providerOf } from '@dalliance/shared/models'
 import { saveNotebook, startAutoSave } from '@/store/notebook-save'
+import { appActions, useApps } from '@/store/apps-store'
+import { AppLifecycle } from '@/components/apps/AppLifecycle'
+import { AppShell } from '@/components/apps/AppShell'
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => readStored('dalliance-sidebar') !== 'closed')
@@ -36,6 +39,11 @@ export default function App() {
   const api = getApi()
 
   useEffect(() => startAutoSave(), [api])
+
+  useEffect(() => {
+    const folder = path ? path.replace(/[\\/][^\\/]*$/, '') : kernel.cwd
+    appActions.workspace(folder)
+  }, [api, path, kernel.cwd])
 
   const handleMenu = useCallback(
     async (action: MenuAction) => {
@@ -124,7 +132,9 @@ export default function App() {
     // Null only means none found yet, so it never replaces one the event below brought in first
     void api.getUpdate().then((update) => update && useNotebook.setState({ update }))
     void actions.loadBrief()
+    void appActions.refresh()
     const offs = [
+      api.onAppsChanged(() => appActions.scheduleRefresh()),
       api.onUpdate((update) => useNotebook.setState({ update })),
       api.onRunEvent((cellId, event) => actions.applyRunEvent(cellId, event)),
       api.onKernelState((kernel) => useNotebook.setState({ kernel })),
@@ -142,7 +152,7 @@ export default function App() {
 
   useEffect(() => writeStored('dalliance-sidebar', sidebarOpen ? 'open' : 'closed'), [sidebarOpen])
 
-  // Cmd+1 to Cmd+6 toggle the side panes, opening the overview first if it's hidden
+  // Cmd+1 to Cmd+7 toggle the side panes, opening the overview first if it's hidden
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return
@@ -205,6 +215,7 @@ export default function App() {
           {settingsPage && <SettingsScreen />}
         </div>
       </SidebarProvider>
+      <AppLifecycle />
       <NewProjectDialog />
       <NoticeToast />
     </TooltipProvider>
@@ -266,6 +277,7 @@ const NARROW_WINDOW = '(max-width: 1199px)'
 function Workspace() {
   const { open, openMobile, isMobile } = useSidebar()
   const pane = useNotebook((s) => s.pane)
+  const showingApp = useApps((s) => s.showing)
   const narrow = useMediaQuery(NARROW_WINDOW)
   const visible = isMobile ? openMobile : open
   const docked = visible && pane != null && !narrow
@@ -294,7 +306,8 @@ function Workspace() {
             </>
           )}
           <ResizablePanel id="notebook" minSize={360} className="flex">
-            <NotebookView />
+            <div hidden={showingApp} className={showingApp ? 'hidden' : 'flex min-h-0 min-w-0 flex-1'}><NotebookView /></div>
+            <AppShell />
           </ResizablePanel>
         </ResizablePanelGroup>
         {visible && pane != null && narrow && <PaneOverlay />}
@@ -409,6 +422,7 @@ function useCommandMode() {
       const target = e.target as HTMLElement
       if (e.defaultPrevented) return
       if (useNotebook.getState().screen !== 'notebook' || useNotebook.getState().settingsPage) return
+      if (useApps.getState().showing) return
       if (target !== document.body && target !== document.documentElement && !target.closest('[data-command-scope]')) return
       if (target.closest(`${TEXT_FIELD}, [role="dialog"], [role="alertdialog"], [role="listbox"]`)) return
       if (target.closest('button, a, summary, [role="tab"]') && (e.key === 'Enter' || e.key === ' ')) return
