@@ -8,11 +8,12 @@ On macOS this is `~/Library/Application Support/Dalliance/`. The code gets it wi
 
 | Path | Written by | Holds |
 | --- | --- | --- |
-| `settings.json` | `SettingsStore`, `electron/settings.ts` | Model, effort, Python path, approval mode, titles on or off, suggested next prompts on or off, Show token usage on or off, per-provider model choices, onboarded, the folder in use, the folder for new projects, recent notebooks. No keys. Mode `0600` |
+| `settings.json` | `SettingsStore`, `electron/settings.ts` | Model, effort, notebook Python path, approval mode, title and suggestion preferences, Show token usage, per-provider model choices, onboarding, workspace and project folders, recent notebooks, app timeout, running limit and history size. No keys. Mode `0600` |
 | `provider-keys.json` | `ProviderKeys`, `electron/provider-keys.ts` | API keys encrypted with `safeStorage`. Without secure storage, keys stay in memory. Mode `0600` |
 | `session.json` | `DraftStore`, `electron/draft.ts` | The open notebook's path, whether it's dirty, and its contents when dirty |
 | `logs/agent.jsonl` | `createRunLog()` and `logRuns()`, `electron/harness/extensions.ts` | One line per `run_start`, `tool_call`, `tool_result`, `step` (one per model call, with its reasoning summary) and `run_end`, strings clipped to 2,000 characters except the reasoning summaries. At 5 MB it moves to `agent.jsonl.1`, replacing the old backup. It holds the full trail behind each cell's record of how it was made. The notebook keeps only the final attempt |
-| `python-env/` | `setupManagedEnv()`, `electron/kernel/python-env.ts` | The managed virtual environment |
+| `python-env/` | `setupManagedEnv()`, `electron/kernel/python-env.ts` | The private notebook virtual environment. Update libraries keeps its Python version |
+| `app-environments/` | `AppEnvironments` | Immutable app virtual environments, dependency-set indexes and lock indexes, scoped by project. Lock indexes allow reuse independently of notebook Python. App deletion and history pruning leave this cache intact |
 | `kernel/dalliance_kernel.py` | `PythonKernel.start()` | The kernel script, rewritten on every start |
 
 To reset the app to a first launch, quit it and delete this folder.
@@ -26,6 +27,8 @@ To reset the app to a first launch, quit it and delete this folder.
 `settings.json` holds no keys. `ProviderKeys` stores them separately, see [providers.md](providers.md#key-storage). Settings still use mode `0600` because they list folders and notebooks.
 
 `SettingsStore` takes the userData folder and a key resolver. `modelConfig()` returns `{ model, effort, key }` for `resolveModel()`. `SettingsView` gives the renderer the preferences and remembered per-provider model IDs, never keys. Updating the model validates its provider and remembers it for future provider switches. Anthropic numeric version dots normalize to native dashes. Retired or unknown stored fields are not written back.
+
+App lifecycle settings default to a 15-minute background timeout, three running apps and five previous versions. They are range-validated on load and update. See [apps.md](apps.md).
 
 Missing settings take defaults. A renamed or retired setting is changed directly; recent notebooks, workspace choices and drafts remain intact.
 
@@ -65,7 +68,9 @@ Files dropped on a prompt cell are copied into `uploads/` in the folder in use, 
 
 A new notebook is a file from the start. `newNotebook(notebook)` writes `Untitled.ipynb` into the folder in use, or `Untitled 2.ipynb` and up when that name is taken (`newNotebookPath()` in `electron/notebook-files.ts`), and starts a fresh kernel there. Only the notebook the window shows at launch, behind the start page, has no file yet. Clicking the name at the top of the overview renames the file in place, as Jupyter does, and for that one notebook writes it under the name typed. `cleanNotebookName()` refuses an empty name, path characters, a leading dot and more than 100 characters, and a name that is already taken in the folder is refused too. Both writes create the file with the `wx` flag, so a file that appears under the chosen name after the check is never overwritten: a new notebook moves on to the next free name, and a rename says the name is taken. A new notebook joins the recent list only once its kernel's folder is open. Unsaved edits stay unsaved through a rename.
 
-The app writes four things into it: a new notebook's `.ipynb` when it is made or first named, the `.ipynb` on save, `AGENTS.md` when the user edits the brief, and copies of dropped files in `uploads/`. The save writes a hidden `.<name>.ipynb.<pid>.<random>.tmp` file next to the notebook and renames it into place. Cells can write anything else, since they're the user's Python.
+The app also writes project apps and their snapshots under `apps/`, with previous versions under `apps/.history/`. These belong to the folder and survive deletion of their source cell. See [apps.md](apps.md).
+
+For notebooks, the app writes four things into it: a new notebook's `.ipynb` when it is made or first named, the `.ipynb` on save, `AGENTS.md` when the user edits the brief, and copies of dropped files in `uploads/`. The save writes a hidden `.<name>.ipynb.<pid>.<random>.tmp` file next to the notebook and renames it into place. Cells can write anything else, since they're the user's Python.
 
 The app also reads the data files the cells read, to hash them for the notebook's pins: after the run that read them, on save, and when the notebook opens. It never writes them. The hashes are kept in memory only, by path, size and modification time, and files over 1 GB are never read. See [notebook-model.md](notebook-model.md#pins).
 

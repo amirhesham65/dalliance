@@ -49,7 +49,7 @@ Before tagging, it's worth building the DMG locally and checking that the app la
 
 ### Install notes
 
-The app isn't notarized, so macOS blocks the first launch. Every release needs to tell users to open System Settings > Privacy & Security and click Open Anyway, once. It also needs to say the app wants Python 3.9 or newer. `.github/release-notes.md` has the wording, and every release in `dalliance-releases` starts from it.
+The app isn't notarized, so macOS blocks the first launch. Every release needs to tell users to open System Settings > Privacy & Security and click Open Anyway, once. Notebook cells need Python 3.9 or newer; Apps need a compatible installed Python 3.11 or newer and prepare separate environments. Dalliance does not download Python itself. `.github/release-notes.md` has the wording, and every release in `dalliance-releases` starts from it.
 
 ## Update notices
 

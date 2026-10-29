@@ -30,6 +30,7 @@ General coding agents are built to ship software. Research needs answers you can
 - **Answers come from code that ran.** The agent runs the code, reads the traceback and fixes it. A cell only finishes once its code succeeds, and the Python is one tab away.
 - **Reproducible by default.** Verify reruns every cell from a clean start. Each save pins the Python version, the package versions and a hash of every file the cells read. Every cell keeps the record of how it was made, and the last 12 versions. An unchanged prompt reruns its saved code with no model call.
 - **It's plain `.ipynb`.** Jupyter, GitHub and reviewers open it as it is.
+- **Turn notebook data into an app.** Ask a cell to create a Streamlit app, then open it from Apps in the sidebar. Apps live in the project's `apps/` folder, use saved data snapshots and follow Dalliance's light and dark appearance. See [project apps](docs/apps.md).
 - **Python runs on your Mac.** The agent reads only the notebook's folder, never `.env` files, and by default asks before code runs shell commands or uses the network.
 - **Bring your own API key.** Connect Anthropic, Google, or OpenAI in Settings > Models. Requests go directly to your selected provider, under your own billing and data policies. Keys are encrypted on your device.
 
@@ -44,7 +45,7 @@ General coding agents are built to ship software. Research needs answers you can
 
 ## Getting started
 
-You need Node 24, pnpm 10 and Python 3.9 or newer. `corepack enable` picks the pnpm version the root `package.json` pins.
+You need Node 24, pnpm 10 and Python 3.9 or newer for notebook cells. Apps need an installed Python 3.11 or newer for Streamlit. Dalliance chooses a compatible Python for each app's separate environment, so notebook Python can stay on an older version. `corepack enable` picks the pnpm version the root `package.json` pins.
 
 ```bash
 pnpm install

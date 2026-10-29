@@ -18,6 +18,8 @@ import { OutputList } from './outputs/OutputView'
 import { PythonTokens } from './PythonTokens'
 import { RefText } from './RefText'
 import { useFileDrop } from './use-file-drop'
+import { appIdFromCode } from '@dalliance/shared/apps'
+import { appActions } from '@/store/apps-store'
 
 interface CellViewProps {
   cell: Cell
@@ -194,6 +196,7 @@ function PromptCellView({ cell, selected }: { cell: PromptCell; selected: boolea
         </div>
       </div>
       <AttachmentChips cellId={cell.id} files={cell.attachments} />
+      {!run && appIdFromCode(cell.code) && <Button size="sm" variant="secondary" className="mt-2" onClick={() => void appActions.open(appIdFromCode(cell.code)!)}>Open app</Button>}
 
       {!running && hasAssumptions(cell.interpretation) && <Interpretation cell={cell} />}
       {run && <RunProgress cellId={cell.id} run={run} />}

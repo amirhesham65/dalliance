@@ -105,6 +105,19 @@ function machine(opts: { versions: Record<string, string>; files?: string[]; dir
 }
 
 describe('findSystemPython on macOS', () => {
+  it('finds a compatible app runtime or an exact locked version without relaxing notebook support', async () => {
+    const { deps } = machine({
+      versions: { '/opt/homebrew/bin/python3': '3.14.2', '/opt/homebrew/bin/python3.12': '3.12.4', '/usr/bin/python3': '3.9.6' },
+      dirs: { '/opt/homebrew/bin': ['python3.12'] }, clt: true,
+    })
+    expect(await findSystemPython(deps, { minimum: '3.11' })).toBe('/opt/homebrew/bin/python3')
+    expect(await findSystemPython(deps, { minimum: '3.11', exact: '3.12.4' })).toBe('/opt/homebrew/bin/python3.12')
+    expect(await findSystemPython(deps, { minimum: '3.11', exact: '3.11.9' })).toBeNull()
+    const old = machine({ versions: { '/usr/bin/python3': '3.9.6' }, clt: true })
+    expect(await findSystemPython(old.deps, { minimum: '3.11' })).toBeNull()
+    expect(await findSystemPython(old.deps)).toBe('/usr/bin/python3')
+  })
+
   it("prefers Homebrew's Python over Apple's on the Dock's minimal PATH", async () => {
     const { deps, ran } = machine({ versions: { '/usr/bin/python3': '3.9.6', '/opt/homebrew/bin/python3': '3.13.1' }, clt: true })
     expect(await findSystemPython(deps)).toBe('/opt/homebrew/bin/python3')

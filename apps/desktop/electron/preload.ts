@@ -12,6 +12,17 @@ function subscribe<T extends unknown[]>(channel: string, listener: (...args: T) 
 // The renderer gets this typed surface only, never ipcRenderer itself
 const api: DallianceApi = {
   platform: process.platform,
+  listApps: () => ipcRenderer.invoke(IPC.listApps),
+  startApp: (id) => ipcRenderer.invoke(IPC.startApp, id),
+  stopApp: (id) => ipcRenderer.invoke(IPC.stopApp, id),
+  restoreApp: (id) => ipcRenderer.invoke(IPC.restoreApp, id),
+  refreshAppData: (id) => ipcRenderer.invoke(IPC.refreshAppData, id),
+  deleteApp: (id) => ipcRenderer.invoke(IPC.deleteApp, id),
+  clearAppHistory: (id) => ipcRenderer.invoke(IPC.clearAppHistory, id),
+  keepAppRunning: (id, keep) => ipcRenderer.invoke(IPC.keepAppRunning, id, keep),
+  setVisibleApp: (id) => ipcRenderer.send(IPC.visibleApp, id),
+  onAppearanceChanged: (listener) => subscribe(IPC.appearanceChanged, listener),
+  onAppsChanged: (listener) => subscribe(IPC.appsChanged, listener),
   runCell: (request) => ipcRenderer.invoke(IPC.runCell, request),
   onRunEvent: (listener) => subscribe(IPC.runEvent, listener),
   respond: (requestId, answer) => ipcRenderer.send(IPC.respond, requestId, answer),
@@ -62,4 +73,4 @@ const api: DallianceApi = {
   onUpdate: (listener) => subscribe(IPC.updateFound, listener),
 }
 
-contextBridge.exposeInMainWorld('dalliance', api)
+if (process.isMainFrame) contextBridge.exposeInMainWorld('dalliance', api)

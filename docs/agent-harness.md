@@ -5,7 +5,7 @@ The agent lives in `apps/desktop/electron/harness/`. It follows Vercel's [Build 
 | File | Does |
 | --- | --- |
 | `run-cell.ts` | The entry point. Runs saved code directly, or drives a `ToolLoopAgent` |
-| `tools.ts` | The nine tools and the `guarded()` wrapper |
+| `tools.ts` | The tools and the `guarded()` wrapper |
 | `images.ts` | What the model is shown: the image budget, `toModelOutput()` and the note on which charts it sees |
 | `prompt.ts` | `buildSystemPrompt()` and `buildCellPrompt()` |
 | `model.ts` | Direct provider adapters, effort options, and the local model catalog |
@@ -36,7 +36,10 @@ The tools write to a shared `RunState`:
 
 ```ts
 interface RunState {
-  lastRun: { code; result } | null  // the last run_cell, successful or not
+  lastRun: { code; result } | null  // the last run_cell, or a verified app reference
+  appAttempted?: boolean
+  appVerified?: boolean
+  appError?: string
   finished: { interpretation; answer; suggestions } | null
   attempts: number
   trail: RunTrail  // each attempt, the files read and the approvals, for the cell's record
@@ -75,7 +78,11 @@ Every tool's description follows the course's format: WHEN TO USE, WHEN NOT TO U
 | `run_cell` | Runs the complete cell with `store: true` and records it as `lastRun`. Takes a `summary` and the `code` | 5,000 characters. Tables show 15 rows to the model. Interrupted after 10 minutes |
 | `install_packages` | `pip install` into the kernel's interpreter | 1 to 5 packages. Last 1,500 characters of the log |
 | `ask_user` | A multiple-choice question in the cell | 2 to 4 options |
+| `list_apps` | Lists project apps, source paths, snapshots and runtime status | 12,000 characters |
+| `save_app` | Stages a Streamlit app, prepares an isolated locked environment, checks its interactions and page, then publishes it and keeps a harmless reference as the cell code. See [apps.md](apps.md) | 200,000 source characters, 20 snapshots, result clipped to 5,000 characters; screenshot uses the existing image budget |
 | `finish` | Ends the cell with interpretation, answer and `next` | Up to 3 suggestions. None when `suggestNext` is off |
+
+`save_app` uses the existing code policy, stages files and data snapshots, prepares an approved isolated environment, tests the main interactions and checks a separately rendered page before replacing the published app. A failed setup or verification blocks both `finish` and text fallback until repaired, even after an earlier successful app attempt in the same run. The result carries the bounded error as `appBuildError` and clears success text and outputs. The renderer treats this as attempted work even if no notebook code ran, so a retry regenerates rather than rerunning the saved reference. Plain app-cell reruns do not write files or launch servers. See [apps.md](apps.md).
 
 `finish` is the verification gate. It refuses when no code ran and there's no answer, or when the last `run_cell` failed. The refusal goes back to the model as the tool result, and the loop carries on.
 

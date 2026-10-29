@@ -6,14 +6,16 @@ The UI is React 19 with zustand for state, shadcn components on Radix, and Tailw
 src/
   main.tsx                    theme, session restore, ?demo, render
   App.tsx                     menu handling, keyboard modes, the three-column layout
-  store/notebook-store.ts     all document and run state, and every action
+  store/notebook-store.ts     notebook document, run state and notebook actions
+  store/apps-store.ts         project app listings, selection and lifecycle actions
   store/notebook-save.ts      auto-save and the queue for saves and renames
   components/
     app/                      TopBar, Sidebar (the overview), IconButton, MakerLogo
     settings/                 the Settings screen and one component per section
     notebook/                 NotebookView, CellView, editors, text renderers
     notebook/outputs/         OutputView: tables, images, text, errors, printed output
-    panes/                    Brief, Variables & Environment, History, Files, Pinned, Activity
+    panes/                    Brief, Variables & Environment, History, Files, Pinned, Activity, Apps
+    apps/                     app list, embedded shell and lifecycle warnings
     welcome/                  first-run setup and the start page
     ui/                       shadcn components, generated. Edit sparingly
   lib/notebook/text.ts        Markdown, answers, @refs, Python highlighting, titles, durations
@@ -129,7 +131,7 @@ The main process menu owns the global shortcuts. The renderer owns the rest.
 | Shift+Cmd+Enter | Menu | Run all |
 | Cmd+. | Menu | Interrupt |
 | Cmd+B | Renderer, shown in the menu | Toggle the overview and side pane |
-| Cmd+1 to Cmd+6 | Renderer, shown in the menu | Brief, Variables & Environment, History, Files, Pinned, Activity |
+| Cmd+1 to Cmd+7 | Renderer, shown in the menu | Brief, Variables & Environment, History, Files, Pinned, Activity, Apps |
 | Shift+Enter | Editor or command mode | Run and move to the next cell, adding one at the end |
 | Cmd+Enter | Editor or command mode | Run in place |
 | Alt+Enter | Editor | Run and insert a cell below |
@@ -192,7 +194,7 @@ With 40 cells each showing a 100 × 10 table, one keystroke took about 2.7 s in 
 
 ## Side panes
 
-All in `components/panes/`. One is open at a time, set by `actions.openPane()` or `togglePane()`.
+`components/panes/SidePanes.tsx` selects the open pane, with the Apps components in `components/apps/`. One is open at a time, set by `actions.openPane()` or `togglePane()`.
 
 | Pane | Shows |
 | --- | --- |
@@ -239,7 +241,8 @@ Settings is a screen of its own, not a dialog. `actions.openSettings(section?)` 
 | --- | --- | --- |
 | Models | `ModelSettings` | `ProviderSetup` for simultaneous provider connections, plus a model picker combining connected providers, custom model IDs, effort and token usage |
 | Agent | `AgentSettings` | Approvals (package installs, shell and network code), cell names, suggested next prompts |
-| Python | `PythonSettings` | The managed environment and a Python path |
+| Python | `PythonSettings` | The notebook environment, Update libraries, and a notebook Python path. Apps choose a compatible runtime separately |
+| Apps | `AppsSettings` | Background timeout, running-app limit and retained version count |
 
 It sits over the area under the top bar with the screen below still mounted and `inert`, so the setup's step, the notebook's scroll and the resizable columns come back as they were. Command mode and the Cmd+number keys stay off while it's up. Esc goes back, unless a select or menu is open, or a text field has focus, which it leaves instead.
 
@@ -301,3 +304,7 @@ Without Electron there's no `window.dalliance`. `main.tsx` then checks the URL:
 | anything else | The app with no bridge. Runs fail with "Running cells needs the desktop app." |
 
 `dev/demo.ts` builds the fake bridge from `test/fake-api.ts` and scripts the runs. It's how the website screenshots are made. See [website.md](website.md#screenshots).
+
+## Apps
+
+The Apps side pane lists project apps, opened with Cmd+7. `src/store/apps-store.ts` keeps app listings, selection, process status and pending operations separately from the notebook document. It drops late results after a workspace switch. `components/apps/AppShell.tsx` replaces the notebook view in the main column while retaining running iframe nodes so widget state survives switching views. The shell has lifecycle controls, Keep running, memory usage, bounded logs, snapshot freshness and Refresh data, history controls, deletion and an edit prompt. `AppLifecycle` reports app visibility, warns during the last minute before an automatic stop, and clears the foreground id when the app is hidden. Settings > Apps configures idle time, running limits and history size. See [apps.md](apps.md).

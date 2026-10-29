@@ -90,3 +90,14 @@ describe('SettingsStore', () => {
   })
 
 })
+
+it('validates app lifecycle settings and preserves older settings defaults', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'dalliance-app-policy-'))
+  const store = new SettingsStore(dir)
+  expect(store.view()).toMatchObject({ appsIdleMinutes: 15, appsMaxRunning: 3, appsHistoryLimit: 5 })
+  store.update({ appsIdleMinutes: 0, appsMaxRunning: 2, appsHistoryLimit: 3 })
+  expect(new SettingsStore(dir).view()).toMatchObject({ appsIdleMinutes: 0, appsMaxRunning: 2, appsHistoryLimit: 3 })
+  expect(() => store.update({ appsIdleMinutes: -1, appsMaxRunning: 4 })).toThrow('Invalid')
+  expect(store.view().appsMaxRunning).toBe(2)
+  expect(() => store.update({ appsHistoryLimit: 0 })).toThrow('Invalid')
+})

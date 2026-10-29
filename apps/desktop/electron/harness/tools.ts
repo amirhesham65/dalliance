@@ -2,6 +2,9 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import { leakedList, splitLeaked } from '@dalliance/shared/leaked'
 import type { Output } from '@dalliance/shared/notebook'
+import { appCellCode, appCellText, type AppDraft, type AppVerification, type AppView } from '@dalliance/shared/apps'
+import { appDraftSchema } from '../apps/schema'
+import { redactSecrets } from '../secrets'
 import type { ExecuteResult, Kernel } from '../kernel/kernel'
 import { approver } from './approval'
 import type { ApprovalRequest, EventBus } from './events'
@@ -12,6 +15,9 @@ import { listFiles, readFileBounded, readImage } from './workspace'
 
 /** What the tools learn during a run. The harness reads it after the loop ends. */
 export interface RunState {
+  appAttempted?: boolean
+  appVerified?: boolean
+  appError?: string
   lastRun: { code: string; result: ExecuteResult } | null
   finished: { interpretation: string | null; answer: string | null; suggestions: string[] } | null
   attempts: number
@@ -20,6 +26,10 @@ export interface RunState {
 }
 
 export interface ToolDeps {
+  apps?: {
+    list: () => Promise<AppView[]>
+    save: (draft: AppDraft, approve: (request: ApprovalRequest) => Promise<boolean>) => Promise<{ id: string; verification: AppVerification }>
+  }
   cellId: string
   kernel: Kernel
   workspaceDir: string
@@ -88,6 +98,7 @@ export function createCellTools(deps: ToolDeps) {
     return { note: attachNote(figures.length, attached), images: attached.images }
   }
   /** run_cell calls still executing. finish waits for them, so it never judges a run that is about to change. */
+  let appWork: Promise<unknown> = Promise.resolve()
   const running = new Set<Promise<unknown>>()
   const tracked = <T>(promise: Promise<T>): Promise<T> => {
     running.add(promise)
@@ -117,6 +128,56 @@ export function createCellTools(deps: ToolDeps) {
   }
 
   return {
+    list_apps: tool({
+      description: `List this project's apps, their ids, source files and saved data snapshots.
+WHEN TO USE: creating an app, or identifying an existing app to change or fix.
+WHEN NOT TO USE: the prompt only asks for a notebook analysis.`,
+      inputSchema: z.object({}),
+      execute: () => guarded('list_apps', {}, async () => {
+        const apps = await deps.apps?.list() ?? []
+        return clip(JSON.stringify(apps.map(({ id, title, description, sourceCellId, snapshots, requirements, status, error }) => ({ id, title, description, sourceCellId, file: `apps/${id}/app.py`, snapshots, requirements, status, error }))), 12_000)
+      }),
+    }),
+
+    save_app: tool({
+      description: `Create or update a project-owned Streamlit app, export data snapshots, start its separate server and verify its first page. Returns a screenshot when verification succeeds.
+WHEN TO USE: the user asks to build, update or fix an app. Pass the full app.py source and reuse an existing id when editing.
+WHEN NOT TO USE: ordinary notebook calculations or a question about a possible app.
+DO NOT USE FOR: launching subprocesses yourself. Requirements are installed after approval into an immutable project app environment; install_packages only changes notebook Python. Include a meaningful checks entry for the main interaction in interactive apps. Dalliance styling and light/dark themes are applied by default; use design=custom only when the user explicitly asks for a different look. Apps run from their own folder; read snapshots from data/<filename>. Existing snapshots are kept unless explicitly refreshed. CSV snapshots require a DataFrame; JSON snapshots require JSON-compatible values. Do not use live notebook globals in app code.`,
+      inputSchema: appDraftSchema.safeExtend({ summary: summaryInput }),
+      execute: (input) => {
+        const task = appWork.then(async () => {
+          state.appAttempted = true
+          state.appVerified = false
+          state.appError = undefined
+          try {
+            const output = await guarded('save_app', input, async () => {
+              if (!deps.apps) throw new Error('Apps are unavailable in this session.')
+              const { id, verification } = await deps.apps.save(input, approve)
+              if (!verification.ok) return clip(verification.text, 4000)
+              state.appVerified = true
+              const code = appCellCode(id)
+              const output: Output = { type: 'text', text: appCellText(id) }
+              state.lastRun = { code, result: { ok: true, outputs: [output], executionCount: null, durationMs: 0, assigned: [] } }
+              deps.onAttempt(code)
+              deps.onOutput(output)
+              noteReads(state.trail, { paths: [`apps/${id}/app.py`], truncated: false })
+              const attached = verification.screenshot ? await images.attach([{ data: Buffer.from(verification.screenshot), mediaType: 'image/png' }]) : null
+              return { text: clip(`App ${id} saved and verified. ${verification.text}\nInspect the screenshot, fix any visible problems with save_app, then finish. The saved cell is a reference; plain reruns never overwrite app files.`, 5000), images: attached?.images ?? [] }
+            })
+            if (!state.appVerified && typeof output === 'string') state.appError = clip(redactSecrets(output), 600)
+            return output
+          } catch (err) {
+            state.appError = clip(redactSecrets(err instanceof Error ? err.message : String(err)), 600)
+            throw err
+          }
+        })
+        appWork = task.catch(() => {})
+        return tracked(task)
+      },
+      toModelOutput,
+    }),
+
     list_variables: tool({
       description: `List the variables in the kernel's memory with their types, shapes and DataFrame columns.
 WHEN TO USE: before writing code that uses existing data, or when the prompt mentions @name.
@@ -307,6 +368,7 @@ WHEN NOT TO USE: the prompt asks for a computed result and no run_cell has succe
         guarded('finish', input, async () => {
           // Models that call tools in parallel can send finish alongside run_cell. Judge the run once it's done.
           await Promise.allSettled([...running])
+          if (state.appAttempted && !state.appVerified) return 'The app has not passed page verification. Fix it with save_app before finishing.'
           // Recover the fields a model wrote into the text instead of passing them
           const leakedInterpretation = splitLeaked(input.interpretation)
           const leakedAnswer = splitLeaked(input.answer)

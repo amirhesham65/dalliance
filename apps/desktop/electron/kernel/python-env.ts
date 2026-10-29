@@ -140,13 +140,13 @@ function macCandidates(deps: DiscoveryDeps): string[] {
 }
 
 /** The newest supported Python among `candidates`. A tie goes to the earlier one. */
-async function newest(candidates: string[], exec: Exec): Promise<string | null> {
+async function newest(candidates: string[], exec: Exec, accepts = supported): Promise<string | null> {
   const versions = await Promise.all(candidates.map((candidate) => version(candidate, exec)))
   let best: string | null = null
   let bestVersion: number[] = []
   for (const [i, python] of candidates.entries()) {
     const v = versions[i]
-    if (!v || !supported(v)) continue
+    if (!v || !accepts(v)) continue
     if (best === null || compareVersions(parts(v), bestVersion) > 0) {
       best = python
       bestVersion = parts(v)
@@ -165,16 +165,17 @@ async function hasCommandLineTools(exec: Exec): Promise<boolean> {
   }
 }
 
-/** The newest Python 3.9 or later on this computer, or null. */
-export async function findSystemPython(overrides: Partial<DiscoveryDeps> = {}): Promise<string | null> {
+/** The newest compatible Python on this computer, or null. Notebook discovery defaults to 3.9+. */
+export async function findSystemPython(overrides: Partial<DiscoveryDeps> = {}, requires: { minimum?: string; exact?: string } = {}): Promise<string | null> {
   const deps = { ...realDeps(), ...overrides }
-  if (deps.platform === 'win32') return newest(['python', 'py'], deps.exec)
-  if (deps.platform !== 'darwin') return newest(['python3', '/usr/local/bin/python3', '/usr/bin/python3'], deps.exec)
-  const found = await newest(macCandidates(deps), deps.exec)
+  const accepts = (v: string) => supported(v) && (!requires.minimum || compareVersions(parts(v), parts(requires.minimum)) >= 0) && (!requires.exact || v === requires.exact)
+  if (deps.platform === 'win32') return newest(['python', 'py'], deps.exec, accepts)
+  if (deps.platform !== 'darwin') return newest(['python3', '/usr/local/bin/python3', '/usr/bin/python3'], deps.exec, accepts)
+  const found = await newest(macCandidates(deps), deps.exec, accepts)
   if (found) return found
   // Checked first, because running Apple's Python without the tools opens an install prompt
   if (!(await hasCommandLineTools(deps.exec))) return null
-  return newest([APPLE_PYTHON], deps.exec)
+  return newest([APPLE_PYTHON], deps.exec, accepts)
 }
 
 /** Which of `packages` (import names) `python` can't import. Reports all of them when the check fails. */

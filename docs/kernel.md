@@ -265,3 +265,7 @@ interface Kernel {
 ```
 
 `FakeKernel` answers every `execute()` with a handler you pass in and records what ran. The handler can return `filesRead` paths too. Use it for harness tests. See [testing.md](testing.md).
+
+## Notebook and Apps environments
+
+Settings > Python controls notebook cells. Update libraries installs packages into the existing private notebook environment and keeps its Python version. Project Apps prepare separate immutable environments and can use a newer installed Python when notebook Python is incompatible. Changing notebook Python or updating its libraries does not stop running Apps. See [apps.md](apps.md#environments-and-reproducibility).

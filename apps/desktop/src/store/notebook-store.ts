@@ -118,10 +118,10 @@ export interface VerifyReport {
 /** The confirmation Verify asks for before it restarts Python. */
 export const VERIFY_CONFIRMATION = 'Verify restarts Python and re-runs every cell. Variables you created outside cells will be cleared.'
 
-/** The side panes, one open at a time. Cmd+1 to Cmd+6 open them in this order. */
+/** The side panes, one open at a time. Cmd+1 to Cmd+7 open them in this order. */
 export type PaneKind = PaneName
 export type VariablesView = 'variables' | 'environment'
-export const PANE_ORDER: PaneKind[] = ['brief', 'variables', 'history', 'files', 'pinned', 'activity']
+export const PANE_ORDER: PaneKind[] = ['brief', 'variables', 'history', 'files', 'pinned', 'activity', 'apps']
 
 export interface NotebookState {
   /** The start page, or the open notebook. The notebook stays loaded behind the start page. */
@@ -205,7 +205,7 @@ export function welcomeNotebook(): Notebook {
 const initial = welcomeNotebook()
 
 /** The sections of Settings, in the order the side list shows them. */
-export const SETTINGS_SECTIONS = ['models', 'agent', 'python'] as const
+export const SETTINGS_SECTIONS = ['models', 'agent', 'python', 'apps'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 // Settings reopens where it was left
@@ -1103,6 +1103,7 @@ async function pump() {
       }))
       const request: RunCellRequest = {
         cellId: id,
+        notebookName: get().path?.split(/[\\/]/).pop() ?? null,
         prompt: cell.prompt,
         code: verifyCode ?? cell.code,
         generate,
@@ -1165,7 +1166,7 @@ function finish(id: string, generate: boolean, result: CellRunResult, sent: Prom
     if (!cell || cell.kind !== 'prompt') return { runs }
 
     // Nothing ran at all (no key, no Python, stopped before code ran): keep the cell as it was
-    const nothingRan = result.executionCount == null && result.outputs.length === 0 && !result.ok
+    const nothingRan = result.executionCount == null && result.outputs.length === 0 && !result.ok && !result.appBuildError
     // The user can keep typing while the agent works. Their edits win over the result, and the cell stays
     // `edited`, so the next run regenerates for the new prompt or runs their code
     const promptEdited = cell.prompt !== sent.prompt || cell.attachments !== sent.attachments

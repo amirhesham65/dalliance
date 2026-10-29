@@ -11,16 +11,18 @@ import {
 import type { ActivityItem, CellRunResult, RunCellRequest, RunEvent, RunStep } from '@dalliance/shared/ipc'
 import type { Output } from '@dalliance/shared/notebook'
 import type { Kernel } from '../kernel/kernel'
+import { appIdFromCode, appCellText } from '@dalliance/shared/apps'
 import { stepUsage } from './cost'
 import type { EventBus } from './events'
 import { clip, formatVariables } from './format'
 import { buildCellPrompt, buildSystemPrompt } from './prompt'
 import { buildProvenance, newTrail } from './provenance'
-import { type CellTools, type RunState, createCellTools } from './tools'
+import { type CellTools, type RunState, type ToolDeps, createCellTools } from './tools'
 import { type PrepareImage, outputText } from './images'
 import { listFiles } from './workspace'
 
 export interface HarnessDeps {
+  apps?: ToolDeps['apps']
   model: LanguageModel
   providerOptions?: ToolLoopAgentSettings['providerOptions']
   kernel: Kernel
@@ -50,9 +52,9 @@ export interface HarnessDeps {
   maxSteps?: number
 }
 
-const TOOL_NAMES = ['list_variables', 'explore', 'list_files', 'read_file', 'view_image', 'run_cell', 'install_packages', 'ask_user', 'finish'] as const
+const TOOL_NAMES = ['list_variables', 'explore', 'list_files', 'read_file', 'view_image', 'run_cell', 'list_apps', 'save_app', 'install_packages', 'ask_user', 'finish'] as const
 /** Tools whose input starts with a summary for the user, which becomes the step's label. */
-const SUMMARIZED = new Set(['explore', 'run_cell'])
+const SUMMARIZED = new Set(['explore', 'run_cell', 'save_app'])
 /** How much of a call's code an activity item keeps. The Code tab has the whole cell. */
 const MAX_ACTIVITY_CODE = 4000
 
@@ -64,7 +66,10 @@ export async function runCell(request: RunCellRequest, deps: HarnessDeps): Promi
 async function executeCell(request: RunCellRequest, deps: HarnessDeps): Promise<CellRunResult> {
   deps.emit({ type: 'status', text: 'Running' })
   deps.emit({ type: 'attempt', code: request.code })
-  const result = await deps.kernel.execute(request.code, { store: true, onOutput: (o) => deps.emit({ type: 'output', output: o }) })
+  const appId = appIdFromCode(request.code)
+  const result = appId
+    ? { ok: true, outputs: [{ type: 'text' as const, text: appCellText(appId) }], executionCount: null, durationMs: 0, assigned: [] }
+    : await deps.kernel.execute(request.code, { store: true, onOutput: (o) => deps.emit({ type: 'output', output: o }) })
   return {
     ok: result.ok,
     code: request.code,
@@ -97,6 +102,7 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
   const [variables, files] = await Promise.all([deps.kernel.variables().catch(() => []), listFiles(deps.workspaceDir, 80)])
 
   const tools = createCellTools({
+    apps: deps.apps,
     cellId: request.cellId,
     kernel: deps.kernel,
     workspaceDir: deps.workspaceDir,
@@ -265,18 +271,19 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
 
   const last = state.lastRun
   const answeredInWords = state.finished != null && last == null
-  const succeeded = last?.result.ok === true || answeredInWords
+  const succeeded = (last?.result.ok === true || answeredInWords) && (!state.appAttempted || state.appVerified === true)
+  const appBuildError = state.appAttempted && !state.appVerified ? state.appError ?? 'The app did not finish verification.' : undefined
   if (!error && !succeeded) {
-    error = last
+    error = appBuildError ? `The app update failed. ${appBuildError}` : last
       ? `The code still failed after ${state.attempts} ${state.attempts === 1 ? 'try' : 'tries'}. The last attempt is in the Code tab.`
       : clip(text.trim(), 600) || 'The agent stopped without running any code.'
   }
 
   const code = answeredInWords ? '' : (last?.code ?? request.code)
-  const outputs = last?.result.outputs ?? []
+  const outputs = appBuildError ? [] : last?.result.outputs ?? []
   const interpretation = state.finished?.interpretation ?? null
   // If the model answered in text instead of calling finish, keep that answer
-  const answer = state.finished?.answer ?? (succeeded && text.trim() ? clip(text.trim(), 1200) : null)
+  const answer = appBuildError ? null : state.finished?.answer ?? (succeeded && text.trim() ? clip(text.trim(), 1200) : null)
   return {
     ok: error == null && succeeded,
     code,
@@ -284,11 +291,12 @@ async function generateCell(request: RunCellRequest, deps: HarnessDeps): Promise
     executionCount: last?.result.executionCount ?? null,
     durationMs: Date.now() - started,
     generated: true,
+    ...(appBuildError ? { appBuildError } : {}),
     interpretation,
     variables: created(last?.result.assigned ?? []),
     answer,
     // A model may still write some after being told not to
-    suggestions: deps.suggestNext === false ? [] : (state.finished?.suggestions ?? []),
+    suggestions: deps.suggestNext === false || appBuildError ? [] : (state.finished?.suggestions ?? []),
     activity: [...activity.values()],
     steps,
     provenance: buildProvenance({
@@ -315,6 +323,10 @@ export function describeCall(toolName: string, input: unknown): string {
   switch (toolName) {
     case 'list_variables':
       return 'Checking variables'
+    case 'list_apps':
+      return 'Checking project apps'
+    case 'save_app':
+      return summaryOf(i) ?? 'Building the app'
     case 'explore':
       return summaryOf(i) ?? 'Exploring the data'
     case 'list_files':
@@ -345,6 +357,12 @@ export function describeResult(toolName: string, output: unknown, input?: unknow
   if (text.startsWith('Blocked:')) return { detail: text, failed: true }
   const summarized = summaryOf((input ?? {}) as Record<string, unknown>) != null
   switch (toolName) {
+    case 'list_apps':
+      return { label: 'Checked project apps' }
+    case 'save_app':
+      return text.startsWith('App ') && text.includes('saved and verified.')
+        ? { label: 'Built and checked the app' }
+        : { label: 'App needs a fix', detail: firstLine(text), failed: true }
     case 'list_variables':
       return { label: 'Checked variables' }
     case 'list_files':

@@ -34,6 +34,7 @@ src/components/
   CodeBlock.tsx, Figure.tsx, CoverImage.tsx   a post's code blocks, screenshots and cover
   LatestPosts.tsx        the From the blog band on the home page
   demo/                  the live demo in the hero: Demo.tsx, its charts, its Python highlighting, and data.json
+  AppsFeature.tsx        interactive Apps preview with a dotted build reveal
   Reel.tsx               the scrolling screenshot strip with its ledger
   StickyBar.tsx          the top bar that sticks once it reaches the top
   Wordmark.tsx           the mark and the name, from @dalliance/brand
@@ -111,6 +112,16 @@ The masthead shows "Early preview" above "The Open-source Coding Agent for Resea
 
 Nothing calls a model. Runs are scripted, and every number comes from `src/components/demo/data.json`, which `scripts/demo-data.py` computes with pandas and lifelines from the same generated trial as the desktop app's `?demo&hero` notebook, plus dose dates, early stops and arm switches from its own seed. Change the data there and rerun it: its docstring says how. Charts are SVG drawn in the kernel's dark matplotlib style, so they match the app's output, and they switch to a narrower drawing under 520 px so their text stays readable on a phone. The window has a fixed height, and its notebook only scrolls once the visitor clicks or tabs into it, so a wheel passing over the hero scrolls the page. A mouse leaving the window, a click or tap outside it, or Escape hands the wheel back; on touch screens leaving doesn't count, since a finger lifting fires it. A wheel over the window before that shows a short "Click to scroll the notebook" note, and the window gets a ring while it scrolls. A new cell still scrolls into view in the notebook either way. With reduced motion, steps still play but quickly, and nothing animates. There are no analytics events, as the privacy page says.
 
+## Apps section
+
+The home page's `#apps` band follows the screenshot reel. `AppsFeature.tsx` shows a notebook prompt and a working miniature app with a study-group selector. Its illustrative scores and record counts are fixed local fixtures, labelled as a preview. Selecting a group changes the chart, record count and latest mean without a server or model request.
+
+The panel plays the Transitions.dev `skeleton` reveal once as the visitor scrolls to it, when a quarter of the panel enters the viewport. Replay the build runs it again. Fonts finish loading before measurement, and the runtime loads only when needed. The overlay uses document coordinates, so page scrolling continues without cancelling or misaligning the drawing. Resizing or interacting with the panel cancels the drawing and restores the real UI. Reduced motion uses the runtime's short fade instead of drawing. The preview uses the same `.demo` light and dark palette as the hero.
+
+The unmodified runtime and its CSS live in `src/vendor/transitions/`, together with the original license and a TypeScript declaration for the API used here. Global CSS imports both vendor stylesheets. Oxlint excludes the vendor directory. The root third-party notices link its source and license, which permits use inside a website. No external runtime, font or data request is added.
+
+The What it needs band distinguishes notebook Python 3.9+ from Apps' separate environments using an installed Python 3.11+. The preview demonstrates the workflow; it does not execute Python or generate an app in the visitor's browser.
+
 ## Blog
 
 Posts live in `src/content/blog`, one `.mdx` file each. The file name is the slug: `first-post.mdx` is served at `/blog/first-post`. Use lowercase words joined by hyphens; `blog.ts` fails the build on any other name.
@@ -169,7 +180,7 @@ A post's page is one `<article>`, from the headline through the sources. The sit
 
 To recapture:
 
-1. Build the renderer and serve it with `vite preview`. See [development.md](development.md#looking-at-the-ui-without-electron).
+1. Build the renderer and serve it with `vite preview`. See [development.md](development.md#browser-preview).
 2. Open `/?demo` in a 1600 by 1000 window at 2x, once in light mode and once in dark. For `hero`, open `/?demo&hero` instead.
 3. Capture each scene:
 
@@ -188,5 +199,3 @@ The demo notebooks live in `apps/desktop/src/dev/demo.ts`: `sampleNotebook()` fo
 ## Privacy page
 
 The privacy page lists what the site counts through Vercel Web Analytics and what the download log records, what the app keeps on the user's Mac, and what goes with a model request, and says the app sends no telemetry. Update it in the same change if any of that stops being true, for example if you add a field to the download log, custom analytics events, or telemetry in the app. Model requests go directly to the user's selected Anthropic, Google, or OpenAI account. Retention and training policies depend on that provider account, see [providers.md](providers.md#data-and-usage).
-
-The site doesn't link to the source or call the app open source: the repo is private.

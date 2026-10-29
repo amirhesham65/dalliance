@@ -11,6 +11,7 @@ Dalliance is an Electron app. You write a notebook cell in plain language, an ag
 | Anything, for the first time | [architecture.md](architecture.md) |
 | What a cell is, its states, how it saves | [notebook-model.md](notebook-model.md) |
 | The agent: tools, prompts, models | [agent-harness.md](agent-harness.md) |
+| Creating, running and embedding project apps | [apps.md](apps.md) |
 | The Python process and its protocol | [kernel.md](kernel.md) |
 | Calls between the renderer and the main process | [ipc.md](ipc.md) |
 | React, the store, panes, shortcuts, theming | [renderer.md](renderer.md) |

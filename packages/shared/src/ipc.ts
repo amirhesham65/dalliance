@@ -1,4 +1,6 @@
 import type { ProviderId } from './models'
+import type { ChartThemeName } from './chart-theme'
+import type { AppView } from './apps'
 import type { Correction, CreatedVariable, Notebook, Output, Pins, Provenance } from './notebook'
 
 /** One line in a cell's activity log: what the agent did while writing the cell. */
@@ -30,6 +32,8 @@ export type RunEvent =
 
 export interface RunCellRequest {
   cellId: string
+  /** Workspace-relative notebook name, used only for the app's source link. */
+  notebookName?: string | null
   prompt: string
   code: string
   /** True when the agent must write the code. False to run the existing code directly. */
@@ -80,6 +84,8 @@ export interface CellRunResult {
   executionCount: number | null
   durationMs: number
   generated: boolean
+  /** A failed app build counts as attempted work even when no notebook Python ran. */
+  appBuildError?: string
   interpretation: string | null
   answer: string | null
   /** Follow-up prompts the agent suggests. */
@@ -140,6 +146,9 @@ export interface SettingsView {
   providerModels: Partial<Record<ProviderId, string>>
   /** True once the first-run setup was finished or skipped. */
   onboarded: boolean
+  appsIdleMinutes: number
+  appsMaxRunning: number
+  appsHistoryLimit: number
 }
 
 export interface SettingsUpdate {
@@ -151,6 +160,9 @@ export interface SettingsUpdate {
   suggestNext?: boolean
   showUsage?: boolean
   onboarded?: boolean
+  appsIdleMinutes?: number
+  appsMaxRunning?: number
+  appsHistoryLimit?: number
 }
 
 /** A model in the local catalog or the user's custom selection. */
@@ -291,7 +303,7 @@ export type MenuAction =
   | `pane-${PaneName}`
 
 /** The side panes, as the menu names them. */
-export type PaneName = 'brief' | 'variables' | 'history' | 'files' | 'pinned' | 'activity'
+export type PaneName = 'brief' | 'variables' | 'history' | 'files' | 'pinned' | 'activity' | 'apps'
 
 /** Key status only. Saved key values never return to the renderer. */
 export interface ProviderKeysView {
@@ -308,6 +320,17 @@ export interface UpdateView {
 /** Everything the preload script exposes as window.dalliance. */
 export interface DallianceApi {
   platform: string
+  listApps(): Promise<AppView[]>
+  startApp(id: string): Promise<AppView>
+  stopApp(id: string): Promise<void>
+  restoreApp(id: string): Promise<void>
+  refreshAppData(id: string): Promise<void>
+  deleteApp(id: string): Promise<boolean>
+  clearAppHistory(id: string): Promise<boolean>
+  keepAppRunning(id: string, keep: boolean): Promise<void>
+  setVisibleApp(id: string | null): void
+  onAppsChanged(listener: () => void): () => void
+  onAppearanceChanged(listener: (appearance: ChartThemeName) => void): () => void
   runCell(request: RunCellRequest): Promise<CellRunResult>
   onRunEvent(listener: (cellId: string, event: RunEvent) => void): () => void
   respond(requestId: string, answer: string | boolean | null): void
@@ -384,6 +407,17 @@ export interface DallianceApi {
 }
 
 export const IPC = {
+  listApps: 'list-apps',
+  startApp: 'start-app',
+  stopApp: 'stop-app',
+  restoreApp: 'restore-app',
+  appsChanged: 'apps-changed',
+  appearanceChanged: 'appearance-changed',
+  refreshAppData: 'refresh-app-data',
+  deleteApp: 'delete-app',
+  clearAppHistory: 'clear-app-history',
+  keepAppRunning: 'keep-app-running',
+  visibleApp: 'visible-app',
   runCell: 'run-cell',
   runEvent: 'run-event',
   respond: 'respond',

@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Notebook types, .ipynb conversion, IPC, provider models, output comparison, and Python helpers.",
   "exports": {
+    "./apps": "./src/apps.ts",
     "./chart-theme": "./src/chart-theme.ts",
     "./notebook": "./src/notebook.ts",
     "./ipynb": "./src/ipynb.ts",

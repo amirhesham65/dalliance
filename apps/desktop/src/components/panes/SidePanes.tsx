@@ -18,6 +18,7 @@ import type { PromptCell } from '@dalliance/shared/notebook'
 import { type LogEntry, type VariablesView, actions, getApi, useNotebook } from '@/store/notebook-store'
 import { BriefPane } from './BriefPane'
 import { Pane } from './Pane'
+import { AppsPane } from '@/components/apps/AppsPane'
 
 /** The one side pane that is open, if any. */
 export function SidePane() {
@@ -49,6 +50,7 @@ export function SidePane() {
         {pane === 'files' && <FilesPane />}
         {pane === 'pinned' && <PinnedPane />}
         {pane === 'activity' && <ActivityPane />}
+        {pane === 'apps' && <AppsPane />}
       </ErrorBoundary>
     </div>
   )

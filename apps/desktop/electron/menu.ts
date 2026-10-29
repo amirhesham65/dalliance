@@ -83,6 +83,7 @@ export function buildMenu(send: (action: MenuAction) => void) {
         { ...item('Files', 'pane-files', 'CmdOrCtrl+4'), registerAccelerator: false },
         { ...item('Pinned', 'pane-pinned', 'CmdOrCtrl+5'), registerAccelerator: false },
         { ...item('Activity', 'pane-activity', 'CmdOrCtrl+6'), registerAccelerator: false },
+        { ...item('Apps', 'pane-apps', 'CmdOrCtrl+7'), registerAccelerator: false },
         { type: 'separator' },
         { role: 'reload' },
         { role: 'toggleDevTools' },

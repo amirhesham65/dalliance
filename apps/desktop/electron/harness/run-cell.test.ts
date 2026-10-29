@@ -895,3 +895,93 @@ describe('friendlyError', () => {
     expect(friendlyError(apiError(undefined, 'Cannot connect to API: other side closed'))).toMatch(/^Couldn't reach the model provider/)
   })
 })
+
+describe('project app cells', () => {
+  const input = { summary: 'Building a sales explorer', title: 'Sales explorer', description: 'Filter sales', code: 'import streamlit as st\nst.title("Sales")', requirements: ['streamlit'], snapshots: [] }
+
+  it('creates an app through the guarded tool and saves a harmless notebook reference', async () => {
+    const { model } = scriptedModel([
+      { tool: 'list_apps', input: {} },
+      { tool: 'save_app', input },
+      { tool: 'finish', input: { interpretation: '', answer: 'Sales explorer is ready in Apps.', next: [] } },
+    ])
+    const kernel = new FakeKernel(() => ({ ok: true, outputs: [] }))
+    const save = vi.fn(async () => ({ id: 'sales', verification: { ok: true, text: 'Rendered Sales' } }))
+    const { deps } = harness(model, kernel, { apps: { list: async () => [], save } })
+    const calls: string[] = []
+    deps.bus.on('tool_call', ({ toolName }) => { calls.push(toolName!) })
+    const built = await runCell(request({ prompt: 'Create an app that filters sales' }), deps)
+    expect(built.ok).toBe(true)
+    expect(built.code).toContain('# dalliance-app: sales')
+    expect(built.outputs[0]).toMatchObject({ type: 'text', text: expect.stringContaining('Open it from Apps') })
+    expect(save).toHaveBeenCalledOnce()
+    expect(calls).toContain('save_app')
+    const rerun = await runCell(request({ code: built.code, generate: false }), deps)
+    expect(rerun.ok).toBe(true)
+    expect(rerun.outputs).toEqual(built.outputs)
+    expect(save).toHaveBeenCalledOnce()
+    expect(kernel.executed).toHaveLength(0)
+  })
+
+  it('refuses finish and text fallback until app verification succeeds', async () => {
+    const { model } = scriptedModel([
+      { tool: 'save_app', input },
+      { tool: 'finish', input: { interpretation: '', answer: 'Done', next: [] } },
+      { text: 'It works now.' },
+    ])
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [] })), {
+      apps: { list: async () => [], save: async () => ({ id: 'sales', verification: { ok: false, text: 'NameError: missing' } }) },
+      maxSteps: 3,
+    })
+    const built = await runCell(request(), deps)
+    expect(built.ok).toBe(false)
+    expect(built.error).toContain('NameError: missing')
+    expect(built.appBuildError).toBe('NameError: missing')
+    expect(built.answer).toBeNull()
+    expect(built.activity.some((a) => a.label === 'Tried to finish early')).toBe(true)
+  })
+
+  it('allows the agent to repair an app after a failed page check', async () => {
+    const { model } = scriptedModel([
+      { tool: 'save_app', input },
+      { tool: 'save_app', input: { ...input, id: 'sales', code: `${input.code}\nst.write("fixed")` } },
+      { tool: 'finish', input: { interpretation: '', answer: 'Ready in Apps.', next: [] } },
+    ])
+    let attempt = 0
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [] })), {
+      apps: { list: async () => [], save: async () => ({ id: 'sales', verification: { ok: ++attempt > 1, text: 'Checked' } }) },
+    })
+    expect((await runCell(request(), deps)).ok).toBe(true)
+    expect(attempt).toBe(2)
+  })
+
+  it('does not accept an earlier success after a later app update fails', async () => {
+    const { model } = scriptedModel([
+      { tool: 'save_app', input },
+      { tool: 'save_app', input: { ...input, id: 'sales', code: 'broken' } },
+      { tool: 'finish', input: { interpretation: '', answer: 'Done', next: [] } },
+      { text: 'Done' },
+    ])
+    let attempt = 0
+    const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [] })), {
+      apps: { list: async () => [], save: async () => ({ id: 'sales', verification: { ok: ++attempt === 1, text: 'Checked' } }) }, maxSteps: 4,
+    })
+    const built = await runCell(request(), deps)
+    expect(built.ok).toBe(false)
+    expect(built.appBuildError).toBe('Checked')
+    expect(built.outputs).toEqual([])
+    expect(built.answer).toBeNull()
+  })
+
+  it('blocks secret reads and declined network use inside app source before any files are saved', async () => {
+    for (const code of ['from pathlib import Path\nPath(".env").read_text()', 'import requests\nrequests.get("https://example.com")']) {
+      const { model } = scriptedModel([{ tool: 'save_app', input: { ...input, code } }, { text: 'I could not build it.' }])
+      const save = vi.fn()
+      const { deps } = harness(model, new FakeKernel(() => ({ ok: true, outputs: [] })), { apps: { list: async () => [], save }, maxSteps: 2 })
+      installExtensions(deps.bus, { logDir: path.join(deps.workspaceDir, 'logs') })
+      const built = await runCell(request(), deps)
+      expect(built.ok).toBe(false)
+      expect(save).not.toHaveBeenCalled()
+    }
+  })
+})

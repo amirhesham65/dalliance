@@ -37,12 +37,12 @@ export function PythonSettings({ api, settings }: { api: DallianceApi; settings:
   const status = !python
     ? 'Looking for Python…'
     : python.python
-      ? `Python ${python.version}, ${python.source === 'managed' ? "the app's own environment" : python.source === 'settings' ? 'from the path below' : 'found on this computer'}.${python.missingPackages.length ? ` Missing ${python.missingPackages.join(', ')}.` : ''}`
+      ? `Python ${python.version}, ${python.source === 'managed' ? "the notebook's private environment" : python.source === 'settings' ? 'from the path below' : 'found on this computer'}.${python.missingPackages.length ? ` Missing ${python.missingPackages.join(', ')}.` : ''}`
       : 'No Python found.'
 
   return (
     <>
-      <SectionHeading title="Python">Cells run in a Python process on this computer, in the notebook's folder.</SectionHeading>
+      <SectionHeading title="Python">Notebook cells run in a Python process on this computer. Apps choose their own compatible Python and use separate environments.</SectionHeading>
       <div className="mb-6 flex items-center gap-2.5 rounded-lg bg-raised px-3.5 py-3 text-[13px]" role="status">
         {ready ? (
           <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-go text-background">
@@ -54,10 +54,10 @@ export function PythonSettings({ api, settings }: { api: DallianceApi; settings:
         <span className="flex-1">{status}</span>
       </div>
       <Group>
-        <Row label="A private environment" description="Made in the app's data folder with pandas, NumPy and matplotlib. Takes about a minute.">
+        <Row label="Notebook environment" description="Made in Dalliance's data folder. Updates install the notebook libraries, including pandas, NumPy and matplotlib, while keeping the same Python version.">
           <Button size="sm" variant={ready ? 'outline' : 'default'} disabled={installing} onClick={() => void setup()}>
             {installing && <Loader2 className="animate-spin" />}
-            {installing ? 'Setting up…' : python?.managedEnvExists ? 'Update' : 'Set up'}
+            {installing ? 'Setting up…' : python?.managedEnvExists ? 'Update libraries' : 'Set up'}
           </Button>
         </Row>
         <Row
